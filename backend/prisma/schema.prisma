@@ -1,0 +1,283 @@
+// inqi schema — Postgres only. See DESIGN.md §2.
+// pgvector (subject similarity) + PostGIS (geo reuse) enabled via migration SQL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Versioned workflow (transition logic lives in DB; pinned per inquiry)
+// ---------------------------------------------------------------------------
+model WorkflowDefinition {
+  id        String   @id @default(cuid())
+  key       String   // e.g. "inquiry"
+  version   Int
+  status    String   @default("draft") // draft | active | archived
+  createdAt DateTime @default(now())
+
+  states      WorkflowState[]
+  transitions WorkflowTransition[]
+  inquiries   Inquiry[]
+
+  @@unique([key, version])
+  @@index([key, status])
+}
+
+model WorkflowState {
+  id           String  @id @default(cuid())
+  definitionId String
+  name         String  // matches InquiryState
+  isInitial    Boolean @default(false)
+  isTerminal   Boolean @default(false)
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, name])
+}
+
+model WorkflowTransition {
+  id           String  @id @default(cuid())
+  definitionId String
+  fromState    String
+  toState      String
+  event        String  // WorkflowEvent
+  guard        String? // registry handler name, nullable
+  action       String? // registry handler name, nullable (e.g. enqueue:pre_research)
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, fromState, event])
+  @@index([definitionId, fromState])
+}
+
+// ---------------------------------------------------------------------------
+// Core aggregates
+// ---------------------------------------------------------------------------
+model Inquiry {
+  id                String   @id @default(cuid())
+  customerEmail     String
+  rawRequest        String
+  state             String   @default("RECEIVED") // InquiryState
+  workflowVersionId String                         // pinned WorkflowDefinition.id
+
+  geoLat    Float?
+  geoLng    Float?
+  geoLabel  String?
+  budgetMin Int?
+  budgetMax Int?
+  deadline  DateTime?
+
+  denyReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workflow      WorkflowDefinition @relation(fields: [workflowVersionId], references: [id])
+  subject       Subject?
+  questionnaire Questionnaire?
+  epics         Epic[]
+  report        Report?
+  agentRuns     AgentRun[]
+  events        EventOutbox[]
+  findings      Finding[]
+
+  @@index([state])
+}
+
+model Subject {
+  id         String  @id @default(cuid())
+  inquiryId  String  @unique
+  title      String
+  category   String? // item | service | rental | organisation | goods | trade
+  description String
+  attributes Json    @default("{}")
+  // similarity + geo reuse (vector/geometry columns added via migration SQL)
+  geoLat     Float?
+  geoLng     Float?
+  createdAt  DateTime @default(now())
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+}
+
+model Questionnaire {
+  id           String    @id @default(cuid())
+  inquiryId    String    @unique
+  token        String    @unique // temp share link
+  questions    Json      // [{ id, prompt, type, options? }]
+  answers      Json?     // Record<questionId, answer>
+  confirmed    Boolean   @default(false) // customer confirmed subject is correct
+  expiresAt    DateTime
+  filledAt     DateTime?
+  reviewStatus String   @default("pending") // ethical+legal scoring gate before sharing
+  riskScore    Float?
+  createdAt    DateTime  @default(now())
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+}
+
+model Epic {
+  id                     String  @id @default(cuid())
+  inquiryId              String
+  definition             Json    // broad-research def: geo, time, price, economics
+  strategy               String  @default("escalating") // OutreachStrategy
+  targetQualifiedOptions Int     @default(3)
+  sharedContext          Json    @default("{}") // successful inquiry phrasing/contacts reused by agents
+  status                 String  @default("open") // open | done | stopped
+  priority               Int      @default(5)   // 1 (highest) .. 9 (lowest): drives queue order + rate limiting
+  createdAt              DateTime @default(now())
+
+  inquiry  Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  subtasks Subtask[]
+  findings Finding[]
+
+  @@index([inquiryId])
+}
+
+model Subtask {
+  id         String  @id @default(cuid())
+  epicId     String
+  subjectProviderName String
+  source     String?  // where the lead came from
+  contact    Json     @default("{}") // discovered email/phone/url
+  wave       Int      @default(1)    // for escalating 1:3:9
+  status     String   @default("pending") // pending | researching | contacted | replied | qualified | failed
+  result     Json?    // parsed: price, availability, leadTime, notes
+  replyAddress  String?  @unique // unique inbound address for this subject-provider email thread
+  lastInboundAt DateTime?
+  convState     String   @default("idle") // idle | awaiting_reply | needs_action | closed
+  personaId     String?  // assigned Inqi persona that owns this email thread (continuity)
+  background    Json?    // subject-provider quality research: ratings, feedback, eligibility
+  qualityScore  Float?   // 0..1 eligibility/quality score used to rank options
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  epic     Epic            @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  messages InquiryMessage[]
+
+  @@index([epicId, status])
+}
+
+model InquiryMessage {
+  id         String  @id @default(cuid())
+  subtaskId  String
+  direction  String  // outbound | inbound
+  channel    String  @default("email")
+  status     String  @default("sent") // draft | sent | delivered | received | bounced
+  fromAddr   String?
+  toAddr     String?
+  subject    String?
+  body       String
+  externalId String?  @unique // subject-provider Message-ID header (for threading + idempotency)
+  inReplyTo  String?           // Message-ID this message replies to
+  references String[] @default([]) // full chain of Message-IDs (RFC 5322 References)
+  parsed     Json?             // structured extraction: price, availability, intent
+  modelTier  String?           // tier that drafted an outbound message: breadth | depth
+  personaId  String?           // Inqi persona that sent/owns this message
+  reviewStatus String @default("pending") // compliance gate: pending | passed | blocked
+  riskScore  Float?            // ethical+legal score 0..1 (higher = riskier)
+  riskTags   String[] @default([])
+  createdAt  DateTime @default(now())
+
+  subtask Subtask @relation(fields: [subtaskId], references: [id], onDelete: Cascade)
+
+  @@index([subtaskId])
+  @@index([externalId])
+}
+
+model Report {
+  id         String  @id @default(cuid())
+  inquiryId  String  @unique
+  token      String  @unique // webview link
+  summary    String
+  options    Json    // [{ subjectProvider, price, availability, constraints, ... }]
+  timeline   Json    // actions taken, with timestamps
+  reusedFrom String? // Report.id if derived from prior research
+  createdAt  DateTime @default(now())
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Agent execution log + realtime outbox
+// ---------------------------------------------------------------------------
+model AgentRun {
+  id        String   @id @default(cuid())
+  inquiryId String
+  stage     String   // pre_research | enrich_subject | broad_research | build_funnel | outreach_subtask | generate_report
+  subtaskId String?
+  status    String   @default("running") // running | done | failed | stopped
+  error     String?
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+
+  inquiry Inquiry     @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  events  AgentEvent[]
+
+  @@index([inquiryId, stage])
+}
+
+model AgentEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  kind      String   // log | tool_call | progress | error
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+/// Durable, replayable event log → drives realtime fan-out via LISTEN/NOTIFY.
+model EventOutbox {
+  id        BigInt   @id @default(autoincrement())
+  type      String   // InqiEventType
+  inquiryId String
+  epicId    String?
+  subtaskId String?
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId, id])
+}
+
+/// Dynamic report store. Agents append findings (options, subject-provider
+/// background, constraints, notes); the report is assembled from these on read.
+model Finding {
+  id           String  @id @default(cuid())
+  inquiryId    String
+  epicId       String
+  subtaskId    String?
+  kind         String  // option | subject_provider_background | constraint | note
+  data         Json    @default("{}")
+  qualityScore Float?
+  createdAt    DateTime @default(now())
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  epic    Epic    @relation(fields: [epicId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId])
+  @@index([epicId])
+}
+
+/// Self-evaluation + improvement loop. inqi scores its own runs and proposes
+/// workflow improvements (new versioned WorkflowDefinition) to apply over time.
+model SelfEval {
+  id                  String   @id @default(cuid())
+  inquiryId           String?
+  scope               String   // inquiry | report | workflow
+  scores              Json     @default("{}") // {coverage, quality, latency, cost}
+  suggestions         Json     @default("[]") // proposed improvements
+  proposedWorkflowKey String?
+  createdAt           DateTime @default(now())
+
+  @@index([inquiryId])
+}

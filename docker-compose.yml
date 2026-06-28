@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: inqi
+      POSTGRES_PASSWORD: inqi
+      POSTGRES_DB: inqi
+    ports: ["5432:5432"]
+    volumes:
+      - inqi_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inqi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+    ports: ["4000:4000"]
+
+  frontend:
+    build: ./frontend
+    depends_on: [backend]
+    ports: ["5173:5173"]
+
+volumes:
+  inqi_pg:
