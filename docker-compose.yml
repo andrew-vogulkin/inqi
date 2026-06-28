@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgis/postgis:16-3.4
+    build: ./db   # postgis + pgvector (init.sql needs both)
     environment:
       POSTGRES_USER: inqi
       POSTGRES_PASSWORD: inqi

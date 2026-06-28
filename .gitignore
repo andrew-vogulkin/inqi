@@ -5,6 +5,7 @@ dist
 .DS_Store
 frontend/dist
 backend/dist
+.mail-outbox
 
 # editor/FUSE orphans
 .fuse_hidden*

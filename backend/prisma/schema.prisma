@@ -58,9 +58,23 @@ model WorkflowTransition {
 // ---------------------------------------------------------------------------
 // Core aggregates
 // ---------------------------------------------------------------------------
+// Authenticated identity (Sign in with Google). Inquiries are linked to a Customer
+// by verified email; the admin role is granted by the config allowlist (HP-10).
+model Customer {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  googleSub String?  @unique // Google subject id (stable per account)
+  role      String   @default("customer") // AuthRole: customer | admin
+  createdAt DateTime @default(now())
+
+  inquiries Inquiry[]
+}
+
 model Inquiry {
   id                String   @id @default(cuid())
   customerEmail     String
+  customerId        String?                        // owner once signed in (linked by verified email)
   rawRequest        String
   state             String   @default("RECEIVED") // InquiryState
   workflowVersionId String                         // pinned WorkflowDefinition.id
@@ -73,11 +87,13 @@ model Inquiry {
   deadline  DateTime?
 
   denyReason String?
+  cancelRequested Boolean @default(false) // operator/customer cancel flag in-flight jobs observe (HP-09)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   workflow      WorkflowDefinition @relation(fields: [workflowVersionId], references: [id])
+  customer      Customer?          @relation(fields: [customerId], references: [id])
   subject       Subject?
   questionnaire Questionnaire?
   epics         Epic[]
@@ -87,6 +103,7 @@ model Inquiry {
   findings      Finding[]
 
   @@index([state])
+  @@index([customerId])
 }
 
 model Subject {
@@ -129,6 +146,7 @@ model Epic {
   sharedContext          Json    @default("{}") // successful inquiry phrasing/contacts reused by agents
   status                 String  @default("open") // open | done | stopped
   priority               Int      @default(5)   // 1 (highest) .. 9 (lowest): drives queue order + rate limiting
+  releasedWaves          Int[]    @default([])  // waves already released — makes wave release/widen idempotent (HP-09)
   createdAt              DateTime @default(now())
 
   inquiry  Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
@@ -210,8 +228,11 @@ model AgentRun {
   inquiryId String
   stage     String   // pre_research | enrich_subject | broad_research | build_funnel | outreach_subtask | generate_report
   subtaskId String?
-  status    String   @default("running") // running | done | failed | stopped
+  status    String   @default("running") // running | done | failed | stopped | cancelled
   error     String?
+  attempts    Int       @default(1)   // delivery attempt count (retry/backoff bookkeeping)
+  leaseUntil  DateTime?               // a running stage must finish/heartbeat before this, or the reaper recovers it
+  heartbeatAt DateTime?               // last liveness ping
   startedAt DateTime @default(now())
   endedAt   DateTime?
 
@@ -219,6 +240,7 @@ model AgentRun {
   events  AgentEvent[]
 
   @@index([inquiryId, stage])
+  @@index([status, leaseUntil])
 }
 
 model AgentEvent {
