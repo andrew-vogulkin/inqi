@@ -123,13 +123,51 @@ Full specs with diagrams live in the Notion handover space:
 - [13 — Compliance Scoring (Ethical + Legal)](https://app.notion.com/p/38dab80b77f2819f9a40e4b033da6541)
 - [14 — Self-Improvement & Dynamic Workflows](https://app.notion.com/p/38dab80b77f281159933f8ae58649048)
 
+## Backend module layout (target)
+
+Three layers (a restructure of the current flat `src/`):
+
+- **Edge / ingress** — `public` (unauthenticated intake), `auth` (login + guards),
+  `capability-token` (no-login tokened links: questionnaire fill, report webview),
+  `webhooks` (signature-verified machine ingress, e.g. Postmark inbound).
+- **Domain** — `inquiry`, `questionnaire`, `subjects`, `subject-providers`,
+  `orchestrator` (workflow + retry/priority/rate-limit), `agent` (logic + personas),
+  `outreach` (messages/email, `MailProvider` via DI), `reports` (synthesis + dynamic
+  assembly), `compliance` (ethical+legal scoring), `eval` (self-improvement),
+  `kanban` (read/projection over epics+subtasks — mutations stay in orchestrator/agent).
+- **Infra (`@Global`)** — `ai` (Qwen + tier router), `events` (EventOutbox +
+  LISTEN/NOTIFY + WS gateway), `queue` (pg-boss), `persistence` (Prisma), `config`,
+  `observability` (health + AgentRun/AgentEvent).
+
+Swappable integrations depend on **interface tokens**, not concretions: `MailProvider`
+(Postmark→SES/Resend), `AiProvider` (Qwen), `EmbeddingsProvider`, `ComplianceScorer`.
+
 ## Conventions
 
+**Architecture**
+
 - Keep the **"Postgres only"** constraint — no new datastores/brokers.
-- New agent behavior = a named guard/action in `backend/src/workflow/registry`
-  referenced from a **new workflow version**, never a breaking edit to an existing
-  version.
+- New agent behavior = a named guard/action in `workflow/registry` referenced from a
+  **new workflow version**, never a breaking edit to an existing version.
 - All realtime goes through `EventOutbox` (durable + replayable), never emitted
   straight to sockets.
-- Use the model-tier router (`breadth`/`depth`/`balanced`) rather than hard-coding
-  model names.
+- Use the model-tier router (`breadth`/`depth`/`balanced`); never hard-code model names.
+- Depend on interface tokens for swappable integrations (`MailProvider`, `AiProvider`, …).
+- `kanban` is the query side over epics/subtasks; mutations live in `orchestrator`/`agent`.
+
+**Code style (enforced)**
+
+- **DTOs everywhere.** Every controller request and response is a typed, validated DTO
+  (class-validator + a global `ValidationPipe` with `whitelist` + `forbidNonWhitelisted`).
+- **Business logic lives in services.** Controllers stay thin (validate → call service →
+  return DTO). Repositories are dumb data-access that expose only the model API needed.
+- **No magic strings.** Every status / state / event / kind / tier / strategy is an enum
+  or a shared const union (in `packages/shared`) — never a bare string literal.
+- **AI-readable errors.** Throw typed domain exceptions; a global exception filter maps
+  them to a stable envelope `{ error: { code, message, retryable, details } }`. Wrap
+  AI/IO failures with a `code` so the orchestrator can decide retry vs. deny.
+- **Swagger-complete.** Every endpoint has `@ApiTags`/`@ApiOperation`/`@ApiResponse`;
+  every DTO field has `@ApiProperty` with an example. Payloads, params, and examples must
+  render in `/api/docs`.
+- **Object args.** Functions take one typed object, not positional params:
+  `fn({ uuid, type }: ITestCall)` — not `fn(uuid, type)`.
