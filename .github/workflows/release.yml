@@ -1,0 +1,86 @@
+name: Release (build + publish images)
+
+# Build the backend + frontend Docker images and publish them to GHCR on pushes
+# to main and on version tags. Uses the built-in GITHUB_TOKEN (no external secrets).
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+# Least privilege: read code, write packages (GHCR) only.
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: backend
+            dockerfile: docker/backend.Dockerfile
+          - name: frontend
+            dockerfile: docker/frontend.Dockerfile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # GHCR image names must be lowercase; derive from the owner.
+      - name: Compute image name
+        id: img
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/inqi-${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.img.outputs.image }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Documented deploy stub. Gated by the `production` GitHub Environment so a
+  # real rollout can require approval/secrets without changing this file's shape.
+  deploy:
+    needs: images
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy (stub)
+        run: |
+          echo "Images published to GHCR. Wire the real rollout here, e.g.:"
+          echo "  - ssh/compose pull on the target host, or"
+          echo "  - kubectl set image / helm upgrade, or"
+          echo "  - a cloud deploy action."
+          echo "Pull secrets/host config from the 'production' Environment, never from the repo."

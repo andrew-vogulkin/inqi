@@ -11,6 +11,11 @@ export class InquiryRepository {
     return this.db.inquiry.create({ data });
   }
 
+  /** Remove a just-created inquiry (HP-19: roll back when a credit reservation loses a race). */
+  delete({ id }: { id: string }) {
+    return this.db.inquiry.delete({ where: { id } });
+  }
+
   findWithRelations({ id }: { id: string }) {
     return this.db.inquiry.findUniqueOrThrow({
       where: { id },

@@ -5,7 +5,9 @@ const DIM = 256;
 
 function svc(): EmbeddingsService {
   const config = { embeddingsDriver: 'local', embeddings: { dim: DIM, model: 'x', apiKey: undefined, baseUrl: undefined } } as unknown as ConfigService;
-  return new EmbeddingsService(config);
+  const usage = { recordAi: async () => {} } as any;
+  const usageCtx = { inquiryId: () => undefined } as any;
+  return new EmbeddingsService(config, usage, usageCtx);
 }
 
 const dot = (a: number[], b: number[]) => a.reduce((s, x, i) => s + x * b[i], 0);

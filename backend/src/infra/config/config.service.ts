@@ -11,6 +11,43 @@ export interface QwenProfile {
 const DASHSCOPE_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 const SPARK_BASE_URL = 'http://192.168.1.45:8000/v1';
 
+/** CORS allowlist when WEB_ORIGIN is unset: local Vite dev + the hosted frontend. */
+const DEFAULT_WEB_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173', // vite preview
+  'https://inqi.monkeycode.io',
+];
+
+/** Cost price table (HP-15). All monetary values in `currency`; token prices are per 1,000 tokens. */
+export interface PriceTable {
+  currency: string;
+  /** Per-model token prices; models not listed price at 0 (e.g. the local model). */
+  models: Record<string, { promptPer1k: number; completionPer1k: number }>;
+  perEmail: number;
+  perEmbedding: number;
+  perDiscoveryCall: number;
+  perBackgroundResearch: number;
+  perReplyProcessed: number;
+}
+
+/** Defaults — overridable wholesale via `PRICE_TABLE_JSON`. qwen_local (`qwen`) is free. */
+const DEFAULT_PRICE_TABLE: PriceTable = {
+  currency: 'USD',
+  models: {
+    qwen: { promptPer1k: 0, completionPer1k: 0 }, // local (spark) — no marginal cost
+    'qwen-turbo': { promptPer1k: 0.0003, completionPer1k: 0.0006 },
+    'qwen-plus': { promptPer1k: 0.0008, completionPer1k: 0.002 },
+    'qwen-max': { promptPer1k: 0.0024, completionPer1k: 0.0096 },
+    'text-embedding-v3': { promptPer1k: 0.00007, completionPer1k: 0 },
+  },
+  perEmail: 0,             // local capture; set for a real ESP
+  perEmbedding: 0,
+  perDiscoveryCall: 0,
+  perBackgroundResearch: 0,
+  perReplyProcessed: 0,
+};
+
 /**
  * Typed access to env/secrets. The one place bare `process.env` reads live, so
  * call sites depend on names + types, not string keys scattered through the code.
@@ -21,8 +58,16 @@ export class ConfigService {
     return Number(process.env.PORT ?? 4000);
   }
 
-  get webOrigin(): string {
-    return process.env.WEB_ORIGIN ?? '*';
+  /**
+   * Allowed CORS origins. `WEB_ORIGIN` overrides (comma-separated list, or `*` to
+   * allow any); otherwise defaults to local dev + the hosted frontend. Auth uses
+   * Bearer tokens (not cookies), so an allowlist is sufficient.
+   */
+  get webOrigins(): string[] | '*' {
+    const raw = process.env.WEB_ORIGIN?.trim();
+    if (raw === '*') return '*';
+    if (raw) return raw.split(',').map((o) => o.trim()).filter(Boolean);
+    return DEFAULT_WEB_ORIGINS;
   }
 
   get publicBaseUrl(): string {
@@ -197,6 +242,46 @@ export class ConfigService {
   /** Directory the LocalMailProvider writes captured emails to. */
   get localMailDir(): string {
     return process.env.LOCAL_MAIL_DIR ?? '.mail-outbox';
+  }
+
+  /** Base URL for customer-facing webview links in notifications (HP-13). */
+  get webBaseUrl(): string {
+    return process.env.WEB_BASE_URL ?? this.publicBaseUrl;
+  }
+
+  /** Customer notifications (HP-13): how early to remind before questionnaire expiry + sweep cadence. */
+  get notifications(): { reminderLeadHours: number; sweepIntervalMs: number } {
+    return {
+      reminderLeadHours: Number(process.env.REMINDER_LEAD_HOURS ?? 24),
+      sweepIntervalMs: Number(process.env.REMINDER_SWEEP_INTERVAL_MS ?? 60_000),
+    };
+  }
+
+  /** Audit retention seam (HP-14) — documented policy hook; no enforcement yet (ties to the PII story). */
+  get auditRetentionDays(): number {
+    return Number(process.env.AUDIT_RETENTION_DAYS ?? 365);
+  }
+
+  /**
+   * Flat credit cost to run one report (HP-19). Reserved on submit, charged on
+   * REPORT_DELIVERED, refunded on a non-delivered terminal. Seam to HP-15 for
+   * usage-based ($→credits) pricing later; today it's a flat per-report cost.
+   */
+  get reportCostCredits(): number {
+    return Math.max(0, Number(process.env.REPORT_COST_CREDITS ?? 1));
+  }
+
+  /**
+   * Cost price table (HP-15) — per-model $/1K tokens + per-action prices, single
+   * currency. Configurable: `PRICE_TABLE_JSON` overrides the defaults wholesale.
+   * `qwen_local` (alias `qwen`) is free; unknown models price at 0.
+   */
+  get prices(): PriceTable {
+    const raw = process.env.PRICE_TABLE_JSON;
+    if (raw) {
+      try { return JSON.parse(raw) as PriceTable; } catch { /* fall through to defaults */ }
+    }
+    return DEFAULT_PRICE_TABLE;
   }
 
   /**

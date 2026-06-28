@@ -54,6 +54,13 @@ export class ForbiddenError extends DomainError {
   }
 }
 
+/** The action requires credits the caller doesn't have (HTTP 402). Default code CREDITS_INSUFFICIENT. */
+export class PaymentRequiredError extends DomainError {
+  constructor({ code = ErrorCode.CreditsInsufficient, message, details }: Omit<DomainErrorArgs, 'httpStatus' | 'retryable' | 'code'> & { code?: ErrorCode }) {
+    super({ code, message, httpStatus: HttpStatus.PAYMENT_REQUIRED, retryable: false, details });
+  }
+}
+
 /** A request conflicts with current state — e.g. an invalid workflow transition (HTTP 409). */
 export class ConflictError extends DomainError {
   constructor({ code, message, details }: Omit<DomainErrorArgs, 'httpStatus' | 'retryable'>) {

@@ -27,14 +27,16 @@ export class QuestionnaireService {
    */
   async createForInquiry({ inquiryId, questions }: { inquiryId: string; questions: QuestionnaireQuestion[] }): Promise<string> {
     const review = await this.compliance.score({ kind: ComplianceKind.Questionnaire, text: questions.map((q) => q.prompt).join('\n') });
-    if (review.status === ReviewStatus.Blocked) {
-      throw new ComplianceBlockedError({ message: 'questionnaire blocked by the compliance gate', details: { categories: review.categories, reason: review.reason } });
-    }
     const token = randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + this.config.questionnaireTtlHours * 3600_000);
+    // Persist the questionnaire (incl. its review outcome) so passes AND blocks are auditable (HP-14).
     await this.questionnaires.create({
       data: { inquiryId, token, questions: questions as unknown as Prisma.InputJsonValue, reviewStatus: review.status, riskScore: review.score, expiresAt },
     });
+    if (review.status === ReviewStatus.Blocked) {
+      // Recorded for audit; the link is never shared — the caller denies the inquiry.
+      throw new ComplianceBlockedError({ message: 'questionnaire blocked by the compliance gate', details: { categories: review.categories, reason: review.reason } });
+    }
     return `${this.config.publicBaseUrl}/q/${token}`; // temp link shared with the customer
   }
 

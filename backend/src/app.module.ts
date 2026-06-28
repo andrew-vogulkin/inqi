@@ -9,6 +9,7 @@ import { QueueModule } from './infra/queue/queue.module';
 import { EventsModule } from './infra/events/events.module';
 import { AiModule } from './infra/ai/ai.module';
 import { ObservabilityModule } from './infra/observability/observability.module';
+import { UsageModule } from './infra/usage/usage.module';
 
 // Edge / ingress
 import { PublicModule } from './edge/public/public.module';
@@ -18,18 +19,19 @@ import { WebhooksModule } from './edge/webhooks/webhooks.module';
 
 // Domain workers + seams not reached transitively
 import { OrchestratorWorkersModule } from './domain/orchestrator/orchestrator-workers.module';
+import { NotificationModule } from './domain/notifications/notification.module';
 import { EvalModule } from './domain/eval/eval.module';
 
 @Module({
   imports: [
     // Infra
-    ConfigModule, PersistenceModule, QueueModule, EventsModule, AiModule, ObservabilityModule,
+    ConfigModule, PersistenceModule, QueueModule, EventsModule, AiModule, ObservabilityModule, UsageModule,
     // API throttling (separate from the orchestrator's per-email-domain send throttle)
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     // Edge
     PublicModule, AuthModule, CapabilityTokenModule, WebhooksModule,
     // Domain
-    OrchestratorWorkersModule, EvalModule,
+    OrchestratorWorkersModule, NotificationModule, EvalModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

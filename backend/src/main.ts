@@ -11,7 +11,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
 
-  app.enableCors({ origin: config.webOrigin });
+  app.enableCors({ origin: config.webOrigins, credentials: true });
   app.setGlobalPrefix('api');
 
   // DTOs everywhere: strip unknown props, reject non-whitelisted, coerce types.

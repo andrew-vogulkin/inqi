@@ -1,10 +1,11 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AgentStage, ConvState, EventType, FindingKind, QueueJob, SubtaskStatus } from '@inqi/shared';
+import { AgentStage, ConvState, EventType, FindingKind, QueueJob, SubtaskStatus, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ActivityService } from '../../infra/observability/activity.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
+import { UsageService } from '../../infra/usage/usage.service';
 import { OutreachService, IngestResult } from '../outreach/outreach.service';
 import { getPersona } from './personas';
 import { AgentRepository } from './agent.repository';
@@ -24,6 +25,7 @@ export class AgentService implements OnModuleInit {
     private readonly outbox: OutboxService,
     private readonly activity: ActivityService,
     private readonly outreach: OutreachService,
+    private readonly usage: UsageService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
   ) {}
 
@@ -77,6 +79,7 @@ export class AgentService implements OnModuleInit {
   }
 
   private async processReply({ inquiryId, subtaskId }: { inquiryId: string; subtaskId: string }): Promise<void> {
+    void this.usage.recordAction({ inquiryId, kind: UsageKind.ReplyProcessed }); // cost accounting (HP-15)
     const st = await this.agents.findSubtask({ id: subtaskId });
     // Reflect the inbound on the subtask, then decide.
     await this.agents.updateSubtask({ id: subtaskId, data: { status: SubtaskStatus.Replied, convState: ConvState.NeedsAction, lastInboundAt: new Date() } });

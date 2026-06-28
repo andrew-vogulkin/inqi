@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEmail, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsDateString, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import type { CreateInquiryDto as ICreateInquiry } from '@inqi/shared';
 
 export class GeoDto {
@@ -17,12 +17,12 @@ export class GeoDto {
   label?: string;
 }
 
-/** Body for submitting a new inquiry (public intake). */
+/**
+ * Body for submitting a new inquiry. HP-19: intake is authenticated — the owner is
+ * the signed-in customer (from the session), so `customerEmail` is no longer accepted
+ * here (a stray field would be rejected by the whitelist validation pipe).
+ */
 export class CreateInquiryDto implements ICreateInquiry {
-  @ApiProperty({ example: 'customer@example.com' })
-  @IsEmail()
-  customerEmail!: string;
-
   @ApiProperty({ example: 'A second-hand road bike, 56cm frame, under €800, around Amsterdam.' })
   @IsString() @IsNotEmpty()
   rawRequest!: string;

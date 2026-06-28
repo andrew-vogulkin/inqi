@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
-import { QwenProviderBase } from './qwen-provider.base';
+import { OnUsage, QwenProviderBase } from './qwen-provider.base';
 
 /**
  * qwen_local — the local model on spark (llama.cpp, OpenAI-compatible, no auth).
@@ -8,8 +8,8 @@ import { QwenProviderBase } from './qwen-provider.base';
  */
 @Injectable()
 export class QwenLocalProvider extends QwenProviderBase {
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, onUsage?: OnUsage) {
     const profile = config.qwenLocal;
-    super({ ...profile, configured: !!profile.baseUrl });
+    super({ ...profile, configured: !!profile.baseUrl }, onUsage);
   }
 }

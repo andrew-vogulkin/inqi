@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import type { InquiryMessage } from '@prisma/client';
-import { ComplianceKind, EventType, MessageDirection, MessageStatus, ModelTier, ReviewStatus, SubtaskStatus } from '@inqi/shared';
+import { ComplianceKind, EventType, MessageDirection, MessageStatus, ModelTier, ReviewStatus, SubtaskStatus, UsageKind } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ConfigService } from '../../infra/config/config.service';
+import { UsageService } from '../../infra/usage/usage.service';
 import { AI_PROVIDER, AiProvider, ChatMsg, ChatRole } from '../../infra/ai/ai.tokens';
 import { ErrorCode, NotFoundError } from '../../common/errors';
 import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
@@ -39,6 +40,7 @@ export class OutreachService {
     @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
     @Inject(COMPLIANCE_SCORER) private readonly compliance: ComplianceScorer,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
+    private readonly usage: UsageService,
   ) {}
 
   /** Unique inbound address so a reply maps back to exactly one subtask thread. */
@@ -85,7 +87,17 @@ export class OutreachService {
     const body = `Hello ${st.subjectProviderName},\n\nWe're researching: ${subject?.title ?? 'an item/service'}.\nCould you share price, availability and lead time?\n\nWarm regards,\n${persona.name}\nInqi Tech Service Provider`;
 
     const review = await this.compliance.score({ kind: ComplianceKind.Email, text: body }); // ethical+legal gate before send
-    if (review.status === ReviewStatus.Blocked) return { blocked: true };
+    if (review.status === ReviewStatus.Blocked) {
+      // Persist the blocked draft (never sent) so the compliance block is auditable (HP-14).
+      await this.outreach.createMessage({
+        data: {
+          subtaskId, direction: MessageDirection.Outbound, status: MessageStatus.Draft,
+          fromAddr: replyAddress, toAddr: contact.email ?? null, subject: `Inquiry: ${subject?.title ?? ''}`,
+          body, personaId: persona.id, reviewStatus: review.status, riskScore: review.score, riskTags: review.categories,
+        },
+      });
+      return { blocked: true };
+    }
 
     const { externalId } = await this.mail.send({
       from: replyAddress,
@@ -102,6 +114,7 @@ export class OutreachService {
       },
     });
     await this.outbox.emit({ type: EventType.MessageSent, inquiryId, epicId: st.epicId, subtaskId, data: { to: msg.toAddr, replyAddress } });
+    void this.usage.recordAction({ inquiryId, kind: UsageKind.EmailSent }); // cost accounting (HP-15)
     // Replies arrive via the inbound webhook (real provider, or the local provider's loopback).
     return { blocked: false, replyAddress, personaId: persona.id };
   }

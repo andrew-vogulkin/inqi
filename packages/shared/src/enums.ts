@@ -122,6 +122,66 @@ export const AiDriver = {
 } as const;
 export type AiDriver = (typeof AiDriver)[keyof typeof AiDriver];
 
+/** Usage-ledger row kinds (HP-15): one AI-call/token row, plus counted outreach/agent actions. */
+export const UsageKind = {
+  AiCall: 'ai_call',
+  Embedding: 'embedding',
+  EmailSent: 'email_sent',
+  ReplyProcessed: 'reply_processed',
+  DiscoveryCall: 'discovery_call',
+  BackgroundResearch: 'background_research',
+} as const;
+export type UsageKind = (typeof UsageKind)[keyof typeof UsageKind];
+
+/** Customer notification kinds (HP-13). */
+export const NotificationKind = {
+  ReportReady: 'report_ready',
+  QuestionnaireReminder: 'questionnaire_reminder',
+  Denial: 'denial',
+} as const;
+export type NotificationKind = (typeof NotificationKind)[keyof typeof NotificationKind];
+
+/** Audit-trail entry categories (HP-14) — a read projection over existing sources. */
+export const AuditEntryType = {
+  Denial: 'denial',
+  ComplianceBlock: 'compliance_block',
+  AgentAction: 'agent_action',
+  Transition: 'transition',
+  OperatorAction: 'operator_action',
+} as const;
+export type AuditEntryType = (typeof AuditEntryType)[keyof typeof AuditEntryType];
+
+/** Operator/system actions recorded in the audit log (HP-11/HP-12; feeds HP-14). */
+export const AuditAction = {
+  Cancel: 'cancel',
+  Pause: 'pause',
+  Resume: 'resume',
+  PublishWorkflow: 'publish_workflow',
+  Topup: 'topup', // admin manual credit top-up (HP-19)
+} as const;
+export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
+
+/** What an audit entry is about. */
+export const AuditTargetType = {
+  Inquiry: 'inquiry',
+  Workflow: 'workflow',
+  Customer: 'customer', // credit top-ups target a customer (HP-19)
+} as const;
+export type AuditTargetType = (typeof AuditTargetType)[keyof typeof AuditTargetType];
+
+/**
+ * Append-only credit ledger entry kinds (HP-19). Balance =
+ * Σ(topup) − Σ(reserve) + Σ(refund); a `charge` finalizes a prior reservation and
+ * has **no** further balance effect (credits were already held at `reserve`).
+ */
+export const CreditKind = {
+  Topup: 'topup',     // admin grants credits
+  Reserve: 'reserve', // held on inquiry submit (decrements available balance)
+  Charge: 'charge',   // reservation finalized on REPORT_DELIVERED (no balance change)
+  Refund: 'refund',   // reservation returned on denied/dropped/cancelled/failed
+} as const;
+export type CreditKind = (typeof CreditKind)[keyof typeof CreditKind];
+
 /** Who a session belongs to. Admin is granted by the config allowlist (HP-10). */
 export const AuthRole = {
   Customer: 'customer',
@@ -183,6 +243,7 @@ export const QueueJob = {
   GenerateReport: 'generate_report',
   ProcessReply: 'process_reply',
   SubtaskSettled: 'subtask_settled',   // agentic reactor: react to a subtask qualifying/failing
+  SendNotification: 'send_notification', // customer notifications (report-ready / denial) — HP-13
 } as const;
 export type QueueJob = (typeof QueueJob)[keyof typeof QueueJob];
 

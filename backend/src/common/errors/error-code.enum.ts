@@ -28,6 +28,10 @@ export const ErrorCode = {
   WorkflowGuardBlocked: 'WORKFLOW_GUARD_BLOCKED',
   OutreachBlockedByCompliance: 'OUTREACH_BLOCKED_BY_COMPLIANCE',
 
+  // credits (HP-19)
+  CustomerNotFound: 'CUSTOMER_NOT_FOUND',
+  CreditsInsufficient: 'CREDITS_INSUFFICIENT',
+
   // upstream / IO (wrapped so the orchestrator can decide retry vs. deny)
   AiRequestFailed: 'AI_REQUEST_FAILED',
   AiInvalidJson: 'AI_INVALID_JSON',

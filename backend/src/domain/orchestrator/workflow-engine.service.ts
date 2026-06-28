@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EventType, InquiryState, WorkflowEvent, WorkflowStatus } from '@inqi/shared';
 import { PrismaService } from '../../infra/persistence/prisma.service';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ConflictError, DomainError, ErrorCode } from '../../common/errors';
+import { CreditsService } from '../credits/credits.service';
+import { settlementActionForState } from '../credits/credits.balance';
 import { Actions, Guards } from './workflow-registry';
 
 /**
@@ -13,10 +15,13 @@ import { Actions, Guards } from './workflow-registry';
  */
 @Injectable()
 export class WorkflowEngine {
+  private readonly logger = new Logger(WorkflowEngine.name);
+
   constructor(
     private readonly db: PrismaService,
     private readonly boss: BossService,
     private readonly outbox: OutboxService,
+    private readonly credits: CreditsService,
   ) {}
 
   /** The active version new inquiries start on. */
@@ -62,6 +67,19 @@ export class WorkflowEngine {
       inquiryId,
       data: { from: inq.state, to: trans.toState, event },
     });
+
+    // Credit settlement (HP-19): charge on delivery, refund on a non-delivered
+    // terminal. Idempotent + a no-op for non-settling states / never-reserved runs.
+    // Best-effort: a settlement hiccup must not undo a committed transition.
+    const action = settlementActionForState(trans.toState);
+    if (action) {
+      try {
+        await this.credits.settle({ inquiryId, action });
+      } catch (err) {
+        this.logger.error(`credit ${action} failed for inquiry ${inquiryId} (idempotent; safe to re-settle): ${(err as Error).message}`);
+      }
+    }
+
     return trans.toState as InquiryState;
   }
 }

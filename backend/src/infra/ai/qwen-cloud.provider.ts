@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
-import { QwenProviderBase } from './qwen-provider.base';
+import { OnUsage, QwenProviderBase } from './qwen-provider.base';
 
 /**
  * qwen_cloud — Qwen on DashScope (cloud, OpenAI-compatible). Configured only when
@@ -9,8 +9,8 @@ import { QwenProviderBase } from './qwen-provider.base';
  */
 @Injectable()
 export class QwenCloudProvider extends QwenProviderBase {
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, onUsage?: OnUsage) {
     const profile = config.qwenCloud;
-    super({ ...profile, configured: !!profile.apiKey && !/^sk-x+$/i.test(profile.apiKey) });
+    super({ ...profile, configured: !!profile.apiKey && !/^sk-x+$/i.test(profile.apiKey) }, onUsage);
   }
 }

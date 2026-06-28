@@ -1,9 +1,11 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EventType, FindingKind, QueueJob } from '@inqi/shared';
+import { EventType, FindingKind, QueueJob, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
+import { UsageService } from '../../infra/usage/usage.service';
+import { UsageContextService } from '../../infra/usage/usage-context.service';
 import { SubjectProvidersRepository } from './subject-providers.repository';
 import { BACKGROUND_RESEARCH_SOURCE, BackgroundResearchSource, SubjectProviderBackground } from './background.tokens';
 import { DISCOVERY_SOURCE, DiscoverArgs, DiscoveredProvider, DiscoverySource } from './discovery.tokens';
@@ -23,6 +25,8 @@ export class SubjectProvidersService implements OnModuleInit {
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     @Inject(BACKGROUND_RESEARCH_SOURCE) private readonly source: BackgroundResearchSource,
     @Inject(DISCOVERY_SOURCE) private readonly discovery: DiscoverySource,
+    private readonly usage: UsageService,
+    private readonly usageCtx: UsageContextService,
   ) {}
 
   async onModuleInit() {
@@ -32,8 +36,9 @@ export class SubjectProvidersService implements OnModuleInit {
     });
   }
 
-  /** Discover candidate subject providers for the funnel (delegates to the seam). */
+  /** Discover candidate subject providers for the funnel (delegates to the seam; counted for cost). */
   discover(args: DiscoverArgs): Promise<DiscoveredProvider[]> {
+    void this.usage.recordAction({ inquiryId: this.usageCtx.inquiryId(), kind: UsageKind.DiscoveryCall });
     return this.discovery.discover(args);
   }
 
@@ -43,6 +48,7 @@ export class SubjectProvidersService implements OnModuleInit {
    * the qualityScore so the admin board reflects it live.
    */
   async researchBackground({ inquiryId, subtaskId }: { inquiryId: string; subtaskId: string }): Promise<SubjectProviderBackground> {
+    void this.usage.recordAction({ inquiryId, kind: UsageKind.BackgroundResearch });
     const st = await this.repo.findSubtask({ id: subtaskId });
     const contact = (st.contact ?? {}) as { country?: string; region?: string };
     const regionHint = contact.country ?? contact.region ?? null;

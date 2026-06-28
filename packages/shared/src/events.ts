@@ -29,6 +29,17 @@ export const EventType = {
   MessageSent: 'message.sent',
   MessageReceived: 'message.received',
   ReportReady: 'report.ready',
+  // operator controls + version management (HP-11 / HP-12)
+  InquiryCancelled: 'inquiry.cancelled',
+  InquiryPaused: 'inquiry.paused',
+  InquiryResumed: 'inquiry.resumed',
+  WorkflowPublished: 'workflow.published',
+  NotificationSent: 'notification.sent',  // customer notification dispatched (HP-13)
+  // credits (HP-19)
+  CreditsTopup: 'credits.topup',          // admin granted credits to a customer
+  CreditsReserved: 'credits.reserved',    // credits held on inquiry submit
+  CreditsCharged: 'credits.charged',      // reservation finalized on REPORT_DELIVERED
+  CreditsRefunded: 'credits.refunded',    // reservation returned on a non-delivered terminal
 } as const;
 export type EventType = (typeof EventType)[keyof typeof EventType];
 

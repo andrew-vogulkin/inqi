@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
-import { EmbeddingsDriver } from '@inqi/shared';
+import { EmbeddingsDriver, UsageKind } from '@inqi/shared';
 import { ConfigService } from '../config/config.service';
+import { UsageService } from '../usage/usage.service';
+import { UsageContextService } from '../usage/usage-context.service';
 import { EmbeddingsProvider } from './ai.tokens';
 
 /** FNV-1a 32-bit hash, used for deterministic feature hashing. */
@@ -28,7 +30,11 @@ export class EmbeddingsService implements EmbeddingsProvider {
   private readonly dim: number;
   private readonly driver: EmbeddingsDriver;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly usage: UsageService,
+    private readonly usageCtx: UsageContextService,
+  ) {
     const { apiKey, baseUrl, model, dim } = this.config.embeddings;
     this.client = new OpenAI({ apiKey: apiKey ?? 'unset', baseURL: baseUrl });
     this.model = model;
@@ -37,15 +43,21 @@ export class EmbeddingsService implements EmbeddingsProvider {
   }
 
   async embed({ text }: { text: string }): Promise<number[]> {
+    const inquiryId = this.usageCtx.inquiryId();
     if (this.driver === EmbeddingsDriver.OpenAI) {
       try {
         const r = await this.client.embeddings.create({ model: this.model, input: text });
         const vec = r.data[0]?.embedding;
-        if (vec?.length) return vec as number[];
+        if (vec?.length) {
+          await this.usage.recordAi({ inquiryId, kind: UsageKind.Embedding, model: this.model, totalTokens: r.usage?.total_tokens ?? 0, estimated: !r.usage });
+          return vec as number[];
+        }
       } catch (e) {
         this.logger.warn(`embeddings call failed, using local fallback: ${(e as Error).message}`);
       }
     }
+    // Local deterministic fallback — still a counted embedding op (cost 0), tokens estimated.
+    await this.usage.recordAi({ inquiryId, kind: UsageKind.Embedding, model: 'local-feature-hash', totalTokens: 0, estimated: true });
     return this.localEmbedding(text);
   }
 

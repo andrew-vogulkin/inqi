@@ -66,9 +66,32 @@ model Customer {
   name      String?
   googleSub String?  @unique // Google subject id (stable per account)
   role      String   @default("customer") // AuthRole: customer | admin
+  notificationsOptOut Boolean @default(false) // suppress customer notifications (HP-13)
+  credits   Int      @default(0) // maintained balance (HP-19); == Σ ledger, never negative
   createdAt DateTime @default(now())
 
   inquiries Inquiry[]
+  ledger    CreditLedger[]
+}
+
+// Append-only credit ledger (HP-19). Balance = Σ(topup) − Σ(reserve) + Σ(refund);
+// `charge` finalizes a reservation (no balance effect). The (inquiryId, kind) unique
+// makes settlement idempotent: at most one reserve/charge/refund per inquiry.
+model CreditLedger {
+  id         String   @id @default(cuid())
+  customerId String
+  kind       String   // CreditKind: topup | reserve | charge | refund
+  amount     Int      // always positive; the kind carries the sign
+  reason     String?  // e.g. admin note, settlement state
+  actor      String?  // admin email, or 'system'
+  inquiryId  String?  // set for reserve/charge/refund; null for topup
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  inquiry  Inquiry? @relation(fields: [inquiryId], references: [id], onDelete: SetNull)
+
+  @@unique([inquiryId, kind])
+  @@index([customerId])
 }
 
 model Inquiry {
@@ -88,6 +111,7 @@ model Inquiry {
 
   denyReason String?
   cancelRequested Boolean @default(false) // operator/customer cancel flag in-flight jobs observe (HP-09)
+  heldFromState   String?                 // state to resume to after an operator pause (HP-11)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -101,6 +125,8 @@ model Inquiry {
   agentRuns     AgentRun[]
   events        EventOutbox[]
   findings      Finding[]
+  usage         UsageRecord[]
+  ledger        CreditLedger[]
 
   @@index([state])
   @@index([customerId])
@@ -132,6 +158,7 @@ model Questionnaire {
   filledAt     DateTime?
   reviewStatus String   @default("pending") // ethical+legal scoring gate before sharing
   riskScore    Float?
+  reminderSentAt DateTime? // expiry-reminder sent marker — exactly-once (HP-13)
   createdAt    DateTime  @default(now())
 
   inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
@@ -288,6 +315,42 @@ model Finding {
 
   @@index([inquiryId])
   @@index([epicId])
+}
+
+/// Append-only cost ledger (HP-15): one row per AI call (tokens + model/tier) and
+/// one per counted outreach/agent action. Never mutated; rolled up to a $ summary.
+model UsageRecord {
+  id               String   @id @default(cuid())
+  inquiryId        String
+  kind             String   // UsageKind
+  model            String?
+  tier             String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  quantity         Int      @default(1)   // for counted actions
+  estimated        Boolean  @default(false) // usage block absent (e.g. local model) → tokens are 0/estimated
+  createdAt        DateTime @default(now())
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId])
+}
+
+/// Operator / system action log (HP-11 controls, HP-12 publishes). The durable
+/// audit sink HP-14 builds the full audit trail on.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String   // operator email, or 'system'
+  action     String   // AuditAction: cancel | pause | resume | publish_workflow
+  targetType String   // AuditTargetType: inquiry | workflow
+  targetId   String
+  reason     String?
+  data       Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }
 
 /// Self-evaluation + improvement loop. inqi scores its own runs and proposes

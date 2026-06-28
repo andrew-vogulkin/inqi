@@ -4,6 +4,7 @@ import { AgentEventKind, AgentRunStatus, AgentStage, EventType } from '@inqi/sha
 import { PrismaService } from '../persistence/prisma.service';
 import { OutboxService } from '../events/outbox.service';
 import { ConfigService } from '../config/config.service';
+import { UsageContextService } from '../usage/usage-context.service';
 
 /** Progress logger handed to a staged run; persists an AgentEvent + emits progress. */
 export type StageLogger = (args: { message: string; data?: Record<string, unknown> }) => Promise<void>;
@@ -21,6 +22,7 @@ export class ActivityService {
     private readonly db: PrismaService,
     private readonly outbox: OutboxService,
     private readonly config: ConfigService,
+    private readonly usageCtx: UsageContextService,
   ) {}
 
   private leaseFromNow(): Date {
@@ -40,7 +42,8 @@ export class ActivityService {
 
     await this.outbox.emit({ type: EventType.AgentStarted, inquiryId, data: { stage } });
     try {
-      await fn(log);
+      // Run inside the usage context so AI/embedding calls in this stage attribute to the inquiry (HP-15).
+      await this.usageCtx.run({ inquiryId, stage }, () => fn(log));
       await this.db.agentRun.update({ where: { id: run.id }, data: { status: AgentRunStatus.Done, endedAt: new Date(), leaseUntil: null } });
       await this.outbox.emit({ type: EventType.AgentStopped, inquiryId, data: { stage, status: AgentRunStatus.Done } });
     } catch (e) {

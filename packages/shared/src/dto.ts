@@ -1,7 +1,11 @@
 import type { OutreachStrategy } from './workflow.js';
 
 export interface CreateInquiryDto {
-  customerEmail: string;
+  /**
+   * @deprecated HP-19: intake is authenticated; the owner is the signed-in customer
+   * (from the session), so the server ignores this and uses the verified email.
+   */
+  customerEmail?: string;
   /** Free-text of what they're looking for (item/service/rental/org/goods/trade). */
   rawRequest: string;
   geo?: { lat: number; lng: number; label?: string };

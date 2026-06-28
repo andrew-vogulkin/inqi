@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AgentStage, EventType, FindingKind, InquiryState, ModelTier, OutreachStrategy, QueueJob, SubtaskStatus, TERMINAL_STATES, WorkflowEvent, failureEventForState } from '@inqi/shared';
+import { AgentStage, AuditAction, AuditTargetType, EventType, FindingKind, InquiryState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, SubtaskStatus, TERMINAL_STATES, WorkflowEvent, failureEventForState } from '@inqi/shared';
 import type { Prisma } from '@prisma/client';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ActivityService } from '../../infra/observability/activity.service';
+import { AuditService } from '../../infra/observability/audit.service';
 import { ConfigService } from '../../infra/config/config.service';
+import { UsageContextService } from '../../infra/usage/usage-context.service';
 import { decideReaperAction, findStuckRuns, retryBackoffSeconds } from '../../infra/observability/reaper.logic';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { EnrichedSubject, SubjectsService } from '../subjects/subjects.service';
@@ -65,6 +67,8 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly questionnaire: QuestionnaireService,
     private readonly reports: ReportsService,
     private readonly config: ConfigService,
+    private readonly audit: AuditService,
+    private readonly usageCtx: UsageContextService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
   ) {}
 
@@ -81,7 +85,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     await this.boss.work<{ inquiryId: string }>({ job: QueueJob.BuildFunnel, handler: stage(AgentStage.BuildFunnel, (d) => this.buildFunnel(d)) });
     await this.boss.work<{ inquiryId: string }>({ job: QueueJob.StartOutreach, handler: stage(AgentStage.StartOutreach, (d) => this.startOutreach(d)) });
     // Agentic reactor: every subtask settlement (qualify/fail/blocked) drives the next move.
-    await this.boss.work<{ inquiryId: string; epicId: string }>({ job: QueueJob.SubtaskSettled, handler: (j) => this.onSubtaskSettled(j.data) });
+    await this.boss.work<{ inquiryId: string; epicId: string }>({ job: QueueJob.SubtaskSettled, handler: (j) => this.usageCtx.run({ inquiryId: j.data.inquiryId, stage: 'reactor' }, () => this.onSubtaskSettled(j.data)) });
     await this.boss.work<{ inquiryId: string }>({ job: QueueJob.GenerateReport, handler: stage(AgentStage.GenerateReport, (d) => this.generateReport(d)) });
     // Reaper: recover stuck runs so no job ever goes stale. In-process scheduler
     // (Postgres-only, no Redis); a multi-instance deployment would gate the sweep
@@ -128,6 +132,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
               await this.repo.updateInquiry({ id: inquiryId, data: { denyReason: verdict.reason || 'policy' } });
               await log({ message: `Pre-research denied: ${verdict.reason || 'policy'}`, data: { riskTags: verdict.riskTags } });
               await this.wf.advance({ inquiryId, event: WorkflowEvent.PRE_RESEARCH_DENIED });
+              await this.notify({ inquiryId, kind: NotificationKind.Denial });
               return;
             }
             enriched = verdict.subject;
@@ -148,6 +153,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
             await this.repo.updateInquiry({ id: inquiryId, data: { denyReason: `questionnaire_compliance: ${String(e.details.reason ?? '')}` } });
             await log({ message: 'Questionnaire blocked by compliance — denying', data: e.details });
             await this.wf.advance({ inquiryId, event: WorkflowEvent.PRE_RESEARCH_DENIED });
+            await this.notify({ inquiryId, kind: NotificationKind.Denial });
             return;
           }
           throw e;
@@ -193,6 +199,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
           await log({ message: `Reusing prior report ${prior.reportId} (similar nearby inquiry)`, data: { distance: prior.distance } });
           await this.reports.reuseFrom({ inquiryId, priorReportId: prior.reportId });
           await this.wf.advance({ inquiryId, event: WorkflowEvent.REUSE_FOUND });
+          await this.notify({ inquiryId, kind: NotificationKind.ReportReady });
           return;
         }
         await log({ message: 'Broad research (BREADTH model): geo, time, price, economic sense' });
@@ -367,18 +374,65 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Cancel an inquiry: set the flag in-flight jobs observe, then fire CANCEL →
-   * CANCELLED. Once terminal, guarded stages skip and the reactor no-ops, so
-   * in-flight work stops cleanly. Tolerates an already-terminal inquiry.
+   * Cancel an inquiry (operator control, HP-11): set the flag in-flight jobs
+   * observe, fire CANCEL → CANCELLED, audit it. Idempotent — a re-cancel or an
+   * already-terminal inquiry is a no-op. Guarded stages skip + the reactor no-ops
+   * once terminal, so in-flight work stops cleanly.
    */
-  async cancel({ inquiryId }: { inquiryId: string }): Promise<InquiryState> {
+  async cancel({ inquiryId, actor = 'system', reason }: { inquiryId: string; actor?: string; reason?: string }): Promise<InquiryState> {
+    const inq = await this.repo.findInquiry({ id: inquiryId });
+    if (inq.state === InquiryState.CANCELLED) return InquiryState.CANCELLED; // idempotent
     await this.repo.updateInquiry({ id: inquiryId, data: { cancelRequested: true } });
+    let to = inq.state as InquiryState;
     try {
-      await this.wf.advance({ inquiryId, event: WorkflowEvent.CANCEL });
+      to = await this.wf.advance({ inquiryId, event: WorkflowEvent.CANCEL });
     } catch (e) {
       if (!(e instanceof ConflictError)) throw e; // already terminal — flag is still set
     }
-    return (await this.repo.findInquiry({ id: inquiryId })).state as InquiryState;
+    await this.outbox.emit({ type: EventType.InquiryCancelled, inquiryId, data: { from: inq.state, to, actor, reason } });
+    await this.audit.record({ actor, action: AuditAction.Cancel, targetType: AuditTargetType.Inquiry, targetId: inquiryId, reason, data: { from: inq.state, to } });
+    return to;
+  }
+
+  /**
+   * Pause an inquiry (operator control, HP-11): HOLD → ON_HOLD. While paused the
+   * reactor releases no new waves and the reaper won't revive it; in-flight emails
+   * may still settle. Idempotent. Pause is valid from OUTREACH (the long-running
+   * stage); broadening it to other stages ships as a new workflow version (HP-12).
+   */
+  async pause({ inquiryId, actor = 'system', reason }: { inquiryId: string; actor?: string; reason?: string }): Promise<InquiryState> {
+    const inq = await this.repo.findInquiry({ id: inquiryId });
+    if (inq.state === InquiryState.ON_HOLD) return InquiryState.ON_HOLD; // idempotent
+    const to = await this.wf.advance({ inquiryId, event: WorkflowEvent.HOLD }); // ConflictError if not pausable from here
+    await this.repo.updateInquiry({ id: inquiryId, data: { heldFromState: inq.state } });
+    await this.outbox.emit({ type: EventType.InquiryPaused, inquiryId, data: { from: inq.state, to, actor, reason } });
+    await this.audit.record({ actor, action: AuditAction.Pause, targetType: AuditTargetType.Inquiry, targetId: inquiryId, reason, data: { from: inq.state, to } });
+    return to;
+  }
+
+  /**
+   * Resume a paused inquiry (operator control, HP-11): RESUME → prior state, then
+   * re-kick the reactor so wave release continues from where it left off.
+   * Idempotent — resuming a non-paused inquiry is a no-op.
+   */
+  async resume({ inquiryId, actor = 'system' }: { inquiryId: string; actor?: string }): Promise<InquiryState> {
+    const inq = await this.repo.findInquiry({ id: inquiryId });
+    if (inq.state !== InquiryState.ON_HOLD) return inq.state as InquiryState; // idempotent no-op
+    const to = await this.wf.advance({ inquiryId, event: WorkflowEvent.RESUME });
+    await this.repo.updateInquiry({ id: inquiryId, data: { heldFromState: null } });
+    await this.outbox.emit({ type: EventType.InquiryResumed, inquiryId, data: { from: inq.state, to, actor } });
+    await this.audit.record({ actor, action: AuditAction.Resume, targetType: AuditTargetType.Inquiry, targetId: inquiryId, data: { from: inq.state, to } });
+    // Re-kick the agentic reactor so pending waves release again (settlements may have all fired while paused).
+    if (to === InquiryState.OUTREACH) {
+      const epic = await this.repo.findLatestEpic({ inquiryId });
+      await this.boss.enqueue({ job: QueueJob.SubtaskSettled, data: { inquiryId, epicId: epic.id } });
+    }
+    return to;
+  }
+
+  /** Enqueue a customer notification (HP-13); the NotificationService dispatches it. */
+  private async notify({ inquiryId, kind }: { inquiryId: string; kind: NotificationKind }): Promise<void> {
+    await this.boss.enqueue({ job: QueueJob.SendNotification, data: { inquiryId, kind } });
   }
 
   /** Subject context for discovery (title/description/attributes). */
@@ -395,6 +449,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         await this.reports.generate({ inquiryId });
         await log({ message: 'Report generated' });
         await this.wf.advance({ inquiryId, event: WorkflowEvent.REPORT_READY }); // -> REPORT_DELIVERED
+        await this.notify({ inquiryId, kind: NotificationKind.ReportReady });
       },
     });
   }

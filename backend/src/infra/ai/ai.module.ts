@@ -1,7 +1,10 @@
 import { Global, Module } from '@nestjs/common';
-import { AiDriver } from '@inqi/shared';
+import { AiDriver, UsageKind } from '@inqi/shared';
 import { ConfigService } from '../config/config.service';
+import { UsageService } from '../usage/usage.service';
+import { UsageContextService } from '../usage/usage-context.service';
 import { AI_PROVIDER, EMBEDDINGS_PROVIDER } from './ai.tokens';
+import { OnUsage } from './qwen-provider.base';
 import { QwenLocalProvider } from './qwen-local.provider';
 import { QwenCloudProvider } from './qwen-cloud.provider';
 import { EmbeddingsService } from './embeddings.service';
@@ -16,9 +19,15 @@ import { EmbeddingsService } from './embeddings.service';
   providers: [
     {
       provide: AI_PROVIDER,
-      useFactory: (config: ConfigService) =>
-        config.aiDriver === AiDriver.QwenLocal ? new QwenLocalProvider(config) : new QwenCloudProvider(config),
-      inject: [ConfigService],
+      useFactory: (config: ConfigService, usage: UsageService, ctx: UsageContextService) => {
+        // Cost accounting (HP-15): every model call's tokens → the ledger, attributed via the async-local inquiry.
+        const onUsage: OnUsage = (u) => void usage.recordAi({
+          inquiryId: ctx.inquiryId(), kind: UsageKind.AiCall, model: u.model, tier: u.tier,
+          promptTokens: u.promptTokens, completionTokens: u.completionTokens, totalTokens: u.totalTokens, estimated: u.estimated,
+        });
+        return config.aiDriver === AiDriver.QwenLocal ? new QwenLocalProvider(config, onUsage) : new QwenCloudProvider(config, onUsage);
+      },
+      inject: [ConfigService, UsageService, UsageContextService],
     },
     { provide: EMBEDDINGS_PROVIDER, useClass: EmbeddingsService },
   ],

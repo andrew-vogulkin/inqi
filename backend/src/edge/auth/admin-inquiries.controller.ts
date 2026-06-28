@@ -1,8 +1,12 @@
-import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InquiryService } from '../../domain/inquiry/inquiry.service';
 import { OrchestratorService } from '../../domain/orchestrator/orchestrator.service';
+import { CostService } from '../../infra/usage/cost.service';
+import { CreateInquiryDto } from '../inquiry-dto/create-inquiry.dto';
 import { InquiryDto, InquiryDetailDto } from '../inquiry-dto/inquiry.dto';
+import { CostSummaryDto } from './cost.dto';
+import { OperatorActionDto } from './operator-action.dto';
 import { AuthGuard } from './auth.guard';
 import { AdminGuard } from './admin.guard';
 import { CurrentUser } from './current-user.decorator';
@@ -20,7 +24,17 @@ export class AdminInquiriesController {
   constructor(
     private readonly inquiries: InquiryService,
     private readonly orchestrator: OrchestratorService,
+    private readonly cost: CostService,
   ) {}
+
+  // HP-19: intake is authenticated + credit-gated. The owner is the signed-in
+  // customer; running reserves the report cost (402 CREDITS_INSUFFICIENT if short).
+  @Post()
+  @ApiOperation({ summary: 'Submit a new inquiry (authenticated; reserves credits — 402 if insufficient)' })
+  @ApiCreatedResponse({ type: InquiryDto })
+  create(@Body() dto: CreateInquiryDto, @CurrentUser() user: AuthUser) {
+    return this.inquiries.create({ dto, viewer: user });
+  }
 
   @Get()
   @ApiOperation({ summary: 'List inquiries (own for a customer, all for an admin)' })
@@ -36,12 +50,37 @@ export class AdminInquiriesController {
     return this.inquiries.get({ id, viewer: user });
   }
 
-  // HP-09 cancel seam, admin-only (HP-11 expands operator controls to pause/resume).
+  // HP-15: operator-only cost summary (tokens + outreach → $). Never in the customer report.
+  @Get(':id/cost')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: 'Per-inquiry cost summary for operators (admin only)' })
+  @ApiOkResponse({ type: CostSummaryDto })
+  costSummary(@Param('id') id: string) {
+    return this.cost.summaryForInquiry({ inquiryId: id });
+  }
+
+  // Operator run controls (HP-11), admin-only + audited.
   @Post(':id/cancel')
   @UseGuards(AdminGuard)
   @ApiOperation({ summary: 'Cancel an in-flight inquiry (admin only; lands CANCELLED)' })
-  async cancel(@Param('id') id: string) {
-    const state = await this.orchestrator.cancel({ inquiryId: id });
+  async cancel(@Param('id') id: string, @CurrentUser() user: AuthUser, @Body() body: OperatorActionDto) {
+    const state = await this.orchestrator.cancel({ inquiryId: id, actor: user.email, reason: body?.reason });
+    return { id, state };
+  }
+
+  @Post(':id/pause')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: 'Pause an in-flight inquiry (admin only; → ON_HOLD, no new waves released)' })
+  async pause(@Param('id') id: string, @CurrentUser() user: AuthUser, @Body() body: OperatorActionDto) {
+    const state = await this.orchestrator.pause({ inquiryId: id, actor: user.email, reason: body?.reason });
+    return { id, state };
+  }
+
+  @Post(':id/resume')
+  @UseGuards(AdminGuard)
+  @ApiOperation({ summary: 'Resume a paused inquiry (admin only; continues from where it left off)' })
+  async resume(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const state = await this.orchestrator.resume({ inquiryId: id, actor: user.email });
     return { id, state };
   }
 }

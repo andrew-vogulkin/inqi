@@ -11,6 +11,10 @@ export interface QwenConnection {
   configured: boolean;
 }
 
+/** Token-usage report from one model call (HP-15). `estimated` = the API omitted a usage block. */
+export interface AiUsage { model: string; tier: ModelTier; promptTokens: number; completionTokens: number; totalTokens: number; estimated: boolean }
+export type OnUsage = (usage: AiUsage) => void;
+
 /**
  * Shared OpenAI-compatible Qwen engine behind the breadth/depth/balanced tier
  * router. Concrete backends (`qwen_local`, `qwen_cloud`) subclass this with their
@@ -20,11 +24,13 @@ export abstract class QwenProviderBase implements AiProvider {
   private readonly client: OpenAI;
   private readonly models: Record<ModelTier, string>;
   private readonly configured: boolean;
+  private readonly onUsage?: OnUsage;
 
-  protected constructor(conn: QwenConnection) {
+  protected constructor(conn: QwenConnection, onUsage?: OnUsage) {
     this.client = new OpenAI({ apiKey: conn.apiKey ?? 'unset', baseURL: conn.baseUrl });
     this.models = conn.models;
     this.configured = conn.configured;
+    this.onUsage = onUsage;
   }
 
   isConfigured(): boolean {
@@ -73,6 +79,13 @@ export abstract class QwenProviderBase implements AiProvider {
         model: this.models[tier],
         messages,
         ...(jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+      });
+      // Cost accounting (HP-15): record token usage from the API's usage block in this one place.
+      const u = r.usage;
+      this.onUsage?.({
+        model: this.models[tier], tier,
+        promptTokens: u?.prompt_tokens ?? 0, completionTokens: u?.completion_tokens ?? 0, totalTokens: u?.total_tokens ?? 0,
+        estimated: !u,
       });
       return r.choices[0]?.message?.content ?? '';
     } catch (e) {
