@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InquiryService } from '../../domain/inquiry/inquiry.service';
 import { OrchestratorService } from '../../domain/orchestrator/orchestrator.service';
+import { ReportsService } from '../../domain/reports/reports.service';
 import { CostService } from '../../infra/usage/cost.service';
 import { CreateInquiryDto } from '../inquiry-dto/create-inquiry.dto';
 import { InquiryDto, InquiryDetailDto } from '../inquiry-dto/inquiry.dto';
@@ -25,6 +26,7 @@ export class AdminInquiriesController {
     private readonly inquiries: InquiryService,
     private readonly orchestrator: OrchestratorService,
     private readonly cost: CostService,
+    private readonly reports: ReportsService,
   ) {}
 
   // HP-19: intake is authenticated + credit-gated. The owner is the signed-in
@@ -48,6 +50,15 @@ export class AdminInquiriesController {
   @ApiOkResponse({ type: InquiryDetailDto })
   get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.inquiries.get({ id, viewer: user });
+  }
+
+  // HP-20: customer-safe provenance for one option (owner or admin). Redacted — no
+  // email chain/addresses (the admin dossier keeps using /comms/thread). 404 for non-owners.
+  @Get(':id/options/:ref/provenance')
+  @ApiOperation({ summary: 'Customer-safe provenance for an option (owner/admin; redacted, no chain)' })
+  async provenance(@Param('id') id: string, @Param('ref') ref: string, @CurrentUser() user: AuthUser) {
+    await this.inquiries.get({ id, viewer: user }); // owner/admin scope → 404 if not theirs (no existence leak)
+    return this.reports.provenance({ inquiryId: id, ref });
   }
 
   // HP-15: operator-only cost summary (tokens + outreach → $). Never in the customer report.

@@ -34,3 +34,10 @@ export class TopUpResultDto {
   @ApiProperty({ example: 'clz...' }) customerId!: string;
   @ApiProperty({ example: 8 }) balance!: number;
 }
+
+/** A customer in the admin directory/search results (HP-22). */
+export class CustomerDirectoryDto {
+  @ApiProperty({ example: 'clz...' }) id!: string;
+  @ApiProperty({ example: 'Ada Lovelace' }) name!: string;
+  @ApiProperty({ example: 'ada@example.com' }) email!: string;
+}

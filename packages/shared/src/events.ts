@@ -29,6 +29,7 @@ export const EventType = {
   MessageSent: 'message.sent',
   MessageReceived: 'message.received',
   ReportReady: 'report.ready',
+  ReportUpdated: 'report.updated',   // HP-21: report options changed (freemium unlock reveal)
   // operator controls + version management (HP-11 / HP-12)
   InquiryCancelled: 'inquiry.cancelled',
   InquiryPaused: 'inquiry.paused',

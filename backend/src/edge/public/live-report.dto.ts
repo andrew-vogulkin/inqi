@@ -18,8 +18,12 @@ export class LiveReportDto {
   @ApiProperty({ description: 'current InquiryState' }) state!: string;
   @ApiProperty() delivered!: boolean;
   @ApiProperty() rawRequest!: string;
+  @ApiProperty({ nullable: true, description: 'snapshot id once generated (for POST /reports/:id/unlock)' }) reportId!: string | null;
   @ApiProperty({ nullable: true, description: 'snapshot webview token once delivered' }) reportToken!: string | null;
   @ApiProperty({ nullable: true }) reusedFrom!: string | null;
   @ApiProperty() summary!: string;
   @ApiProperty({ type: [LiveOptionDto] }) options!: LiveOptionDto[];
+  @ApiProperty({ description: 'HP-21: free + locked → options redacted until unlocked' }) freemium!: boolean;
+  @ApiProperty({ description: 'HP-21: revealed after a 1-credit unlock' }) unlocked!: boolean;
+  @ApiProperty({ description: 'HP-21: number of withheld (locked) options' }) lockedCount!: number;
 }

@@ -1,11 +1,33 @@
-import { useEffect, useState } from 'react';
-import { CustomerView } from './customer/CustomerView';
-import { CustomerDashboard } from './customer/CustomerDashboard';
-import { ReportDeepLink } from './customer/ReportDeepLink';
-import { AdminBoard } from './admin/AdminBoard';
-import { useSession } from './lib/auth';
+import { ReactNode, useEffect, useState } from 'react';
+import { LayoutMode, AccessScreen, ButtonVariant } from './conventions/enums';
+import { Route, RouteMatch, ROUTE_META, matchRoute, hrefFor, navigate } from './conventions/routes';
+import { resolveAccess } from './conventions/guard';
+import { color, space, fontSize, fontWeight } from './theme/tokens';
+import { setUnauthorizedHandler } from './api';
+import { useAppDispatch, useSelector } from './state/store';
+import { ActionType } from './state/actions';
+import { Card, Button, ToastHost } from './ui';
+import { StyleGuide } from './screens/StyleGuide';
+import { SignIn } from './screens/SignIn';
+import { Dashboard } from './screens/Dashboard';
+import { Questionnaire } from './screens/Questionnaire';
+import { LiveReport } from './screens/LiveReport';
+import { FreemiumTeaser } from './screens/FreemiumTeaser';
+import { Dossier } from './screens/Dossier';
+import { Credits } from './screens/Credits';
+import { AdminBoard } from './screens/AdminBoard';
+import { SubtaskView } from './screens/SubtaskView';
+import { CostReport } from './screens/CostReport';
+import { AuditTrail } from './screens/AuditTrail';
+import { WorkflowVersions } from './screens/WorkflowVersions';
+import { OutreachThread } from './screens/OutreachThread';
+import { DossierOrigin } from './conventions/enums';
+import { Placeholder } from './screens/Placeholder';
+import { AccessScreenView } from './screens/AccessScreens';
+import { CustomerShell } from './shell/CustomerShell';
+import { AdminShell } from './shell/AdminShell';
 
-function useHashRoute() {
+function useHashRoute(): string {
   const [hash, setHash] = useState(window.location.hash || '#/');
   useEffect(() => {
     const on = () => setHash(window.location.hash || '#/');
@@ -15,62 +37,87 @@ function useHashRoute() {
   return hash;
 }
 
-// Hash routing:
-//   #/r/:token   → public report deep link (no login)
-//   #/admin      → admin board (login + allowlist)
-//   #/dashboard  → customer's own inquiries (login)
-//   #/i/:id      → customer's own live inquiry view
-//   #/           → intake
-export function App() {
-  const hash = useHashRoute();
-  const deep = hash.match(/^#\/r\/([^/?]+)/);
-
-  // The shareable report is fully standalone: wordmark only, no nav, no login.
-  if (deep) return (
-    <Frame>
-      <ReportDeepLink token={decodeURIComponent(deep[1])} />
-    </Frame>
-  );
-
-  let view: JSX.Element;
-  if (hash.startsWith('#/admin')) view = <AdminBoard />;
-  else if (hash.startsWith('#/dashboard')) view = <CustomerDashboard />;
-  else view = <CustomerView />;
-
+/** Minimal frame for bare routes (public deep links, auth + access screens). */
+function BareFrame({ children }: { children: ReactNode }) {
   return (
-    <Frame>
-      <Nav active={hash} />
-      {view}
-    </Frame>
-  );
-}
-
-function Frame({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ fontFamily: 'system-ui', maxWidth: 980, margin: '0 auto', padding: 24 }}>
-      <header style={{ display: 'flex', gap: 16, alignItems: 'baseline', marginBottom: 16 }}>
-        <a href="#/" style={{ textDecoration: 'none', color: 'inherit' }}><h1 style={{ margin: 0 }}>inqi</h1></a>
+    <div style={{ minHeight: '100%' }}>
+      <header style={{ borderBottom: `1px solid ${color.line}` }}>
+        <div style={{ maxWidth: 760, margin: '0 auto', padding: `${space[3]}px ${space[4]}px` }}>
+          <a href={hrefFor({ route: Route.Home })} style={{ fontSize: fontSize.h3, fontWeight: fontWeight.bold, color: color.ink, textDecoration: 'none' }}>inqi</a>
+        </div>
       </header>
-      {children}
+      <main style={{ maxWidth: 760, margin: '0 auto', padding: space[4] }}>{children}</main>
     </div>
   );
 }
 
-function Nav({ active }: { active: string }) {
-  const { session, signOut } = useSession();
-  const link = (href: string, label: string) => {
-    const on = href === '#/' ? (active === '#/' || active === '') : active.startsWith(href);
-    return <a href={href} style={{ fontWeight: on ? 700 : 400 }}>{label}</a>;
-  };
+function Home() {
   return (
-    <nav style={{ display: 'flex', gap: 14, alignItems: 'baseline', marginBottom: 20, fontSize: 14 }}>
-      {link('#/', 'New inquiry')}
-      {link('#/dashboard', 'My inquiries')}
-      {link('#/admin', 'Admin')}
-      <span style={{ flex: 1 }} />
-      {session
-        ? <span style={{ color: '#888' }}>{session.customer.email} · <a href="#" onClick={e => { e.preventDefault(); signOut(); }}>sign out</a></span>
-        : <span style={{ color: '#aaa' }}>not signed in</span>}
-    </nav>
+    <Card>
+      <h1 style={{ fontSize: fontSize.h2, marginBottom: space[2] }}>Your AI is on it.</h1>
+      <p style={{ color: color.muted, marginBottom: space[4] }}>
+        Describe what you're after — an item, service, rental, org, goods or a trade — and inqi researches, vets, and reaches out, then returns a live ranked report.
+      </p>
+      <div style={{ display: 'flex', gap: space[2] }}>
+        <a href={hrefFor({ route: Route.NewInquiry })}><Button>Start an inquiry</Button></a>
+        <a href={hrefFor({ route: Route.StyleGuide })}><Button variant={ButtonVariant.Secondary}>Styleguide</Button></a>
+      </div>
+    </Card>
   );
+}
+
+function content(match: RouteMatch): ReactNode {
+  switch (match.route) {
+    case Route.Home: return <Home />;
+    case Route.StyleGuide: return <StyleGuide />;
+    case Route.SignIn: return <SignIn />;
+    case Route.Dashboard: return <Dashboard />;
+    case Route.NewInquiry: return <Placeholder title="New inquiry" story="FE-04" />;
+    case Route.Questionnaire: return <Questionnaire token={match.params.token} />;
+    case Route.Inquiry: return <LiveReport inquiryId={match.params.id} />;
+    case Route.Freemium: return <FreemiumTeaser inquiryId={match.params.id} />;
+    case Route.Dossier: return <Dossier inquiryId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Customer} />;
+    case Route.AdminDossier: return <Dossier inquiryId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Admin} />;
+    case Route.Report: return <LiveReport token={match.params.token} />;
+    case Route.Credits: return <Credits />;
+    case Route.Admin: return <AdminBoard />;
+    case Route.AdminAudit: return <AuditTrail />;
+    case Route.AdminWorkflows: return <WorkflowVersions />;
+    case Route.AdminInquiry: return <AdminBoard inquiryId={match.params.id} />;
+    case Route.AdminCost: return <CostReport inquiryId={match.params.id} />;
+    case Route.AdminSubtask: return <SubtaskView subtaskId={match.params.id} />;
+    case Route.AdminThread: return <OutreachThread subtaskId={match.params.id} />;
+    default: return <Placeholder title="inqi" story="FE-02+" />;
+  }
+}
+
+export function App() {
+  const hash = useHashRoute();
+  const dispatch = useAppDispatch();
+  const session = useSelector((s) => s.session.session);
+  const match = matchRoute(hash);
+
+  // FE-02: a 401 anywhere clears the session + returns to Sign in.
+  useEffect(() => {
+    setUnauthorizedHandler(() => { dispatch({ type: ActionType.SignedOut }); navigate({ route: Route.SignIn }); });
+    return () => setUnauthorizedHandler(null);
+  }, [dispatch]);
+
+  let body: ReactNode;
+  if (!match) {
+    body = <BareFrame><AccessScreenView screen={AccessScreen.NotFound} /></BareFrame>;
+  } else {
+    const meta = ROUTE_META[match.route];
+    const access = resolveAccess({ meta, session });
+    if (!access.allowed && access.screen) {
+      body = <BareFrame><AccessScreenView screen={access.screen} /></BareFrame>;
+    } else {
+      const inner = content(match);
+      if (meta.layout === LayoutMode.Admin) body = <AdminShell active={match.route}>{inner}</AdminShell>;
+      else if (meta.layout === LayoutMode.Customer) body = <CustomerShell active={match.route}>{inner}</CustomerShell>;
+      else body = <BareFrame>{inner}</BareFrame>;
+    }
+  }
+
+  return (<>{body}<ToastHost /></>);
 }

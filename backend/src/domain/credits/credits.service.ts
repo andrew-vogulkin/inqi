@@ -30,6 +30,17 @@ export class CreditsService {
   balance({ customerId }: { customerId: string }) { return this.repo.balance({ customerId }); }
   history({ customerId }: { customerId: string }) { return this.repo.history({ customerId }); }
 
+  /** Admin customer directory/search (HP-22). */
+  searchCustomers({ q }: { q: string }) { return this.repo.searchCustomers({ q }); }
+
+  /** HP-21: atomically claim the customer's one free report (true iff granted now). */
+  claimFreeReport({ customerId }: { customerId: string }) { return this.repo.claimFreeReport({ customerId }); }
+
+  /** HP-21: charge 1 credit to unlock a freemium report (402 if short; idempotent). */
+  chargeUnlock({ customerId, inquiryId, actor }: { customerId: string; inquiryId: string; actor: string }) {
+    return this.repo.chargeUnlock({ customerId, inquiryId, actor });
+  }
+
   /** Admin manual top-up (admin-gated at the edge); audited. */
   async topUp({ customerId, amount, note, actor }: { customerId: string; amount: number; note?: string; actor: string }) {
     if (!Number.isInteger(amount) || amount <= 0) {

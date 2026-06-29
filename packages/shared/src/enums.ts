@@ -158,6 +158,7 @@ export const AuditAction = {
   Resume: 'resume',
   PublishWorkflow: 'publish_workflow',
   Topup: 'topup', // admin manual credit top-up (HP-19)
+  UnlockReport: 'unlock_report', // freemium report unlock charge (HP-21)
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 
@@ -170,15 +171,17 @@ export const AuditTargetType = {
 export type AuditTargetType = (typeof AuditTargetType)[keyof typeof AuditTargetType];
 
 /**
- * Append-only credit ledger entry kinds (HP-19). Balance =
- * Σ(topup) − Σ(reserve) + Σ(refund); a `charge` finalizes a prior reservation and
- * has **no** further balance effect (credits were already held at `reserve`).
+ * Append-only credit ledger entry kinds. Balance =
+ * Σ(topup) − Σ(reserve) + Σ(refund) − Σ(unlock); a `charge` finalizes a prior
+ * reservation and has **no** further balance effect (credits were already held at
+ * `reserve`); an `unlock` is a direct 1-credit debit for a freemium reveal (HP-21).
  */
 export const CreditKind = {
   Topup: 'topup',     // admin grants credits
   Reserve: 'reserve', // held on inquiry submit (decrements available balance)
   Charge: 'charge',   // reservation finalized on REPORT_DELIVERED (no balance change)
   Refund: 'refund',   // reservation returned on denied/dropped/cancelled/failed
+  Unlock: 'unlock',   // HP-21: direct 1-credit debit to unlock a freemium report
 } as const;
 export type CreditKind = (typeof CreditKind)[keyof typeof CreditKind];
 

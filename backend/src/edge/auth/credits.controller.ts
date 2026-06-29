@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CreditsService } from '../../domain/credits/credits.service';
 import { AuthGuard } from './auth.guard';
 import { AdminGuard } from './admin.guard';
 import { CurrentUser } from './current-user.decorator';
 import { AuthUser } from './auth.tokens';
-import { CreditBalanceDto, TopUpDto, TopUpResultDto } from './credits.dto';
+import { CreditBalanceDto, CustomerDirectoryDto, TopUpDto, TopUpResultDto } from './credits.dto';
 
 /** Customer-facing credits (HP-19): the signed-in customer's balance + history. */
 @ApiTags('auth')
@@ -34,6 +34,15 @@ export class MeCreditsController {
 @Controller('admin/customers')
 export class AdminCustomersController {
   constructor(private readonly credits: CreditsService) {}
+
+  // HP-22: customer directory/search so an operator can find a customer before a top-up.
+  @Get()
+  @ApiOperation({ summary: 'Search customers by name / email / id (admin only)' })
+  @ApiQuery({ name: 'q', required: false, description: 'Search term (empty → [])' })
+  @ApiOkResponse({ type: [CustomerDirectoryDto] })
+  search(@Query('q') q?: string): Promise<CustomerDirectoryDto[]> {
+    return this.credits.searchCustomers({ q: q ?? '' });
+  }
 
   @Post(':id/credits')
   @ApiOperation({ summary: 'Grant credits to a customer (admin only; audited)' })

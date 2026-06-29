@@ -7,5 +7,9 @@ frontend/dist
 backend/dist
 .mail-outbox
 
+# Playwright e2e artifacts
+frontend/test-results
+frontend/playwright-report
+
 # editor/FUSE orphans
 .fuse_hidden*

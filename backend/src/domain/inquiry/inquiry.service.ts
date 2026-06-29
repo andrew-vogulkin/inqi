@@ -27,10 +27,16 @@ export class InquiryService {
    */
   async create({ dto, viewer }: { dto: CreateInquiryDto; viewer: InquiryViewer }) {
     const cost = this.credits.reportCost();
+    // HP-21: the customer's first report is free (freemium — locked; unlock charges 1
+    // credit). We claim the free slot atomically; only if it's not free do we credit-gate.
+    let freeReport = false;
     if (cost > 0) {
-      const balance = await this.credits.balance({ customerId: viewer.sub });
-      if (balance < cost) {
-        throw new PaymentRequiredError({ message: `insufficient credits: need ${cost}, have ${balance}`, details: { required: cost, balance } });
+      freeReport = await this.credits.claimFreeReport({ customerId: viewer.sub });
+      if (!freeReport) {
+        const balance = await this.credits.balance({ customerId: viewer.sub });
+        if (balance < cost) {
+          throw new PaymentRequiredError({ message: `insufficient credits: need ${cost}, have ${balance}`, details: { required: cost, balance } });
+        }
       }
     }
 
@@ -41,14 +47,17 @@ export class InquiryService {
         geoLat: dto.geo?.lat, geoLng: dto.geo?.lng, geoLabel: dto.geo?.label,
         budgetMin: dto.budgetMin, budgetMax: dto.budgetMax,
         deadline: dto.deadline ? new Date(dto.deadline) : null,
+        freeReport,
       },
     });
 
-    try {
-      await this.credits.reserve({ customerId: viewer.sub, inquiryId: inq.id, actor: viewer.email });
-    } catch (err) {
-      await this.inquiries.delete({ id: inq.id }); // roll back the orphan; nothing has started yet
-      throw err;
+    if (cost > 0 && !freeReport) {
+      try {
+        await this.credits.reserve({ customerId: viewer.sub, inquiryId: inq.id, actor: viewer.email });
+      } catch (err) {
+        await this.inquiries.delete({ id: inq.id }); // roll back the orphan; nothing has started yet
+        throw err;
+      }
     }
 
     await this.outbox.emit({ type: EventType.InquiryCreated, inquiryId: inq.id, data: { rawRequest: inq.rawRequest } });

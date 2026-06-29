@@ -1,0 +1,68 @@
+import { describe, it, expect } from 'vitest';
+import { EventType, SubtaskStatus, InqiEvent } from '@inqi/shared';
+import { AsyncStatus, ReportEventType } from '../conventions/enums';
+import { InquiryBoardDto } from '../api/types';
+import { ActionType } from './actions';
+import { adminBoardReducer, initialAdminBoardState, epicNeedsAttention, epicProgress, epicSubtasks, AdminBoardState } from './adminBoard.reducer';
+
+const board: InquiryBoardDto = {
+  id: 'i1', rawRequest: 'a road bike', state: 'OUTREACH', customerEmail: 'c@x.io',
+  subject: { title: 'Road bike, 56cm' }, questionnaire: { confirmed: true },
+  epics: [{ id: 'e1', strategy: 'escalating', status: 'open', targetQualifiedOptions: 3, releasedWaves: [1], subtasks: [
+    { id: 's1', epicId: 'e1', subjectProviderName: 'Velohaus', wave: 1, status: SubtaskStatus.Contacted },
+    { id: 's2', epicId: 'e1', subjectProviderName: 'Fietsfabriek', wave: 1, status: SubtaskStatus.Qualified },
+  ] }],
+};
+const loaded = (): AdminBoardState => adminBoardReducer(initialAdminBoardState, { type: ActionType.AdminBoardLoaded, board });
+const evt = (over: Partial<InqiEvent>): InqiEvent => ({ id: '1', type: EventType.AgentProgress, inquiryId: 'i1', at: 't', data: {}, ...over });
+
+describe('adminBoardReducer — load', () => {
+  it('builds epics → subtasks + lineage from the nested DTO', () => {
+    const s = loaded();
+    expect(s.status).toBe(AsyncStatus.Ready);
+    expect(s.epicOrder).toEqual(['e1']);
+    expect(epicSubtasks(s, 'e1').map((x) => x.id)).toEqual(['s1', 's2']);
+    expect(s.lineage).toMatchObject({ userRequest: 'a road bike', initialResearch: 'Road bike, 56cm', confirmedScope: 'Scope confirmed by the customer' });
+    expect(epicProgress(s, 'e1')).toEqual({ qualified: 1, target: 3 });
+  });
+});
+
+describe('adminBoardReducer — live merge', () => {
+  it('merges subtask.created + subtask.updated (status transition)', () => {
+    let s = loaded();
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: evt({ id: '10', type: EventType.SubtaskCreated, epicId: 'e1', subtaskId: 's3', data: { subjectProviderName: 'Tweewieler', wave: 2 } }) });
+    expect(epicSubtasks(s, 'e1').map((x) => x.id)).toContain('s3');
+    expect(s.subtasksById.s3.status).toBe(SubtaskStatus.Pending);
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: evt({ id: '11', type: EventType.SubtaskUpdated, epicId: 'e1', subtaskId: 's3', data: { status: SubtaskStatus.Qualified } }) });
+    expect(s.subtasksById.s3.status).toBe(SubtaskStatus.Qualified);
+    expect(epicProgress(s, 'e1').qualified).toBe(2);
+  });
+
+  it('"need attention" appears only with a failed subtask', () => {
+    let s = loaded();
+    expect(epicNeedsAttention(s, 'e1')).toBe(false);
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: evt({ id: '12', type: EventType.SubtaskUpdated, epicId: 'e1', subtaskId: 's1', data: { status: SubtaskStatus.Failed } }) });
+    expect(epicNeedsAttention(s, 'e1')).toBe(true);
+  });
+
+  it('wave.released records the wave; run.reaped + finding.added stream', () => {
+    let s = loaded();
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: evt({ id: '13', type: EventType.WaveReleased, epicId: 'e1', data: { wave: 2, count: 3 } }) });
+    expect(s.epicsById.e1.releasedWaves).toContain(2);
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: evt({ id: '14', type: EventType.RunReaped, data: { action: 'retry' } }) });
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: evt({ id: '15', type: ReportEventType.FindingAdded as unknown as EventType, subtaskId: 's2', data: { id: 'f1', kind: 'option' } }) });
+    expect(s.findingsById.f1).toMatchObject({ kind: 'option' });
+    expect(s.events.map((e) => e.id)).toEqual(['13', '14', '15']);
+  });
+
+  it('is idempotent by event id and ignores other inquiries', () => {
+    let s = loaded();
+    const e = evt({ id: '20', type: EventType.SubtaskUpdated, epicId: 'e1', subtaskId: 's1', data: { status: SubtaskStatus.Replied } });
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: e });
+    s = adminBoardReducer(s, { type: ActionType.EventReceived, event: e }); // duplicate
+    expect(s.events.filter((x) => x.id === '20')).toHaveLength(1);
+    const before = s;
+    const after = adminBoardReducer(s, { type: ActionType.EventReceived, event: evt({ id: '21', inquiryId: 'other', type: EventType.SubtaskUpdated, subtaskId: 's1', data: { status: SubtaskStatus.Failed } }) });
+    expect(after).toBe(before); // unchanged
+  });
+});

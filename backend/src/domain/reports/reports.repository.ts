@@ -29,10 +29,23 @@ export class ReportsRepository {
   }
 
   findInquiry({ id }: { id: string }) {
-    return this.db.inquiry.findUnique({ where: { id }, select: { id: true, state: true, rawRequest: true } });
+    return this.db.inquiry.findUnique({ where: { id }, select: { id: true, state: true, rawRequest: true, freeReport: true, customerId: true, customerEmail: true } });
   }
 
   findReportByInquiry({ inquiryId }: { inquiryId: string }) {
     return this.db.report.findUnique({ where: { inquiryId } });
+  }
+
+  /** HP-21: flip a freemium report to unlocked (full options revealed). */
+  setUnlocked({ id }: { id: string }) {
+    return this.db.report.update({ where: { id }, data: { unlocked: true } });
+  }
+
+  /** HP-20: a subtask's outreach/quality facts for the redacted provenance read. */
+  findSubtaskById({ id }: { id: string }) {
+    return this.db.subtask.findUnique({
+      where: { id },
+      select: { id: true, status: true, personaId: true, replyAddress: true, background: true, qualityScore: true },
+    });
   }
 }

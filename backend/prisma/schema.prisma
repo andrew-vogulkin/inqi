@@ -68,6 +68,7 @@ model Customer {
   role      String   @default("customer") // AuthRole: customer | admin
   notificationsOptOut Boolean @default(false) // suppress customer notifications (HP-13)
   credits   Int      @default(0) // maintained balance (HP-19); == Σ ledger, never negative
+  freeReportUsed Boolean @default(false) // HP-21: the one free (freemium) report has been granted
   createdAt DateTime @default(now())
 
   inquiries Inquiry[]
@@ -112,6 +113,7 @@ model Inquiry {
   denyReason String?
   cancelRequested Boolean @default(false) // operator/customer cancel flag in-flight jobs observe (HP-09)
   heldFromState   String?                 // state to resume to after an operator pause (HP-11)
+  freeReport      Boolean @default(false) // HP-21: this inquiry's report is the customer's free (freemium) one
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -242,6 +244,8 @@ model Report {
   options    Json    // [{ subjectProvider, price, availability, constraints, ... }]
   timeline   Json    // actions taken, with timestamps
   reusedFrom String? // Report.id if derived from prior research
+  freemium   Boolean @default(false) // HP-21: free/locked report — payload redacted until unlocked
+  unlocked   Boolean @default(false) // HP-21: 1 credit charged → full options revealed
   createdAt  DateTime @default(now())
 
   inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)

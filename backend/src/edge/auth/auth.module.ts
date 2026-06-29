@@ -4,10 +4,12 @@ import { InquiryModule } from '../../domain/inquiry/inquiry.module';
 import { KanbanModule } from '../../domain/kanban/kanban.module';
 import { CustomerModule } from '../../domain/customer/customer.module';
 import { CreditsModule } from '../../domain/credits/credits.module';
+import { ReportsModule } from '../../domain/reports/reports.module';
 import { OrchestratorWorkersModule } from '../../domain/orchestrator/orchestrator-workers.module';
 import { ConfigService } from '../../infra/config/config.service';
 import { AdminInquiriesController } from './admin-inquiries.controller';
 import { AdminThreadController } from './admin-thread.controller';
+import { AuthedReportsController } from './authed-reports.controller';
 import { WorkflowsController } from './workflows.controller';
 import { AuditController } from './audit.controller';
 import { MeCreditsController, AdminCustomersController } from './credits.controller';
@@ -26,8 +28,8 @@ import { StubTokenVerifier } from './stub-token.verifier';
  * else the dev/e2e stub.
  */
 @Module({
-  imports: [InquiryModule, KanbanModule, CustomerModule, CreditsModule, OrchestratorWorkersModule],
-  controllers: [AuthController, AdminInquiriesController, AdminThreadController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController],
+  imports: [InquiryModule, KanbanModule, CustomerModule, CreditsModule, ReportsModule, OrchestratorWorkersModule],
+  controllers: [AuthController, AdminInquiriesController, AdminThreadController, AuthedReportsController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController],
   providers: [
     AuthService,
     SessionService,
