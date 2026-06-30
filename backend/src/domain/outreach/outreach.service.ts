@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import type { InquiryMessage } from '@prisma/client';
 import { ComplianceKind, EventType, MessageDirection, MessageStatus, ModelTier, ReviewStatus, SubtaskStatus, UsageKind } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
+import { PrismaService } from '../../infra/persistence/prisma.service';
 import { ConfigService } from '../../infra/config/config.service';
 import { UsageService } from '../../infra/usage/usage.service';
 import { AI_PROVIDER, AiProvider, ChatMsg, ChatRole } from '../../infra/ai/ai.tokens';
@@ -34,6 +35,7 @@ export interface IngestResult {
 @Injectable()
 export class OutreachService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly outreach: OutreachRepository,
     private readonly outbox: OutboxService,
     private readonly config: ConfigService,
@@ -105,15 +107,20 @@ export class OutreachService {
       subject: `Inquiry: ${subject?.title ?? ''}`,
       body,
     });
-    const msg = await this.outreach.createMessage({
-      data: {
-        subtaskId, direction: MessageDirection.Outbound, status: MessageStatus.Sent,
-        fromAddr: replyAddress, toAddr: contact.email ?? null, subject: `Inquiry: ${subject?.title ?? ''}`,
-        body, externalId, references: [externalId], modelTier: ModelTier.Depth,
-        personaId: persona.id, reviewStatus: review.status, riskScore: review.score, riskTags: review.categories,
-      },
+    // The sent-message record + its realtime event commit together (send already
+    // happened above; the durable record is what makes a retry idempotent).
+    await this.prisma.$transaction(async (tx) => {
+      const m = await this.outreach.createMessage({
+        data: {
+          subtaskId, direction: MessageDirection.Outbound, status: MessageStatus.Sent,
+          fromAddr: replyAddress, toAddr: contact.email ?? null, subject: `Inquiry: ${subject?.title ?? ''}`,
+          body, externalId, references: [externalId], modelTier: ModelTier.Depth,
+          personaId: persona.id, reviewStatus: review.status, riskScore: review.score, riskTags: review.categories,
+        },
+        tx,
+      });
+      await this.outbox.emit({ type: EventType.MessageSent, inquiryId, epicId: st.epicId, subtaskId, data: { to: m.toAddr, replyAddress }, tx });
     });
-    await this.outbox.emit({ type: EventType.MessageSent, inquiryId, epicId: st.epicId, subtaskId, data: { to: msg.toAddr, replyAddress } });
     void this.usage.recordAction({ inquiryId, kind: UsageKind.EmailSent }); // cost accounting (HP-15)
     // Replies arrive via the inbound webhook (real provider, or the local provider's loopback).
     return { blocked: false, replyAddress, personaId: persona.id };
@@ -125,13 +132,16 @@ export class OutreachService {
     const persona = getPersona({ id: st.personaId });
     const text = `${body ?? 'Thanks — one follow-up: can you confirm the price including delivery?'}\n\n${persona.name}`;
     const { externalId } = await this.mail.send({ from: st.replyAddress ?? '', to: null, subject: 'Re: inquiry', body: text });
-    await this.outreach.createMessage({
-      data: {
-        subtaskId, direction: MessageDirection.Outbound, status: MessageStatus.Sent, subject: 'Re: inquiry',
-        body: text, externalId, references: [externalId], modelTier: ModelTier.Depth, personaId: persona.id,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await this.outreach.createMessage({
+        data: {
+          subtaskId, direction: MessageDirection.Outbound, status: MessageStatus.Sent, subject: 'Re: inquiry',
+          body: text, externalId, references: [externalId], modelTier: ModelTier.Depth, personaId: persona.id,
+        },
+        tx,
+      });
+      await this.outbox.emit({ type: EventType.MessageSent, inquiryId, epicId: st.epicId, subtaskId, data: { followup: true }, tx });
     });
-    await this.outbox.emit({ type: EventType.MessageSent, inquiryId, epicId: st.epicId, subtaskId, data: { followup: true } });
   }
 
   /** Persist an inbound subject-provider email and emit message.received. Idempotent on Message-ID. */
@@ -144,14 +154,18 @@ export class OutreachService {
       const dup = await this.outreach.findMessageByExternalId({ externalId: p.externalId });
       if (dup) return { duplicate: true, inquiryId: st.epic.inquiryId, subtaskId: st.id, message: dup };
     }
-    const msg = await this.outreach.createMessage({
-      data: {
-        subtaskId: st.id, direction: MessageDirection.Inbound, status: MessageStatus.Received,
-        fromAddr: p.fromAddr, toAddr: p.toAddr, subject: p.subject, body: p.body,
-        externalId: p.externalId, inReplyTo: p.inReplyTo, references: p.references ?? [],
-      },
+    const msg = await this.prisma.$transaction(async (tx) => {
+      const m = await this.outreach.createMessage({
+        data: {
+          subtaskId: st.id, direction: MessageDirection.Inbound, status: MessageStatus.Received,
+          fromAddr: p.fromAddr, toAddr: p.toAddr, subject: p.subject, body: p.body,
+          externalId: p.externalId, inReplyTo: p.inReplyTo, references: p.references ?? [],
+        },
+        tx,
+      });
+      await this.outbox.emit({ type: EventType.MessageReceived, inquiryId: st.epic.inquiryId, epicId: st.epicId, subtaskId: st.id, data: { from: p.fromAddr }, tx });
+      return m;
     });
-    await this.outbox.emit({ type: EventType.MessageReceived, inquiryId: st.epic.inquiryId, epicId: st.epicId, subtaskId: st.id, data: { from: p.fromAddr } });
     return { duplicate: false, inquiryId: st.epic.inquiryId, subtaskId: st.id, message: msg };
   }
 }

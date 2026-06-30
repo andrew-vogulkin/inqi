@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AuthRole } from '@inqi/shared';
 import { ConfigService } from '../../infra/config/config.service';
+import { PrismaService } from '../../infra/persistence/prisma.service';
 import { ErrorCode, UnauthorizedError } from '../../common/errors';
 import { CustomerService } from '../../domain/customer/customer.service';
 import { InquiryService } from '../../domain/inquiry/inquiry.service';
@@ -24,6 +25,7 @@ export class AuthService {
 
   constructor(
     @Inject(TOKEN_VERIFIER) private readonly verifier: TokenVerifier,
+    private readonly prisma: PrismaService,
     private readonly customers: CustomerService,
     private readonly inquiries: InquiryService,
     private readonly session: SessionService,
@@ -37,8 +39,13 @@ export class AuthService {
     }
     const { emails, domain } = this.config.adminAllowlist;
     const role = resolveRole({ email: identity.email, adminEmails: emails, adminDomain: domain });
-    const customer = await this.customers.upsertByEmail({ email: identity.email, googleSub: identity.sub, name: identity.name, role });
-    const { count } = await this.inquiries.linkOwnerByEmail({ email: customer.email, customerId: customer.id });
+    // Upsert the identity and claim their prior inquiries as one unit — a sign-in
+    // either fully links the account or changes nothing (both repo calls share the tx).
+    const { customer, count } = await this.prisma.$transaction(async (tx) => {
+      const customer = await this.customers.upsertByEmail({ email: identity.email, googleSub: identity.sub, name: identity.name, role, tx });
+      const { count } = await this.inquiries.linkOwnerByEmail({ email: customer.email, customerId: customer.id, tx });
+      return { customer, count };
+    });
     if (count) this.logger.log(`linked ${count} prior inquiry(ies) to ${customer.email}`);
     const token = this.session.sign({ sub: customer.id, email: customer.email, role });
     return { token, customer: { id: customer.id, email: customer.email, name: customer.name, role } };

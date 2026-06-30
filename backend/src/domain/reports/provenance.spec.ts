@@ -10,7 +10,7 @@ function svcWith({ subtaskStatus, sources = true }: { subtaskStatus: string; sou
     ]),
     findSubtaskById: jest.fn().mockResolvedValue({ id: 's1', status: subtaskStatus, personaId: 'persona_ams', replyAddress: 'secret@reply.inqi.io', background: {}, qualityScore: 0.8 }),
   };
-  return new ReportsService(repo as never, {} as never, {} as never, {} as never, {} as never);
+  return new ReportsService({} as never, repo as never, {} as never, {} as never, {} as never, {} as never);
 }
 
 describe('ReportsService.provenance (HP-20)', () => {

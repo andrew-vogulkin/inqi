@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { CreditKind } from '@inqi/shared';
-import { PrismaService } from '../../infra/persistence/prisma.service';
+import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 import { ErrorCode, NotFoundError, PaymentRequiredError } from '../../common/errors';
 import { SettlementAction } from './credits.balance';
 
@@ -22,24 +22,38 @@ export interface SettleResult {
 export class CreditsRepository {
   constructor(private readonly db: PrismaService) {}
 
-  async balance({ customerId }: { customerId: string }): Promise<number> {
-    const c = await this.db.customer.findUnique({ where: { id: customerId }, select: { credits: true } });
+  /** Resolve the executor: a passed-in transaction, or the root client (auto-commit). */
+  private exec(tx?: DbTx): DbTx {
+    return tx ?? this.db;
+  }
+
+  /**
+   * Run `fn` inside the caller's transaction when one is threaded in, otherwise open
+   * a fresh one. Prisma forbids nesting `$transaction`, so multi-statement methods
+   * must reuse a passed-in `tx` rather than starting their own.
+   */
+  private inTx<T>(tx: DbTx | undefined, fn: (db: DbTx) => Promise<T>): Promise<T> {
+    return tx ? fn(tx) : this.db.$transaction(fn);
+  }
+
+  async balance({ customerId, tx }: { customerId: string; tx?: DbTx }): Promise<number> {
+    const c = await this.exec(tx).customer.findUnique({ where: { id: customerId }, select: { credits: true } });
     if (!c) throw new NotFoundError({ code: ErrorCode.CustomerNotFound, message: 'customer not found' });
     return c.credits;
   }
 
-  history({ customerId, take = 100 }: { customerId: string; take?: number }) {
-    return this.db.creditLedger.findMany({ where: { customerId }, orderBy: { createdAt: 'desc' }, take });
+  history({ customerId, take = 100, tx }: { customerId: string; take?: number; tx?: DbTx }) {
+    return this.exec(tx).creditLedger.findMany({ where: { customerId }, orderBy: { createdAt: 'desc' }, take });
   }
 
   /**
    * Admin customer directory/search (HP-22): match by name / email (case-insensitive
    * contains) or exact id. Empty query → []. Limited; no PII in logs.
    */
-  async searchCustomers({ q, take = 20 }: { q: string; take?: number }): Promise<{ id: string; name: string; email: string }[]> {
+  async searchCustomers({ q, take = 20, tx }: { q: string; take?: number; tx?: DbTx }): Promise<{ id: string; name: string; email: string }[]> {
     const query = q.trim();
     if (!query) return [];
-    const rows = await this.db.customer.findMany({
+    const rows = await this.exec(tx).customer.findMany({
       where: {
         OR: [
           { email: { contains: query, mode: 'insensitive' } },
@@ -58,8 +72,8 @@ export class CreditsRepository {
    * HP-21: atomically claim the customer's one free report. Returns true iff this call
    * flipped `freeReportUsed` false→true (so concurrent submits can't both go free).
    */
-  async claimFreeReport({ customerId }: { customerId: string }): Promise<boolean> {
-    const res = await this.db.customer.updateMany({ where: { id: customerId, freeReportUsed: false }, data: { freeReportUsed: true } });
+  async claimFreeReport({ customerId, tx }: { customerId: string; tx?: DbTx }): Promise<boolean> {
+    const res = await this.exec(tx).customer.updateMany({ where: { id: customerId, freeReportUsed: false }, data: { freeReportUsed: true } });
     return res.count === 1;
   }
 
@@ -68,9 +82,9 @@ export class CreditsRepository {
    * (inquiryId, kind=unlock) unique — a second unlock is a no-op (no double-charge).
    * Conditional decrement keeps the balance non-negative; a short balance throws 402.
    */
-  async chargeUnlock({ customerId, inquiryId, actor, amount = 1 }: { customerId: string; inquiryId: string; actor: string; amount?: number }): Promise<{ charged: boolean; balance: number }> {
+  async chargeUnlock({ customerId, inquiryId, actor, amount = 1, tx: outer }: { customerId: string; inquiryId: string; actor: string; amount?: number; tx?: DbTx }): Promise<{ charged: boolean; balance: number }> {
     try {
-      return await this.db.$transaction(async (tx) => {
+      return await this.inTx(outer, async (tx) => {
         const prior = await tx.creditLedger.findUnique({ where: { inquiryId_kind: { inquiryId, kind: CreditKind.Unlock } } });
         if (prior) {
           const c = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { credits: true } });
@@ -96,8 +110,8 @@ export class CreditsRepository {
   }
 
   /** Admin top-up: grant credits + append a `topup`, transactionally. */
-  async topUp({ customerId, amount, note, actor }: { customerId: string; amount: number; note?: string; actor: string }): Promise<{ balance: number }> {
-    return this.db.$transaction(async (tx) => {
+  async topUp({ customerId, amount, note, actor, tx: outer }: { customerId: string; amount: number; note?: string; actor: string; tx?: DbTx }): Promise<{ balance: number }> {
+    return this.inTx(outer, async (tx) => {
       const c = await tx.customer.findUnique({ where: { id: customerId }, select: { id: true } });
       if (!c) throw new NotFoundError({ code: ErrorCode.CustomerNotFound, message: 'customer not found' });
       const updated = await tx.customer.update({ where: { id: customerId }, data: { credits: { increment: amount } }, select: { credits: true } });
@@ -111,8 +125,8 @@ export class CreditsRepository {
    * is atomic, so concurrent submits can never overspend or drive the balance
    * negative; a lost race throws 402 (the inquiry is then rolled back at the call site).
    */
-  async reserve({ customerId, inquiryId, cost, actor }: { customerId: string; inquiryId: string; cost: number; actor: string }): Promise<{ balance: number }> {
-    return this.db.$transaction(async (tx) => {
+  async reserve({ customerId, inquiryId, cost, actor, tx: outer }: { customerId: string; inquiryId: string; cost: number; actor: string; tx?: DbTx }): Promise<{ balance: number }> {
+    return this.inTx(outer, async (tx) => {
       const dec = await tx.customer.updateMany({ where: { id: customerId, credits: { gte: cost } }, data: { credits: { decrement: cost } } });
       if (dec.count === 0) {
         const c = await tx.customer.findUnique({ where: { id: customerId }, select: { credits: true } });
@@ -131,10 +145,10 @@ export class CreditsRepository {
    * existing charge/refund → no-op; a concurrent double-settle hits the unique
    * index (P2002) and is treated as already-settled.
    */
-  async settle({ inquiryId, action, reason }: { inquiryId: string; action: SettlementAction; reason?: string }): Promise<SettleResult> {
+  async settle({ inquiryId, action, reason, tx: outer }: { inquiryId: string; action: SettlementAction; reason?: string; tx?: DbTx }): Promise<SettleResult> {
     const kind = action === 'charge' ? CreditKind.Charge : CreditKind.Refund;
     try {
-      return await this.db.$transaction(async (tx) => {
+      return await this.inTx(outer, async (tx) => {
         const reserve = await tx.creditLedger.findUnique({ where: { inquiryId_kind: { inquiryId, kind: CreditKind.Reserve } } });
         if (!reserve) return { settled: false };
         const prior = await tx.creditLedger.findFirst({ where: { inquiryId, kind: { in: [CreditKind.Charge, CreditKind.Refund] } } });

@@ -3,6 +3,7 @@ import { AuditAction, AuditTargetType, EventType } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { AuditService } from '../../infra/observability/audit.service';
 import { ConfigService } from '../../infra/config/config.service';
+import { DbTx } from '../../infra/persistence/prisma.service';
 import { DomainError, ErrorCode } from '../../common/errors';
 import { CreditsRepository } from './credits.repository';
 import { SettlementAction } from './credits.balance';
@@ -27,18 +28,18 @@ export class CreditsService {
   /** Flat credits one report run costs. */
   reportCost(): number { return this.config.reportCostCredits; }
 
-  balance({ customerId }: { customerId: string }) { return this.repo.balance({ customerId }); }
+  balance({ customerId, tx }: { customerId: string; tx?: DbTx }) { return this.repo.balance({ customerId, tx }); }
   history({ customerId }: { customerId: string }) { return this.repo.history({ customerId }); }
 
   /** Admin customer directory/search (HP-22). */
   searchCustomers({ q }: { q: string }) { return this.repo.searchCustomers({ q }); }
 
   /** HP-21: atomically claim the customer's one free report (true iff granted now). */
-  claimFreeReport({ customerId }: { customerId: string }) { return this.repo.claimFreeReport({ customerId }); }
+  claimFreeReport({ customerId, tx }: { customerId: string; tx?: DbTx }) { return this.repo.claimFreeReport({ customerId, tx }); }
 
   /** HP-21: charge 1 credit to unlock a freemium report (402 if short; idempotent). */
-  chargeUnlock({ customerId, inquiryId, actor }: { customerId: string; inquiryId: string; actor: string }) {
-    return this.repo.chargeUnlock({ customerId, inquiryId, actor });
+  chargeUnlock({ customerId, inquiryId, actor, tx }: { customerId: string; inquiryId: string; actor: string; tx?: DbTx }) {
+    return this.repo.chargeUnlock({ customerId, inquiryId, actor, tx });
   }
 
   /** Admin manual top-up (admin-gated at the edge); audited. */
@@ -54,12 +55,17 @@ export class CreditsService {
     return { customerId, balance };
   }
 
-  /** Reserve the report cost for a new inquiry; throws 402 if the balance is short. */
-  async reserve({ customerId, inquiryId, actor }: { customerId: string; inquiryId: string; actor: string }) {
+  /**
+   * Reserve the report cost for a new inquiry; throws 402 if the balance is short.
+   * When the caller (inquiry submit) threads a `tx`, the decrement, ledger row and
+   * the CreditsReserved event all join that transaction — so a later failure rolls
+   * the whole submit back as one unit.
+   */
+  async reserve({ customerId, inquiryId, actor, tx }: { customerId: string; inquiryId: string; actor: string; tx?: DbTx }) {
     const cost = this.reportCost();
-    if (cost === 0) return { balance: await this.repo.balance({ customerId }), reserved: 0 };
-    const { balance } = await this.repo.reserve({ customerId, inquiryId, cost, actor });
-    await this.outbox.emit({ type: EventType.CreditsReserved, inquiryId, data: { amount: cost, balance } });
+    if (cost === 0) return { balance: await this.repo.balance({ customerId, tx }), reserved: 0 };
+    const { balance } = await this.repo.reserve({ customerId, inquiryId, cost, actor, tx });
+    await this.outbox.emit({ type: EventType.CreditsReserved, inquiryId, data: { amount: cost, balance }, tx });
     return { balance, reserved: cost };
   }
 

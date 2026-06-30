@@ -20,14 +20,7 @@ export const feasibilitySchema = z.object({
 });
 export type FeasibilityResult = z.infer<typeof feasibilitySchema>;
 
-/** System prompt. The `[stage:feasibility]` tag lets test doubles route by stage. */
-export const FEASIBILITY_SYSTEM = [
-  '[stage:feasibility] You are inqi\'s pre-research analyst.',
-  'Given a customer\'s free-text request for something they want to find (an item, service, rental, organisation, goods or trade),',
-  'evaluate it for ethical and legal feasibility, then enrich the subject.',
-  'Deny anything illegal, dangerous, or that facilitates harm; otherwise allow.',
-  'Respond as strict JSON: { "decision": "allow"|"deny", "riskTags": string[], "reason": string,',
-  '"subject": { "title": string, "category": "item"|"service"|"rental"|"organisation"|"goods"|"trade", "summary": string } }.',
-].join(' ');
+// System prompt text lives centrally (inspectable + dynamic-ready); re-exported here.
+export { feasibilitySystem } from '../../../infra/ai/prompts';
 
 export const buildFeasibilityUser = ({ rawRequest }: { rawRequest: string }): string => rawRequest;

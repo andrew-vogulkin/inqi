@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { AgentStage, ConvState, EventType, FindingKind, ModelTier, QueueJob, SubtaskStatus, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
+import { PrismaService } from '../../infra/persistence/prisma.service';
 import { ActivityService } from '../../infra/observability/activity.service';
 import { AI_PROVIDER, AiProvider, ChatMsg, ChatRole } from '../../infra/ai/ai.tokens';
 import { UsageService } from '../../infra/usage/usage.service';
@@ -10,7 +11,7 @@ import { OutreachService, IngestResult } from '../outreach/outreach.service';
 import { getPersona } from './personas';
 import { AgentRepository } from './agent.repository';
 import { ReplyDecision, ReplyIntent } from './agent.types';
-import { REPLY_PARSE_SYSTEM, replyParseSchema } from './reply.prompt';
+import { replyParseSystem, replyParseSchema } from './reply.prompt';
 
 /**
  * The agent: researches an individual subject provider, opens its email thread
@@ -21,6 +22,7 @@ import { REPLY_PARSE_SYSTEM, replyParseSchema } from './reply.prompt';
 @Injectable()
 export class AgentService implements OnModuleInit {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly agents: AgentRepository,
     private readonly boss: BossService,
     private readonly outbox: OutboxService,
@@ -95,22 +97,28 @@ export class AgentService implements OnModuleInit {
       return;
     }
 
-    if (decision.intent === ReplyIntent.Disqualify || decision.intent === ReplyIntent.Escalate) {
-      await this.agents.updateSubtask({ id: subtaskId, data: { status: SubtaskStatus.Failed, convState: ConvState.Closed } });
-      await this.outbox.emit({ type: EventType.SubtaskUpdated, inquiryId, epicId: st.epicId, subtaskId, data: { status: SubtaskStatus.Failed, reason: decision.reason } });
-    } else {
-      // qualify
-      await this.agents.updateSubtask({ id: subtaskId, data: { status: SubtaskStatus.Qualified, convState: ConvState.Closed, result: decision.result as Prisma.InputJsonValue } });
-      // Dynamic report: append a finding the report assembles on read. Idempotent —
-      // a retried ProcessReply must not append a second option for this subtask.
-      const existing = await this.agents.findFinding({ subtaskId, kind: FindingKind.Option });
-      if (!existing) {
-        await this.agents.createFinding({
-          data: { inquiryId, epicId: st.epicId, subtaskId, kind: FindingKind.Option, data: { subjectProvider: st.subjectProviderName, ...decision.result } as Prisma.InputJsonValue },
-        });
+    // The settlement is one atomic unit: the subtask's terminal status, the option
+    // finding (qualify) and the realtime event commit or roll back together. The
+    // reactor kick is a queue side-effect, enqueued only after the commit.
+    await this.prisma.$transaction(async (tx) => {
+      if (decision.intent === ReplyIntent.Disqualify || decision.intent === ReplyIntent.Escalate) {
+        await this.agents.updateSubtask({ id: subtaskId, data: { status: SubtaskStatus.Failed, convState: ConvState.Closed }, tx });
+        await this.outbox.emit({ type: EventType.SubtaskUpdated, inquiryId, epicId: st.epicId, subtaskId, data: { status: SubtaskStatus.Failed, reason: decision.reason }, tx });
+      } else {
+        // qualify
+        await this.agents.updateSubtask({ id: subtaskId, data: { status: SubtaskStatus.Qualified, convState: ConvState.Closed, result: decision.result as Prisma.InputJsonValue }, tx });
+        // Dynamic report: append a finding the report assembles on read. Idempotent —
+        // a retried ProcessReply must not append a second option for this subtask.
+        const existing = await this.agents.findFinding({ subtaskId, kind: FindingKind.Option, tx });
+        if (!existing) {
+          await this.agents.createFinding({
+            data: { inquiryId, epicId: st.epicId, subtaskId, kind: FindingKind.Option, data: { subjectProvider: st.subjectProviderName, ...decision.result } as Prisma.InputJsonValue },
+            tx,
+          });
+        }
+        await this.outbox.emit({ type: EventType.SubtaskUpdated, inquiryId, epicId: st.epicId, subtaskId, data: { status: SubtaskStatus.Qualified, result: decision.result }, tx });
       }
-      await this.outbox.emit({ type: EventType.SubtaskUpdated, inquiryId, epicId: st.epicId, subtaskId, data: { status: SubtaskStatus.Qualified, result: decision.result } });
-    }
+    });
 
     // Settled (qualified/failed) → let the agentic orchestrator decide the next move.
     await this.boss.enqueue({ job: QueueJob.SubtaskSettled, data: { inquiryId, epicId: st.epicId } });
@@ -128,7 +136,7 @@ export class AgentService implements OnModuleInit {
       .join('\n\n');
     try {
       const p = await this.ai.structured({
-        system: REPLY_PARSE_SYSTEM, user: transcript, tier: ModelTier.Depth,
+        system: replyParseSystem(), user: transcript, tier: ModelTier.Depth,
         validate: (raw) => replyParseSchema.parse(raw),
       });
       if (p.intent === ReplyIntent.Qualify) {

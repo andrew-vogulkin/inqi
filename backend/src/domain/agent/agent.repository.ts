@@ -1,26 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/persistence/prisma.service';
+import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for agent-owned writes: subtask state + findings. */
 @Injectable()
 export class AgentRepository {
   constructor(private readonly db: PrismaService) {}
 
-  findSubtask({ id }: { id: string }) {
-    return this.db.subtask.findUniqueOrThrow({ where: { id } });
+  /** Resolve the executor: a passed-in transaction, or the root client (auto-commit). */
+  private exec(tx?: DbTx): DbTx {
+    return tx ?? this.db;
   }
 
-  updateSubtask({ id, data }: { id: string; data: Prisma.SubtaskUncheckedUpdateInput }) {
-    return this.db.subtask.update({ where: { id }, data });
+  findSubtask({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).subtask.findUniqueOrThrow({ where: { id } });
   }
 
-  createFinding({ data }: { data: Prisma.FindingUncheckedCreateInput }) {
-    return this.db.finding.create({ data });
+  updateSubtask({ id, data, tx }: { id: string; data: Prisma.SubtaskUncheckedUpdateInput; tx?: DbTx }) {
+    return this.exec(tx).subtask.update({ where: { id }, data });
+  }
+
+  createFinding({ data, tx }: { data: Prisma.FindingUncheckedCreateInput; tx?: DbTx }) {
+    return this.exec(tx).finding.create({ data });
   }
 
   /** Existing finding of a kind for a subtask — guards against duplicate findings on job retries. */
-  findFinding({ subtaskId, kind }: { subtaskId: string; kind: string }) {
-    return this.db.finding.findFirst({ where: { subtaskId, kind } });
+  findFinding({ subtaskId, kind, tx }: { subtaskId: string; kind: string; tx?: DbTx }) {
+    return this.exec(tx).finding.findFirst({ where: { subtaskId, kind } });
   }
 }

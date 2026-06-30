@@ -3,7 +3,7 @@ import { ComplianceCategory, ComplianceFailMode, ComplianceKind, ModelTier, Revi
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { ConfigService } from '../../infra/config/config.service';
 import { ComplianceResult, ComplianceScorer } from './compliance.tokens';
-import { COMPLIANCE_SYSTEM, ComplianceVerdict, buildComplianceUser, complianceSchema } from './compliance.prompt';
+import { complianceSystem, ComplianceVerdict, buildComplianceUser, complianceSchema } from './compliance.prompt';
 
 /**
  * Ethical + legal scorer. Runs the compliance rubric via the model-tier router:
@@ -47,7 +47,7 @@ export class ComplianceService implements ComplianceScorer {
   /** One scoring pass at a given tier. */
   private run({ kind, text, tier }: { kind: ComplianceKind; text: string; tier: ModelTier }): Promise<ComplianceVerdict> {
     return this.ai.structured({
-      system: COMPLIANCE_SYSTEM,
+      system: complianceSystem(),
       user: buildComplianceUser({ kind, text }),
       tier,
       validate: (raw) => complianceSchema.parse(raw),

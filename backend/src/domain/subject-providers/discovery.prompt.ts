@@ -8,12 +8,8 @@ export const discoverySchema = z.object({
 });
 export type DiscoveryResult = z.infer<typeof discoverySchema>;
 
-export const DISCOVERY_SYSTEM = [
-  "[stage:discovery] You are inqi's subject-provider discovery analyst (wide, cheap pass).",
-  'Given the enriched subject and how many candidates are needed, propose realistic subject providers (sellers/services/landlords/orgs) that could supply it, spread across plausible regions.',
-  'Never repeat any name in the provided exclude list.',
-  'Respond as strict JSON: { "candidates": [ { "name": string, "country": string } ] }.',
-].join(' ');
+// System prompt text lives centrally (inspectable + dynamic-ready); re-exported here.
+export { discoverySystem } from '../../infra/ai/prompts';
 
 export const buildDiscoveryUser = ({ subject, count, exclude }: { subject: unknown; count: number; exclude: string[] }): string =>
   JSON.stringify({ subject, count, exclude });

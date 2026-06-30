@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { EventType, FindingKind, InquiryState, ModelTier, SubtaskStatus, ProvenanceDto, ProvenanceDepth, OutreachOutcome, AuditAction, AuditTargetType, deriveStage, InquiryStage } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
+import { PrismaService } from '../../infra/persistence/prisma.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { ErrorCode, NotFoundError } from '../../common/errors';
 import { ownsResource, OwnershipViewer } from '../../common/ownership';
@@ -10,8 +11,8 @@ import { CreditsService } from '../credits/credits.service';
 import { AuditService } from '../../infra/observability/audit.service';
 import { ReportsRepository } from './reports.repository';
 import { rankOptions, RankableOption, RankedOption } from './ranking';
-import { SYNTHESIS_SYSTEM, buildSynthesisUser, synthesisSchema } from './synthesis.prompt';
-import { PROVENANCE_SUMMARY_SYSTEM, buildProvenanceSummaryUser, provenanceSummarySchema, ProvenanceSummaryInput } from './provenance-summary.prompt';
+import { synthesisSystem, buildSynthesisUser, synthesisSchema } from './synthesis.prompt';
+import { provenanceSummarySystem, buildProvenanceSummaryUser, provenanceSummarySchema, ProvenanceSummaryInput } from './provenance-summary.prompt';
 import { ProvenanceSummaries, MessageDirection, QuestionnaireQuestion } from '@inqi/shared';
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -98,6 +99,7 @@ export function assembleOptions(findings: FindingLike[]): RankedOption[] {
 @Injectable()
 export class ReportsService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly reports: ReportsRepository,
     private readonly outbox: OutboxService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
@@ -119,18 +121,22 @@ export class ReportsService {
     const summary = await this.synthesize({ ranked });
     // HP-21: the free (freemium) report is delivered locked until a 1-credit unlock.
     const inquiry = await this.reports.findInquiry({ id: inquiryId });
-    const report = await this.reports.create({
-      data: {
-        inquiryId,
-        token: randomBytes(20).toString('hex'),
-        summary,
-        options: ranked as unknown as Prisma.InputJsonValue,
-        timeline: { generatedAt: new Date().toISOString() },
-        freemium: inquiry?.freeReport ?? false,
-      },
+    // Snapshot + its ready event commit together (AI synthesis already done, above the tx).
+    return this.prisma.$transaction(async (tx) => {
+      const report = await this.reports.create({
+        data: {
+          inquiryId,
+          token: randomBytes(20).toString('hex'),
+          summary,
+          options: ranked as unknown as Prisma.InputJsonValue,
+          timeline: { generatedAt: new Date().toISOString() },
+          freemium: inquiry?.freeReport ?? false,
+        },
+        tx,
+      });
+      await this.outbox.emit({ type: EventType.ReportReady, inquiryId, data: { reportToken: report.token, options: ranked.length }, tx });
+      return report;
     });
-    await this.outbox.emit({ type: EventType.ReportReady, inquiryId, data: { reportToken: report.token, options: ranked.length } });
-    return report;
   }
 
   /** Synthesize the prose summary (DEPTH tier); falls back to a template when AI is unconfigured or fails. */
@@ -139,7 +145,7 @@ export class ReportsService {
     if (!this.ai.isConfigured() || ranked.length === 0) return fallback;
     try {
       const result = await this.ai.structured({
-        system: SYNTHESIS_SYSTEM,
+        system: synthesisSystem(),
         user: buildSynthesisUser({ options: ranked }),
         tier: ModelTier.Depth,
         validate: (raw) => synthesisSchema.parse(raw),
@@ -154,18 +160,21 @@ export class ReportsService {
   async reuseFrom({ inquiryId, priorReportId }: { inquiryId: string; priorReportId: string }) {
     const prior = await this.reports.findById({ id: priorReportId });
     if (!prior) throw new NotFoundError({ code: ErrorCode.ReportNotFound, message: 'prior report not found' });
-    const report = await this.reports.create({
-      data: {
-        inquiryId,
-        token: randomBytes(20).toString('hex'),
-        summary: `Reused a prior report for a similar nearby inquiry. ${prior.summary}`,
-        options: prior.options as Prisma.InputJsonValue,
-        timeline: { generatedAt: new Date().toISOString(), reusedFrom: priorReportId },
-        reusedFrom: priorReportId,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const report = await this.reports.create({
+        data: {
+          inquiryId,
+          token: randomBytes(20).toString('hex'),
+          summary: `Reused a prior report for a similar nearby inquiry. ${prior.summary}`,
+          options: prior.options as Prisma.InputJsonValue,
+          timeline: { generatedAt: new Date().toISOString(), reusedFrom: priorReportId },
+          reusedFrom: priorReportId,
+        },
+        tx,
+      });
+      await this.outbox.emit({ type: EventType.ReportReady, inquiryId, data: { reportToken: report.token, reused: true, reusedFrom: priorReportId }, tx });
+      return report;
     });
-    await this.outbox.emit({ type: EventType.ReportReady, inquiryId, data: { reportToken: report.token, reused: true, reusedFrom: priorReportId } });
-    return report;
   }
 
   async getByToken({ token, viewer }: { token: string; viewer: OwnershipViewer }) {
@@ -201,6 +210,11 @@ export class ReportsService {
       return { id: reportId, unlocked: true, balance }; // idempotent — no re-charge, no re-emit
     }
 
+    // NOTE: deliberately NOT wrapped in a single $transaction. `chargeUnlock` owns its
+    // own transaction with P2002 race-recovery (concurrent unlock → already-charged);
+    // an outer tx would abort on that P2002 and defeat the recovery. Both steps are
+    // idempotent (charge keyed by (inquiryId,unlock); setUnlocked sets a flag), so a
+    // mid-way failure is safely re-runnable by the caller without double-charging.
     const customerId = inquiry.customerId ?? viewer.sub;
     const { balance } = await this.credits.chargeUnlock({ customerId, inquiryId: report.inquiryId, actor: viewer.email });
     await this.reports.setUnlocked({ id: reportId });
@@ -286,7 +300,7 @@ export class ReportsService {
         outreach: { outcome: ctx.outcome, responseMinutes, reply: inbound?.body ?? null },
       };
       const r = await this.ai.structured({
-        system: PROVENANCE_SUMMARY_SYSTEM, user: buildProvenanceSummaryUser(input), tier: ModelTier.Depth,
+        system: provenanceSummarySystem(), user: buildProvenanceSummaryUser(input), tier: ModelTier.Depth,
         validate: (raw) => provenanceSummarySchema.parse(raw),
       });
       return { web: r.web ?? '', outreach: r.outreach ?? '', feedback: r.feedback ?? '', ranking: r.ranking ?? '' };

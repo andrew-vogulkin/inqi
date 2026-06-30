@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ModelTier } from '@inqi/shared';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { DiscoverArgs, DiscoveredProvider, DiscoverySource } from './discovery.tokens';
-import { DISCOVERY_SYSTEM, buildDiscoveryUser, discoverySchema } from './discovery.prompt';
+import { discoverySystem, buildDiscoveryUser, discoverySchema } from './discovery.prompt';
 
 const DEMO_REGIONS = ['HK', 'NL', 'UAE', 'South Africa', 'USA', 'Brazil', 'UK', 'Singapore'];
 
@@ -21,7 +21,7 @@ export class AiDiscoverySource implements DiscoverySource {
     if (this.ai.isConfigured()) {
       try {
         const result = await this.ai.structured({
-          system: DISCOVERY_SYSTEM,
+          system: discoverySystem(),
           user: buildDiscoveryUser({ subject, count, exclude }),
           tier: ModelTier.Breadth,
           validate: (raw) => discoverySchema.parse(raw),

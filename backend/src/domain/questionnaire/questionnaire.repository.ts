@@ -1,30 +1,35 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/persistence/prisma.service';
+import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for the Questionnaire aggregate. */
 @Injectable()
 export class QuestionnaireRepository {
   constructor(private readonly db: PrismaService) {}
 
-  create({ data }: { data: Prisma.QuestionnaireUncheckedCreateInput }) {
-    return this.db.questionnaire.create({ data });
+  /** Resolve the executor: a passed-in transaction, or the root client (auto-commit). */
+  private exec(tx?: DbTx): DbTx {
+    return tx ?? this.db;
   }
 
-  findByToken({ token }: { token: string }) {
-    return this.db.questionnaire.findUnique({ where: { token } });
+  create({ data, tx }: { data: Prisma.QuestionnaireUncheckedCreateInput; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.create({ data });
   }
 
-  findByInquiry({ inquiryId }: { inquiryId: string }) {
-    return this.db.questionnaire.findUnique({ where: { inquiryId } });
+  findByToken({ token, tx }: { token: string; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.findUnique({ where: { token } });
+  }
+
+  findByInquiry({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.findUnique({ where: { inquiryId } });
   }
 
   /** HP-24: the owner-identifying fields of the inquiry this questionnaire belongs to. */
-  inquiryOwner({ inquiryId }: { inquiryId: string }) {
-    return this.db.inquiry.findUnique({ where: { id: inquiryId }, select: { customerId: true, customerEmail: true } });
+  inquiryOwner({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findUnique({ where: { id: inquiryId }, select: { customerId: true, customerEmail: true } });
   }
 
-  update({ token, data }: { token: string; data: Prisma.QuestionnaireUncheckedUpdateInput }) {
-    return this.db.questionnaire.update({ where: { token }, data });
+  update({ token, data, tx }: { token: string; data: Prisma.QuestionnaireUncheckedUpdateInput; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.update({ where: { token }, data });
   }
 }

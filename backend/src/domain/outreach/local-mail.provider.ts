@@ -5,17 +5,10 @@ import { randomUUID } from 'crypto';
 import { ModelTier } from '@inqi/shared';
 import { ConfigService } from '../../infra/config/config.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
+import { simulatedReplySystem } from '../../infra/ai/prompts';
 import { MailProvider, SendMailArgs, SendMailResult } from './mail.provider';
 
 const REPLY_DELAY_MS = 1500;
-
-/** Simulation: role-play the provider writing a realistic reply with a LOCAL-currency quote. */
-const SIM_REPLY_SYSTEM = [
-  'You are a service provider replying to a customer inquiry email.',
-  'Write a SHORT reply (1-3 sentences): confirm you can help, quote ONE concrete price in YOUR LOCAL currency',
-  'for the location mentioned in the inquiry (a business in Bangkok quotes THB, London GBP, New York USD, etc.),',
-  'and give availability + a lead time. Output the email body text only — no subject, no signature.',
-].join('\n');
 
 /**
  * Local mail transport for development/testing. Captures each outbound email to a
@@ -68,7 +61,7 @@ export class LocalMailProvider implements MailProvider {
   /** Generate a realistic provider reply (local-currency quote) for the parser to read. */
   private async simulatedReply(outreachBody: string): Promise<string> {
     try {
-      const text = await this.ai.complete({ system: SIM_REPLY_SYSTEM, user: outreachBody.slice(0, 1800), tier: ModelTier.Breadth });
+      const text = await this.ai.complete({ system: simulatedReplySystem(), user: outreachBody.slice(0, 1800), tier: ModelTier.Breadth });
       if (text.trim()) return text.trim();
     } catch (e) {
       this.logger.warn(`simulated reply generation failed, using fallback: ${(e as Error).message}`);

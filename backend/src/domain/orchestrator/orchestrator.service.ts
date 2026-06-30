@@ -15,7 +15,7 @@ import { QuestionnaireService } from '../questionnaire/questionnaire.service';
 import { QuestionnaireQuestion, QuestionType } from '../questionnaire/questionnaire.types';
 import { ReportsService } from '../reports/reports.service';
 import { ComplianceBlockedError, ConflictError } from '../../common/errors';
-import { FEASIBILITY_SYSTEM, FeasibilityVerdict, buildFeasibilityUser, feasibilitySchema } from './prompts/feasibility.prompt';
+import { feasibilitySystem, FeasibilityVerdict, buildFeasibilityUser, feasibilitySchema } from './prompts/feasibility.prompt';
 import { assignWaves, decideNextAction, planSize } from './planning';
 import { WorkflowEngine } from './workflow-engine.service';
 import { OrchestratorRepository } from './orchestrator.repository';
@@ -123,7 +123,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         if (this.ai.isConfigured()) {
           try {
             const verdict = await this.ai.structured({
-              system: FEASIBILITY_SYSTEM,
+              system: feasibilitySystem(),
               user: buildFeasibilityUser({ rawRequest: inq.rawRequest }),
               tier: ModelTier.Depth, // ethical/legal judgement is high-stakes
               validate: (raw) => feasibilitySchema.parse(raw),

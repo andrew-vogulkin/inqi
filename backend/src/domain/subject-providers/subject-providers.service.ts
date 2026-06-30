@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { EventType, FindingKind, QueueJob, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
+import { PrismaService } from '../../infra/persistence/prisma.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { UsageService } from '../../infra/usage/usage.service';
 import { UsageContextService } from '../../infra/usage/usage-context.service';
@@ -19,6 +20,7 @@ import { DISCOVERY_SOURCE, DiscoverArgs, DiscoveredProvider, DiscoverySource } f
 @Injectable()
 export class SubjectProvidersService implements OnModuleInit {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly repo: SubjectProvidersRepository,
     private readonly boss: BossService,
     private readonly outbox: OutboxService,
@@ -60,15 +62,20 @@ export class SubjectProvidersService implements OnModuleInit {
     // TODO DEPTH: const judged = await this.ai.json({ system: JUDGE_SYS, user: JSON.stringify({ gathered, external }), tier: ModelTier.Depth });
     const background = this.deriveBackground({ name: st.subjectProviderName, external: external.sources });
 
-    await this.repo.updateBackground({ id: subtaskId, background: background as unknown as Prisma.InputJsonValue, qualityScore: background.qualityScore });
-    await this.repo.createFinding({
-      data: {
-        inquiryId, epicId: st.epicId, subtaskId, kind: FindingKind.SubjectProviderBackground,
-        qualityScore: background.qualityScore,
-        data: { subjectProvider: st.subjectProviderName, ...background } as unknown as Prisma.InputJsonValue,
-      },
+    // Persist the subtask background, the report-feeding Finding, and the live event
+    // as one unit (research is already done above; these three must not diverge).
+    await this.prisma.$transaction(async (tx) => {
+      await this.repo.updateBackground({ id: subtaskId, background: background as unknown as Prisma.InputJsonValue, qualityScore: background.qualityScore, tx });
+      await this.repo.createFinding({
+        data: {
+          inquiryId, epicId: st.epicId, subtaskId, kind: FindingKind.SubjectProviderBackground,
+          qualityScore: background.qualityScore,
+          data: { subjectProvider: st.subjectProviderName, ...background } as unknown as Prisma.InputJsonValue,
+        },
+        tx,
+      });
+      await this.outbox.emit({ type: EventType.SubtaskUpdated, inquiryId, epicId: st.epicId, subtaskId, data: { qualityScore: background.qualityScore }, tx });
     });
-    await this.outbox.emit({ type: EventType.SubtaskUpdated, inquiryId, epicId: st.epicId, subtaskId, data: { qualityScore: background.qualityScore } });
     return background;
   }
 

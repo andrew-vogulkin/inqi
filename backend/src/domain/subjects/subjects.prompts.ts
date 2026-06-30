@@ -8,12 +8,8 @@ export const enrichmentSchema = z.object({
 });
 export type EnrichmentResult = z.infer<typeof enrichmentSchema>;
 
-export const ENRICHMENT_SYSTEM = [
-  '[stage:enrichment] You are inqi\'s subject-enrichment analyst.',
-  'Given the original request and the customer\'s confirmed questionnaire answers,',
-  'refine the subject: a precise description, structured attributes (specs/preferences), and explicit constraints.',
-  'Respond as strict JSON: { "refinedDescription": string, "attributes": object, "constraints": string[] }.',
-].join(' ');
+// System prompt text lives centrally (inspectable + dynamic-ready); re-exported here.
+export { enrichmentSystem, broadResearchSystem } from '../../infra/ai/prompts';
 
 export const buildEnrichmentUser = ({ rawRequest, answers }: { rawRequest: string; answers: Record<string, unknown> }): string =>
   JSON.stringify({ rawRequest, answers });
@@ -29,11 +25,5 @@ export const broadResearchSchema = z.object({
   notes: z.array(z.string()).default([]),
 });
 export type BroadResearchResult = z.infer<typeof broadResearchSchema>;
-
-export const BROAD_RESEARCH_SYSTEM = [
-  '[stage:broad-research] You are inqi\'s broad-research analyst (wide, cheap pass).',
-  'Given the enriched subject, outline the realistic search space: geographic scope, timing, a sensible price range, and whether the request makes economic sense.',
-  'Respond as strict JSON: { "geoConstraint": string, "timeConstraint": string, "priceRange": { "min": number|null, "max": number|null, "currency": string }, "economicSense": string, "notes": string[] }.',
-].join(' ');
 
 export const buildBroadResearchUser = ({ subject }: { subject: Record<string, unknown> }): string => JSON.stringify(subject);

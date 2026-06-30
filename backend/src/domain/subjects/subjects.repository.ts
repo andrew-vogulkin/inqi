@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/persistence/prisma.service';
+import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** A prior report eligible for reuse (cosine distance, lower = more similar). */
 export interface ReusableReport {
@@ -26,37 +26,43 @@ export interface ReuseCandidateRow {
 export class SubjectsRepository {
   constructor(private readonly db: PrismaService) {}
 
-  create({ data }: { data: Prisma.SubjectUncheckedCreateInput }) {
-    return this.db.subject.create({ data });
+  /** Resolve the executor: a passed-in transaction, or the root client (auto-commit). */
+  private exec(tx?: DbTx): DbTx {
+    return tx ?? this.db;
   }
 
-  findByInquiry({ inquiryId }: { inquiryId: string }) {
-    return this.db.subject.findUnique({ where: { inquiryId } });
+  create({ data, tx }: { data: Prisma.SubjectUncheckedCreateInput; tx?: DbTx }) {
+    return this.exec(tx).subject.create({ data });
   }
 
-  update({ inquiryId, data }: { inquiryId: string; data: Prisma.SubjectUncheckedUpdateInput }) {
-    return this.db.subject.update({ where: { inquiryId }, data });
+  findByInquiry({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
+    return this.exec(tx).subject.findUnique({ where: { inquiryId } });
+  }
+
+  update({ inquiryId, data, tx }: { inquiryId: string; data: Prisma.SubjectUncheckedUpdateInput; tx?: DbTx }) {
+    return this.exec(tx).subject.update({ where: { inquiryId }, data });
   }
 
   /** Confirmed questionnaire answers for enrichment (read-only). */
-  async findQuestionnaireAnswers({ inquiryId }: { inquiryId: string }): Promise<Record<string, unknown>> {
-    const q = await this.db.questionnaire.findUnique({ where: { inquiryId } });
+  async findQuestionnaireAnswers({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }): Promise<Record<string, unknown>> {
+    const q = await this.exec(tx).questionnaire.findUnique({ where: { inquiryId } });
     return (q?.answers as Record<string, unknown>) ?? {};
   }
 
-  findInquiryGeo({ inquiryId }: { inquiryId: string }) {
-    return this.db.inquiry.findUnique({ where: { id: inquiryId }, select: { geoLat: true, geoLng: true } });
+  findInquiryGeo({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findUnique({ where: { id: inquiryId }, select: { geoLat: true, geoLng: true } });
   }
 
   /**
    * Store the subject's embedding (pgvector) + geo (PostGIS) — columns added by
    * `prisma/sql/init.sql`, not modeled in Prisma, so written via raw SQL.
    */
-  async storeVector({ inquiryId, embedding, lat, lng }: { inquiryId: string; embedding: number[]; lat?: number | null; lng?: number | null }): Promise<void> {
+  async storeVector({ inquiryId, embedding, lat, lng, tx }: { inquiryId: string; embedding: number[]; lat?: number | null; lng?: number | null; tx?: DbTx }): Promise<void> {
+    const db = this.exec(tx);
     const literal = `[${embedding.join(',')}]`;
-    await this.db.$executeRawUnsafe(`UPDATE "Subject" SET embedding = $1::vector WHERE "inquiryId" = $2`, literal, inquiryId);
+    await db.$executeRawUnsafe(`UPDATE "Subject" SET embedding = $1::vector WHERE "inquiryId" = $2`, literal, inquiryId);
     if (lat != null && lng != null) {
-      await this.db.$executeRawUnsafe(
+      await db.$executeRawUnsafe(
         `UPDATE "Subject" SET geo = ST_SetSRID(ST_MakePoint($1,$2),4326)::geography WHERE "inquiryId" = $3`,
         lng, lat, inquiryId,
       );
@@ -69,11 +75,11 @@ export class SubjectsRepository {
    * lives in the pure {@link decideReuse} — this just supplies the raw metrics for
    * the top `limit` semantic neighbours.
    */
-  async findReusableCandidates({ inquiryId, embedding, lat, lng, limit }: {
-    inquiryId: string; embedding: number[]; lat: number | null; lng: number | null; limit: number;
+  async findReusableCandidates({ inquiryId, embedding, lat, lng, limit, tx }: {
+    inquiryId: string; embedding: number[]; lat: number | null; lng: number | null; limit: number; tx?: DbTx;
   }): Promise<ReuseCandidateRow[]> {
     const literal = `[${embedding.join(',')}]`;
-    const rows = await this.db.$queryRawUnsafe<Array<{ reportId: string; token: string; distance: number; distanceMeters: number | null; ageDays: number }>>(
+    const rows = await this.exec(tx).$queryRawUnsafe<Array<{ reportId: string; token: string; distance: number; distanceMeters: number | null; ageDays: number }>>(
       `SELECT r.id AS "reportId", r.token AS token,
               (s.embedding <=> $1::vector) AS distance,
               CASE WHEN s.geo IS NOT NULL AND $4::float8 IS NOT NULL

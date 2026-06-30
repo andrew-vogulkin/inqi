@@ -6,7 +6,7 @@ import { ConfigService } from '../../infra/config/config.service';
 import { SubjectsRepository, ReusableReport } from './subjects.repository';
 import { decideReuse } from './reuse';
 import {
-  BROAD_RESEARCH_SYSTEM, ENRICHMENT_SYSTEM, broadResearchSchema, buildBroadResearchUser, buildEnrichmentUser, enrichmentSchema,
+  broadResearchSystem, enrichmentSystem, broadResearchSchema, buildBroadResearchUser, buildEnrichmentUser, enrichmentSchema,
 } from './subjects.prompts';
 
 /** How many nearest semantic neighbours to fetch before applying the reuse decision. */
@@ -86,7 +86,7 @@ export class SubjectsService {
       if (!subject) return;
       const answers = await this.subjects.findQuestionnaireAnswers({ inquiryId });
       const result = await this.ai.structured({
-        system: ENRICHMENT_SYSTEM,
+        system: enrichmentSystem(),
         user: buildEnrichmentUser({ rawRequest: subject.description, answers }),
         tier: ModelTier.Balanced,
         validate: (raw) => enrichmentSchema.parse(raw),
@@ -111,7 +111,7 @@ export class SubjectsService {
       const subject = await this.subjects.findByInquiry({ inquiryId });
       if (!subject) return;
       const result = await this.ai.structured({
-        system: BROAD_RESEARCH_SYSTEM,
+        system: broadResearchSystem(),
         user: buildBroadResearchUser({ subject: { title: subject.title, description: subject.description, attributes: subject.attributes } }),
         tier: ModelTier.Breadth,
         validate: (raw) => broadResearchSchema.parse(raw),

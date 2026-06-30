@@ -1,21 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/persistence/prisma.service';
+import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for subject-provider background research. */
 @Injectable()
 export class SubjectProvidersRepository {
   constructor(private readonly db: PrismaService) {}
 
-  findSubtask({ id }: { id: string }) {
-    return this.db.subtask.findUniqueOrThrow({ where: { id } });
+  /** Resolve the executor: a passed-in transaction, or the root client (auto-commit). */
+  private exec(tx?: DbTx): DbTx {
+    return tx ?? this.db;
   }
 
-  updateBackground({ id, background, qualityScore }: { id: string; background: Prisma.InputJsonValue; qualityScore: number }) {
-    return this.db.subtask.update({ where: { id }, data: { background, qualityScore } });
+  findSubtask({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).subtask.findUniqueOrThrow({ where: { id } });
   }
 
-  createFinding({ data }: { data: Prisma.FindingUncheckedCreateInput }) {
-    return this.db.finding.create({ data });
+  updateBackground({ id, background, qualityScore, tx }: { id: string; background: Prisma.InputJsonValue; qualityScore: number; tx?: DbTx }) {
+    return this.exec(tx).subtask.update({ where: { id }, data: { background, qualityScore } });
+  }
+
+  createFinding({ data, tx }: { data: Prisma.FindingUncheckedCreateInput; tx?: DbTx }) {
+    return this.exec(tx).finding.create({ data });
   }
 }

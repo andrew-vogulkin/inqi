@@ -1,22 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { InquiryState } from '@inqi/shared';
-import { PrismaService } from '../../infra/persistence/prisma.service';
+import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for notifications (reads + the exactly-once reminder claim). */
 @Injectable()
 export class NotificationRepository {
   constructor(private readonly db: PrismaService) {}
 
-  findInquiry({ id }: { id: string }) {
-    return this.db.inquiry.findUnique({ where: { id }, select: { id: true, customerEmail: true, state: true, denyReason: true } });
+  /** Resolve the executor: a passed-in transaction, or the root client (auto-commit). */
+  private exec(tx?: DbTx): DbTx {
+    return tx ?? this.db;
   }
 
-  findReportByInquiry({ inquiryId }: { inquiryId: string }) {
-    return this.db.report.findUnique({ where: { inquiryId }, select: { token: true } });
+  findInquiry({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findUnique({ where: { id }, select: { id: true, customerEmail: true, state: true, denyReason: true } });
   }
 
-  findCustomerByEmail({ email }: { email: string }) {
-    return this.db.customer.findUnique({ where: { email }, select: { notificationsOptOut: true } });
+  findReportByInquiry({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
+    return this.exec(tx).report.findUnique({ where: { inquiryId }, select: { token: true } });
+  }
+
+  findCustomerByEmail({ email, tx }: { email: string; tx?: DbTx }) {
+    return this.exec(tx).customer.findUnique({ where: { email }, select: { notificationsOptOut: true } });
   }
 
   /**
@@ -24,8 +29,8 @@ export class NotificationRepository {
    * AND whose inquiry is still awaiting the customer (QUESTIONNAIRE_SENT) — so we
    * never remind on a denied/blocked or already-progressed inquiry.
    */
-  findDueReminders({ now, windowEnd }: { now: Date; windowEnd: Date }) {
-    return this.db.questionnaire.findMany({
+  findDueReminders({ now, windowEnd, tx }: { now: Date; windowEnd: Date; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.findMany({
       where: {
         filledAt: null, reminderSentAt: null, expiresAt: { gt: now, lte: windowEnd },
         inquiry: { state: InquiryState.QUESTIONNAIRE_SENT },
@@ -36,8 +41,8 @@ export class NotificationRepository {
   }
 
   /** Atomically claim the reminder slot — returns 1 only for the winner (exactly-once). */
-  async claimReminder({ id }: { id: string }): Promise<number> {
-    const r = await this.db.questionnaire.updateMany({ where: { id, reminderSentAt: null }, data: { reminderSentAt: new Date() } });
+  async claimReminder({ id, tx }: { id: string; tx?: DbTx }): Promise<number> {
+    const r = await this.exec(tx).questionnaire.updateMany({ where: { id, reminderSentAt: null }, data: { reminderSentAt: new Date() } });
     return r.count;
   }
 }

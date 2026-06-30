@@ -1,49 +1,49 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../infra/persistence/prisma.service';
+import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for the Inquiry aggregate. */
 @Injectable()
 export class InquiryRepository {
   constructor(private readonly db: PrismaService) {}
 
-  create({ data }: { data: Prisma.InquiryUncheckedCreateInput }) {
-    return this.db.inquiry.create({ data });
+  /** Resolve the executor: a passed-in transaction, or the root client (auto-commit). */
+  private exec(tx?: DbTx): DbTx {
+    return tx ?? this.db;
   }
 
-  /** Remove a just-created inquiry (HP-19: roll back when a credit reservation loses a race). */
-  delete({ id }: { id: string }) {
-    return this.db.inquiry.delete({ where: { id } });
+  create({ data, tx }: { data: Prisma.InquiryUncheckedCreateInput; tx?: DbTx }) {
+    return this.exec(tx).inquiry.create({ data });
   }
 
-  findWithRelations({ id }: { id: string }) {
-    return this.db.inquiry.findUniqueOrThrow({
+  findWithRelations({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findUniqueOrThrow({
       where: { id },
       include: { subject: true, questionnaire: true, epics: { include: { subtasks: true } }, report: true },
     });
   }
 
-  listRecent({ take = 100 }: { take?: number } = {}) {
-    return this.db.inquiry.findMany({ orderBy: { createdAt: 'desc' }, take });
+  listRecent({ take = 100, tx }: { take?: number; tx?: DbTx } = {}) {
+    return this.exec(tx).inquiry.findMany({ orderBy: { createdAt: 'desc' }, take });
   }
 
   /** A single customer's inquiries — owned by FK or (pre-auth) by matching email. */
-  listForOwner({ customerId, email, take = 100 }: { customerId: string; email: string; take?: number }) {
-    return this.db.inquiry.findMany({
+  listForOwner({ customerId, email, take = 100, tx }: { customerId: string; email: string; take?: number; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findMany({
       where: { OR: [{ customerId }, { customerEmail: email }] },
       orderBy: { createdAt: 'desc' }, take,
     });
   }
 
   /** Backfill ownership on sign-in: claim any unowned inquiries submitted with this email. */
-  linkOwnerByEmail({ email, customerId }: { email: string; customerId: string }) {
-    return this.db.inquiry.updateMany({ where: { customerEmail: email, customerId: null }, data: { customerId } });
+  linkOwnerByEmail({ email, customerId, tx }: { email: string; customerId: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.updateMany({ where: { customerEmail: email, customerId: null }, data: { customerId } });
   }
 
   /** HP-23: qualified-subtask count per inquiry (Subtask→Epic join), for the stage projection. */
-  async qualifiedCountsByInquiry({ inquiryIds }: { inquiryIds: string[] }): Promise<Record<string, number>> {
+  async qualifiedCountsByInquiry({ inquiryIds, tx }: { inquiryIds: string[]; tx?: DbTx }): Promise<Record<string, number>> {
     if (!inquiryIds.length) return {};
-    const rows = await this.db.$queryRaw<{ inquiryId: string; count: bigint }[]>`
+    const rows = await this.exec(tx).$queryRaw<{ inquiryId: string; count: bigint }[]>`
       SELECT e."inquiryId" AS "inquiryId", COUNT(*)::bigint AS count
       FROM "Subtask" s JOIN "Epic" e ON s."epicId" = e.id
       WHERE s.status = 'qualified' AND e."inquiryId" IN (${Prisma.join(inquiryIds)})
