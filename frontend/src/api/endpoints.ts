@@ -22,7 +22,7 @@ export const inquiriesApi = {
   get: ({ id }: { id: string }) => request<InquiryDto & Record<string, unknown>>({ method: HttpMethod.Get, path: Paths.inquiry(id) }),
   // FE-10 admin board: the nested inquiry detail (epics → subtasks). Same endpoint, typed for the board.
   detail: ({ id }: { id: string }) => request<InquiryBoardDto>({ method: HttpMethod.Get, path: Paths.inquiry(id) }),
-  reportLive: ({ id }: { id: string }) => request<LiveReportDto>({ method: HttpMethod.Get, path: Paths.inquiryReportLive(id), auth: false }),
+  reportLive: ({ id }: { id: string }) => request<LiveReportDto>({ method: HttpMethod.Get, path: Paths.inquiryReportLive(id) }),
   cancel: ({ id, reason }: { id: string; reason?: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.inquiryCancel(id), body: { reason } }),
   pause: ({ id, reason }: { id: string; reason?: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.inquiryPause(id), body: { reason } }),
   resume: ({ id }: { id: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.inquiryResume(id) }),
@@ -30,16 +30,16 @@ export const inquiriesApi = {
   provenance: ({ inquiryId, ref }: { inquiryId: string; ref: string }) => request<ProvenanceDto>({ method: HttpMethod.Get, path: Paths.inquiryProvenance(inquiryId, ref) }),
 };
 
-/** Questionnaire (capability token, public). */
+/** Questionnaire by token (HP-24: authenticated + owner-scoped). */
 export const questionnaireApi = {
-  get: ({ token }: { token: string }) => request<QuestionnaireDto>({ method: HttpMethod.Get, path: Paths.q(token), auth: false }),
+  get: ({ token }: { token: string }) => request<QuestionnaireDto>({ method: HttpMethod.Get, path: Paths.q(token) }),
   submit: ({ token, confirmedSubject, answers }: { token: string; confirmedSubject: boolean; answers: Record<string, string> }) =>
-    request<{ ok: boolean }>({ method: HttpMethod.Post, path: Paths.q(token), body: { confirmedSubject, answers }, auth: false }),
+    request<{ ok: boolean }>({ method: HttpMethod.Post, path: Paths.q(token), body: { confirmedSubject, answers } }),
 };
 
-/** Report by capability token (public deep link) + the freemium unlock (HP-21). */
+/** Report by token (HP-24: authenticated + owner-scoped) + the freemium unlock (HP-21). */
 export const reportsApi = {
-  getByToken: ({ token }: { token: string }) => request<ReportDto>({ method: HttpMethod.Get, path: Paths.report(token), auth: false }),
+  getByToken: ({ token }: { token: string }) => request<ReportDto>({ method: HttpMethod.Get, path: Paths.report(token) }),
   // FE-07 freemium unlock: charges 1 credit (HP-21), reveals the full report, emits report.updated.
   unlock: ({ reportId }: { reportId: string }) => request<UnlockResultDto>({ method: HttpMethod.Post, path: Paths.reportUnlock(reportId) }),
 };

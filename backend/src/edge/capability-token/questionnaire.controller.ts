@@ -1,25 +1,30 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { QuestionnaireService } from '../../domain/questionnaire/questionnaire.service';
 import { QuestionnaireAnswersDto, QuestionnaireDto, SubmitResultDto } from './questionnaire-dto/questionnaire.dto';
+import { AuthGuard } from '../auth/auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthUser } from '../auth/auth.tokens';
 
-/** Capability-token surface: fill the questionnaire via the tokened link (no login). */
-@ApiTags('capability-token')
+/** Questionnaire by token. HP-24: authenticated + owner-scoped (token = resource id within owner scope). */
+@ApiTags('reports')
+@ApiBearerAuth()
+@UseGuards(AuthGuard)
 @Controller('q')
 export class QuestionnaireController {
   constructor(private readonly questionnaire: QuestionnaireService) {}
 
   @Get(':token')
-  @ApiOperation({ summary: 'Fetch the questionnaire for a token' })
+  @ApiOperation({ summary: 'Fetch the questionnaire for a token (owner/admin only)' })
   @ApiOkResponse({ type: QuestionnaireDto })
-  get(@Param('token') token: string) {
-    return this.questionnaire.getByToken({ token });
+  get(@Param('token') token: string, @CurrentUser() user: AuthUser) {
+    return this.questionnaire.getByToken({ token, viewer: { sub: user.sub, email: user.email, role: user.role } });
   }
 
   @Post(':token')
-  @ApiOperation({ summary: 'Submit questionnaire answers (confirms the subject)' })
+  @ApiOperation({ summary: 'Submit questionnaire answers (confirms the subject; owner/admin only)' })
   @ApiOkResponse({ type: SubmitResultDto })
-  submit(@Param('token') token: string, @Body() answers: QuestionnaireAnswersDto) {
-    return this.questionnaire.submit({ token, answers });
+  submit(@Param('token') token: string, @Body() answers: QuestionnaireAnswersDto, @CurrentUser() user: AuthUser) {
+    return this.questionnaire.submit({ token, answers, viewer: { sub: user.sub, email: user.email, role: user.role } });
   }
 }

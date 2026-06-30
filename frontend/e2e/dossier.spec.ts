@@ -43,10 +43,12 @@ test('customer dossier renders 4 steps, redacted outreach (HP-20 provenance), an
 
 test('outreach variants render by status', async ({ page }) => {
   await seed(page, CUSTOMER);
+  // provenance is optional polish — 404 so the option-derived variant stands (hermetic; no live backend hit).
+  await page.route('**/api/inquiries/*/options/*/provenance', (r: Route) => r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'REPORT_NOT_FOUND' } }) }));
   // pending: contacted (leadTime) but no reply (availability)
   await page.route('**/api/inquiries/*/report-live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: live({ subjectProvider: 'P', price: 100, currency: 'EUR', qualityScore: 0.5, leadTime: '2w', background: { sources: ['a'] } }) }));
   await page.goto('/#/d/i1/P');
-  await expect(page.getByText('Awaiting reply')).toBeVisible();
+  await expect(page.getByTestId('outreach-redacted').getByText('Awaiting reply')).toBeVisible();
 
   // not-contacted: neither availability nor leadTime
   await page.unroute('**/api/inquiries/*/report-live');
@@ -57,6 +59,7 @@ test('outreach variants render by status', async ({ page }) => {
 
 test('customer Back routes to the live report', async ({ page }) => {
   await seed(page, CUSTOMER);
+  await page.route('**/api/inquiries/*/options/*/provenance', (r: Route) => r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'REPORT_NOT_FOUND' } }) }));
   await page.route('**/api/inquiries/*/report-live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: live(repliedOption) }));
   await page.goto('/#/d/i1/Aurora');
   await page.getByRole('link', { name: /Back to report/ }).click();

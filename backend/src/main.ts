@@ -1,3 +1,4 @@
+import './load-env'; // must run before any module reads process.env
 import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';

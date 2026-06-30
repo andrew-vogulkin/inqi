@@ -10,15 +10,15 @@ test('/styleguide draws tokens + components', async ({ page }) => {
   await expect(page.getByText('Stage pipeline')).toBeVisible();
 });
 
-test('home renders the customer shell + nav', async ({ page }) => {
+test('root → role-aware home (→ sign-in when signed out)', async ({ page }) => {
   await page.goto('/#/');
-  await expect(page.getByText('Your AI is on it')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'My inquiries' })).toBeVisible();
+  await expect(page).toHaveURL(/#\/signin$/);
+  await expect(page.getByText('One inquiry. AI agents on it.')).toBeVisible();
 });
 
-test('navigates home → styleguide', async ({ page }) => {
-  await page.goto('/#/');
-  await page.getByRole('link', { name: 'Styleguide' }).click();
+test('navigates sign-in → styleguide', async ({ page }) => {
+  await page.goto('/#/signin');
+  await page.getByRole('link', { name: 'styleguide' }).click();
   await expect(page.getByTestId('styleguide')).toBeVisible();
 });
 
@@ -30,12 +30,13 @@ test('guarded admin route as a non-admin → 403 Forbidden', async ({ page }) =>
   await expect(page.getByText('For operators')).toBeVisible();
 });
 
-test('signed-out protected route → sign-in (401)', async ({ page }) => {
+test('signed-out protected route → sign-in (401), carrying returnTo to resume', async ({ page }) => {
   await page.goto('/#/dashboard');
-  await expect(page.getByText('Please sign in')).toBeVisible();
+  await expect(page).toHaveURL(/#\/signin\?returnTo=%2Fdashboard/);
+  await expect(page.getByText('One inquiry. AI agents on it.')).toBeVisible();
 });
 
-test('unknown route → 404 not found', async ({ page }) => {
+test('unknown route → role-aware home (→ sign-in when signed out)', async ({ page }) => {
   await page.goto('/#/totally/unknown');
-  await expect(page.getByText("Can't find that inquiry")).toBeVisible();
+  await expect(page).toHaveURL(/#\/signin$/);
 });

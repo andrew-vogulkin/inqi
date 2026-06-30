@@ -21,13 +21,13 @@ test('streaming: ranks options with BEST MATCH and switches layouts', async ({ p
   await page.route('**/api/inquiries/*/report-live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: liveBody() }));
   await page.goto('/#/i/i1');
 
-  await expect(page.getByText('Your report')).toBeVisible();
-  await expect(page.getByText('Research in progress')).toBeVisible();
+  await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
+  await expect(page.getByTestId('report-status')).toContainText('Researching');
   await expect(page.getByText('Aurora Studio').first()).toBeVisible();
   await expect(page.getByText('BEST MATCH')).toBeVisible(); // on the top-ranked option
 
   await page.getByRole('button', { name: 'Table' }).click();
-  await expect(page.getByRole('columnheader', { name: 'Provider' })).toBeVisible();
+  await expect(page.getByText('Provider')).toBeVisible();
   await page.getByRole('button', { name: 'Split' }).click();
   await expect(page.getByText('Aurora Studio').first()).toBeVisible();
 });
@@ -47,7 +47,7 @@ test('live: a streamed event appears in the activity timeline', async ({ page })
   await seed(page);
   await page.route('**/api/inquiries/*/report-live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: liveBody() }));
   await page.goto('/#/i/i1');
-  await expect(page.getByText('Your report')).toBeVisible();
+  await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
 
   await page.evaluate(() => {
     (window as unknown as { __inqiDispatch: (a: unknown) => void }).__inqiDispatch({
@@ -55,13 +55,13 @@ test('live: a streamed event appears in the activity timeline', async ({ page })
       event: { id: '500', type: 'agent.progress', inquiryId: 'i1', at: 'now', data: { stage: 'outreach', message: 'emailing providers' } },
     });
   });
-  await expect(page.getByText(/outreach: emailing providers/)).toBeVisible();
+  await expect(page.getByText(/emailing providers/)).toBeVisible();
 });
 
 test('simulate reconnect raises the "no events missed" toast', async ({ page }) => {
   await seed(page);
   await page.route('**/api/inquiries/*/report-live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: liveBody() }));
   await page.goto('/#/i/i1');
-  await page.getByRole('button', { name: '↻ reconnect' }).click();
+  await page.getByTestId('reconnect').click();
   await expect(page.getByText('Reconnected — no events missed.')).toBeVisible();
 });

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { AuthRole } from '@inqi/shared';
 import { AuthState } from '../conventions/enums';
-import { Route, navigate, hrefFor } from '../conventions/routes';
+import { Route, navigate, hrefFor, readReturnTo } from '../conventions/routes';
 import { googleClientId } from '../conventions/google';
-import { color, space, fontSize, fontWeight } from '../theme/tokens';
+import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
 import { authApi, ApiError } from '../api';
-import { Button, Card, Input } from '../ui';
+import { Input } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 
@@ -23,7 +24,7 @@ function loadGsi(): Promise<void> {
   }));
 }
 
-/** FE-02 — the signed-out entry screen: brand statement + Continue with Google. */
+/** FE-02 — signed-out entry: brand statement + Continue with Google (prototype: flat centered column). */
 export function SignIn() {
   const dispatch = useAppDispatch();
   const authState = useSelector((s) => s.session.authState);
@@ -38,7 +39,11 @@ export function SignIn() {
     try {
       const session = await authApi.signInWithGoogle({ idToken });
       dispatch({ type: ActionType.SignedIn, session });
-      navigate({ route: Route.Dashboard });
+      // HP-24: resume the deep link the user was bounced from (notification links included),
+      // else land on the role-aware home — operators to the console, customers to the dashboard.
+      const returnTo = readReturnTo();
+      if (returnTo) window.location.hash = returnTo;
+      else navigate({ route: session.customer.role === AuthRole.Admin ? Route.Admin : Route.Dashboard });
     } catch (e) {
       dispatch({ type: ActionType.SignInFailed, message: e instanceof ApiError ? e.message : 'Sign-in failed. Please try again.' });
     }
@@ -51,7 +56,7 @@ export function SignIn() {
     loadGsi().then(() => {
       if (cancelled || !btnRef.current) return;
       window.google.accounts.id.initialize({ client_id: clientId, callback: (r: { credential: string }) => signIn(r.credential) });
-      window.google.accounts.id.renderButton(btnRef.current, { theme: 'outline', size: 'large', text: 'continue_with', width: 320 });
+      window.google.accounts.id.renderButton(btnRef.current, { theme: 'outline', size: 'large', text: 'continue_with', width: 340 });
     }).catch(() => dispatch({ type: ActionType.SignInFailed, message: 'Couldn’t load Google sign-in.' }));
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,40 +65,59 @@ export function SignIn() {
   const busy = authState === AuthState.SigningIn;
 
   return (
-    <div style={{ maxWidth: 420, margin: '0 auto', paddingTop: space[10] }}>
-      <h1 style={{ fontSize: fontSize.h1, marginBottom: space[3] }}>Your AI does the legwork.</h1>
-      <p style={{ color: color.muted, marginBottom: space[6] }}>
-        Tell inqi what you're after. It researches, vets, and reaches out — then returns a live, ranked report you can trust.
-      </p>
+    <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: space[10] }}>
+      <div style={{ width: '100%', maxWidth: 380, textAlign: 'center' }}>
+        {/* brand mark — the one place green leads */}
+        <div style={{ width: 48, height: 48, borderRadius: radius.xl, background: color.brand, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: fontWeight.bold, fontSize: 26, margin: `0 auto ${space[6]}px` }}>i</div>
+        <h1 style={{ fontSize: fontSize.h1, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: `0 0 ${space[2]}px` }}>One inquiry. AI agents on it.</h1>
+        <p style={{ fontSize: fontSize.lg, color: color.muted, lineHeight: 1.55, margin: `0 0 ${space[6]}px` }}>
+          Ask inqi for anything. Agents research and reach out to real providers, then stream back a live, ranked report of your options.
+        </p>
 
-      <Card>
         {clientId ? (
-          <div>
-            <div ref={btnRef} style={{ minHeight: 44 }} data-testid="google-button" />
-            {busy && <p style={{ color: color.muted, marginTop: space[2] }}>Signing you in…</p>}
-          </div>
+          <>
+            <div ref={btnRef} style={{ minHeight: 48, display: 'flex', justifyContent: 'center' }} data-testid="google-button" />
+            {busy && <p style={{ color: color.muted, marginTop: space[2], fontSize: fontSize.sm }}>Signing you in…</p>}
+          </>
         ) : (
           <div style={{ display: 'grid', gap: space[2] }}>
-            <p style={{ color: color.muted, fontSize: fontSize.sm, margin: 0 }}>
-              Dev sign-in — no <code>VITE_GOOGLE_CLIENT_ID</code> set, so this uses the stub verifier.
-            </p>
             <Input value={email} onChange={setEmail} placeholder="your email" />
-            <Button full disabled={!email || busy} onClick={() => signIn(`stub:${email}`)}>
-              {busy ? 'Signing in…' : 'Continue with Google'}
-            </Button>
+            <button
+              onClick={() => email && signIn(`stub:${email}`)}
+              disabled={!email || busy}
+              data-testid="signin-button"
+              style={{
+                width: '100%', height: 48, borderRadius: radius.md, background: color.ink, color: color.onSolid,
+                fontFamily: font.ui, fontSize: fontSize.lg, fontWeight: fontWeight.medium,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 11,
+                cursor: !email || busy ? 'not-allowed' : 'pointer', opacity: !email || busy ? 0.55 : 1,
+                border: 'none', transition: 'opacity .15s',
+              }}
+            >
+              {busy ? (
+                <>
+                  <span style={{ width: 17, height: 17, borderRadius: '50%', border: '2px solid rgba(255,255,255,.35)', borderTopColor: '#fff', animation: 'inqi-spin .7s linear infinite' }} />
+                  <span>Signing in…</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ width: 18, height: 18, background: '#fff', borderRadius: radius.sm, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: fontWeight.bold, color: color.ink, fontSize: fontSize.sm }}>G</span>
+                  <span>Continue with Google</span>
+                </>
+              )}
+            </button>
           </div>
         )}
+
         {authState === AuthState.Error && error && (
           <p data-testid="signin-error" style={{ color: color.danger, marginTop: space[3], fontSize: fontSize.sm }}>{error}</p>
         )}
-      </Card>
 
-      <p style={{ color: color.subtle, fontSize: fontSize.sm, textAlign: 'center', marginTop: space[4] }}>
-        First report is free. No card required.
-      </p>
-      <p style={{ textAlign: 'center', marginTop: space[2] }}>
-        <a href={hrefFor({ route: Route.StyleGuide })} style={{ fontSize: fontSize.xs, color: color.subtle }}>styleguide</a>
-      </p>
+        <p style={{ fontSize: fontSize.sm, color: color.subtle, margin: `${space[4]}px 0 0` }}>First report is free. No card required.</p>
+        <p style={{ marginTop: space[2] }}>
+          <a href={hrefFor({ route: Route.StyleGuide })} style={{ fontSize: fontSize.xs, color: color.subtle }}>styleguide</a>
+        </p>
+      </div>
     </div>
   );
 }

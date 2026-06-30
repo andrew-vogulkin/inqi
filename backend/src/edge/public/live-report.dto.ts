@@ -16,6 +16,10 @@ export class LiveOptionDto {
 export class LiveReportDto {
   @ApiProperty() inquiryId!: string;
   @ApiProperty({ description: 'current InquiryState' }) state!: string;
+  @ApiProperty({ description: 'HP-23: derived InquiryStage (from state + qualifiedCount)' }) stage!: string;
+  @ApiProperty({ description: 'HP-23: subtasks qualified so far' }) qualifiedCount!: number;
+  @ApiProperty({ nullable: true, description: 'capability token for the pending questionnaire (Questionnaire stage)' }) questionnaireToken!: string | null;
+  @ApiProperty({ nullable: true, type: Object, description: 'read-only answered scope (questions + answers) shown on the report' }) questionnaire!: { questions: unknown[]; answers: Record<string, string> | null; confirmed: boolean } | null;
   @ApiProperty() delivered!: boolean;
   @ApiProperty() rawRequest!: string;
   @ApiProperty({ nullable: true, description: 'snapshot id once generated (for POST /reports/:id/unlock)' }) reportId!: string | null;

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EventType, InquiryState, WorkflowEvent, WorkflowStatus } from '@inqi/shared';
+import { EventType, InquiryState, WorkflowEvent, WorkflowStatus, deriveStage } from '@inqi/shared';
 import { PrismaService } from '../../infra/persistence/prisma.service';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
@@ -62,10 +62,13 @@ export class WorkflowEngine {
     await this.db.inquiry.update({ where: { id: inquiryId }, data: { state: trans.toState } });
     if (trans.action && Actions[trans.action]) await Actions[trans.action](ctx);
 
+    // HP-23: carry the derived stage on the transition so the FE renders it from the
+    // event without re-deriving (qualified count via the Subtask→Epic relation).
+    const qualifiedCount = await this.db.subtask.count({ where: { status: 'qualified', epic: { inquiryId } } });
     await this.outbox.emit({
       type: EventType.InquiryTransitioned,
       inquiryId,
-      data: { from: inq.state, to: trans.toState, event },
+      data: { from: inq.state, to: trans.toState, event, stage: deriveStage({ state: trans.toState, qualifiedCount }), qualifiedCount },
     });
 
     // Credit settlement (HP-19): charge on delivery, refund on a non-delivered

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AgentStage, AuditAction, AuditTargetType, EventType, FindingKind, InquiryState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, SubtaskStatus, TERMINAL_STATES, WorkflowEvent, failureEventForState } from '@inqi/shared';
+import { AgentStage, AuditAction, AuditTargetType, EventType, FindingKind, InquiryState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, SubtaskStatus, TERMINAL_STATES, WorkflowEvent, failureEventForState, READY_MIN, PARTIAL_READY_MIN, deriveStage } from '@inqi/shared';
 import type { Prisma } from '@prisma/client';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
@@ -216,7 +216,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       fn: async (log) => {
         const strategy = OutreachStrategy.ESCALATING;
         const epic = await this.repo.createEpic({
-          data: { inquiryId, definition: { geo: true, time: true, price: true }, strategy, targetQualifiedOptions: 3 },
+          data: { inquiryId, definition: { geo: true, time: true, price: true }, strategy, targetQualifiedOptions: READY_MIN }, // HP-23: pursue Ready (≥5); supersedes HP-07 target=3
         });
         await this.outbox.emit({ type: EventType.EpicCreated, inquiryId, epicId: epic.id, data: { strategy } });
 
@@ -252,6 +252,14 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     const qualified = subs.filter((s) => s.status === SubtaskStatus.Qualified).length;
     const inFlight = subs.filter((s) => IN_FLIGHT.includes(s.status as SubtaskStatus)).length;
     const pendingWaves = [...new Set(subs.filter((s) => s.status === SubtaskStatus.Pending).map((s) => s.wave))];
+
+    // HP-23: the inquiry's stage is derived from qualified count. While the workflow
+    // state holds at OUTREACH, crossing a readiness threshold (Researching → Partially
+    // ready → Ready) is itself a stage transition — emit it so the dashboard pipeline
+    // updates live (edge-triggered; settlements are sequential, so `qualified` is monotonic).
+    if (qualified === PARTIAL_READY_MIN || qualified === READY_MIN) {
+      await this.outbox.emit({ type: EventType.InquiryTransitioned, inquiryId, data: { from: inq.state, to: inq.state, stage: deriveStage({ state: inq.state, qualifiedCount: qualified }), qualifiedCount: qualified } });
+    }
 
     const action = decideNextAction({ qualified, target: epic.targetQualifiedOptions, inFlight, pendingWaves });
     if (action.kind === 'wait') return;

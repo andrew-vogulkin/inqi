@@ -1,6 +1,21 @@
-import { OutreachOutcome, ProvenanceDto } from '@inqi/shared';
+import { OutreachOutcome, ProvenanceDto, ProvenanceDepth, ProvenanceSummaries } from '@inqi/shared';
 import { ResearchDepth, ResearchMethod, OutreachVariant } from './enums';
 import { ReportOption } from '../api/types';
+
+/** The server provenance depth enum (PascalCase) → the FE ResearchDepth enum (snake_case). */
+const PROVENANCE_DEPTH: Record<ProvenanceDepth, ResearchDepth> = {
+  [ProvenanceDepth.WebOnly]: ResearchDepth.WebOnly,
+  [ProvenanceDepth.WebFeedback]: ResearchDepth.WebFeedback,
+  [ProvenanceDepth.WebOutreachFeedback]: ResearchDepth.WebOutreachFeedback,
+};
+
+/** Translate a server provenance depth to the FE depth (falls back to web-only on an unknown value). */
+export function depthFromProvenance(depth: ProvenanceDepth): ResearchDepth {
+  return PROVENANCE_DEPTH[depth] ?? ResearchDepth.WebOnly;
+}
+
+/** A web source on the option background — either a bare URL/name or a {source,url,snippet} record. */
+export type BackgroundSource = string | { source?: string; url?: string; snippet?: string };
 
 /** Compact subject-provider background carried on a report option (HP report DTO). */
 export interface OptionBackground {
@@ -8,8 +23,14 @@ export interface OptionBackground {
   reviewsCount?: number | null;
   eligibility?: string | null;
   redFlags?: string[];
-  sources?: string[];
+  sources?: BackgroundSource[];
   qualityScore?: number | null;
+}
+
+/** Normalize a background source (string or object) into the dossier's WebSource shape. */
+export function toWebSource(s: BackgroundSource): WebSource {
+  if (typeof s === 'string') return { source: s };
+  return { source: s.source ?? s.url ?? '', url: s.url, snippet: s.snippet };
 }
 
 export interface WebSource { source: string; url?: string; snippet?: string }
@@ -29,6 +50,7 @@ export interface DossierVM {
   feedback: FeedbackVM;
   outreach: OutreachVM;
   scoring: ScoringVM;
+  summaries?: ProvenanceSummaries; // HP-20: AI transparency summaries per section (customer provenance only)
 }
 
 // ---- pure derivations (unit-tested) ---------------------------------------
@@ -75,7 +97,7 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
   const hasOutreach = provenance.outreach.outcome !== OutreachOutcome.NotContacted;
   return {
     ...vm,
-    depth: provenance.depth as ResearchDepth,
+    depth: depthFromProvenance(provenance.depth),
     methods: deriveMethods({ hasWeb, hasOutreach, hasFeedback }),
     qualityScore: provenance.scoring.feedbackScore,
     web: provenance.web.map((w) => ({ source: w.source, url: w.url, snippet: w.snippet })),
@@ -94,6 +116,7 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
       persona: provenance.outreach.persona,
     },
     scoring: { feedbackScore: provenance.scoring.feedbackScore, priceScore: provenance.scoring.priceScore, blendedScore: provenance.scoring.blendedScore, rank: provenance.scoring.rank },
+    summaries: provenance.summaries,
   };
 }
 
@@ -103,7 +126,7 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
  */
 export function assembleDossier({ option, rank }: { option: ReportOption; rank: number }): DossierVM {
   const bg = (option.background ?? {}) as OptionBackground;
-  const web: WebSource[] = (bg.sources ?? []).map((s) => ({ source: s }));
+  const web: WebSource[] = (bg.sources ?? []).map(toWebSource);
   const themes = bg.redFlags && bg.redFlags.length ? bg.redFlags : [];
   const quality = typeof option.qualityScore === 'number' ? option.qualityScore : (bg.qualityScore ?? 0);
 

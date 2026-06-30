@@ -16,6 +16,9 @@ const boardBody = JSON.stringify({
 async function setup(page: Page) {
   await page.addInitScript((s) => localStorage.setItem('inqi.session', s), ADMIN);
   await page.route('**/api/inquiries', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: listBody }));
+  // The board embeds the FE-12 run-controls panel, which fetches /cost on mount — mock it
+  // so the suite is hermetic (an unmocked authed call would 401 against a live backend).
+  await page.route('**/api/inquiries/*/cost', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ currency: 'USD', perModel: [], outreach: { emails: 0, replies: 0, discovery: 0, research: 0, embeddings: 0, estUsd: 0 }, tokenTotal: 0, grandTotalUsd: 0 }) }));
   await page.route('**/api/inquiries/*', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: boardBody }));
 }
 function dispatch(page: Page, event: Record<string, unknown>) {

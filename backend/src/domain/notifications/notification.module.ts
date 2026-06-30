@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MailDriver } from '@inqi/shared';
 import { ConfigService } from '../../infra/config/config.service';
+import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { MAIL_PROVIDER, PostmarkMailProvider } from '../outreach/mail.provider';
 import { LocalMailProvider } from '../outreach/local-mail.provider';
 import { NotificationService } from './notification.service';
@@ -18,7 +19,7 @@ import { NOTIFICATION_CHANNEL } from './notification.tokens';
     NotificationService,
     NotificationRepository,
     EmailNotificationChannel,
-    { provide: MAIL_PROVIDER, useFactory: (config: ConfigService) => (config.mailDriver === MailDriver.Postmark ? new PostmarkMailProvider(config) : new LocalMailProvider(config)), inject: [ConfigService] },
+    { provide: MAIL_PROVIDER, useFactory: (config: ConfigService, ai: AiProvider) => (config.mailDriver === MailDriver.Postmark ? new PostmarkMailProvider(config) : new LocalMailProvider(config, ai)), inject: [ConfigService, AI_PROVIDER] },
     { provide: NOTIFICATION_CHANNEL, useExisting: EmailNotificationChannel },
   ],
 })

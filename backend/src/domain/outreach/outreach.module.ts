@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MailDriver } from '@inqi/shared';
 import { ConfigService } from '../../infra/config/config.service';
+import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { ComplianceModule } from '../compliance/compliance.module';
 import { OutreachService } from './outreach.service';
 import { OutreachRepository } from './outreach.repository';
@@ -16,9 +17,9 @@ import { LocalMailProvider } from './local-mail.provider';
     // Bind MAIL_PROVIDER to Postmark or the local capture provider per config.
     {
       provide: MAIL_PROVIDER,
-      useFactory: (config: ConfigService) =>
-        config.mailDriver === MailDriver.Postmark ? new PostmarkMailProvider(config) : new LocalMailProvider(config),
-      inject: [ConfigService],
+      useFactory: (config: ConfigService, ai: AiProvider) =>
+        config.mailDriver === MailDriver.Postmark ? new PostmarkMailProvider(config) : new LocalMailProvider(config, ai),
+      inject: [ConfigService, AI_PROVIDER],
     },
   ],
   exports: [OutreachService],

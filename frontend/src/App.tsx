@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
+import { AuthRole } from '@inqi/shared';
 import { LayoutMode, AccessScreen, ButtonVariant } from './conventions/enums';
-import { Route, RouteMatch, ROUTE_META, matchRoute, hrefFor, navigate } from './conventions/routes';
+import { Route, RouteMatch, ROUTE_META, matchRoute, hrefFor, navigate, redirectToSignIn } from './conventions/routes';
 import { resolveAccess } from './conventions/guard';
 import { color, space, fontSize, fontWeight } from './theme/tokens';
 import { setUnauthorizedHandler } from './api';
@@ -10,12 +11,16 @@ import { Card, Button, ToastHost } from './ui';
 import { StyleGuide } from './screens/StyleGuide';
 import { SignIn } from './screens/SignIn';
 import { Dashboard } from './screens/Dashboard';
+import { NewInquiry } from './screens/NewInquiry';
 import { Questionnaire } from './screens/Questionnaire';
 import { LiveReport } from './screens/LiveReport';
 import { FreemiumTeaser } from './screens/FreemiumTeaser';
 import { Dossier } from './screens/Dossier';
 import { Credits } from './screens/Credits';
 import { AdminBoard } from './screens/AdminBoard';
+import { AdminInquiryFrame } from './screens/AdminInquiryFrame';
+import { RunControlsPanel } from './screens/RunControls';
+import { CreditTopup } from './screens/CreditTopup';
 import { SubtaskView } from './screens/SubtaskView';
 import { CostReport } from './screens/CostReport';
 import { AuditTrail } from './screens/AuditTrail';
@@ -37,18 +42,37 @@ function useHashRoute(): string {
   return hash;
 }
 
-/** Minimal frame for bare routes (public deep links, auth + access screens). */
+/** Bare frame for login-free routes (deep links, auth + access screens) — no app chrome;
+ * each screen owns its own full-screen, centered layout (matching the prototype). */
 function BareFrame({ children }: { children: ReactNode }) {
   return (
-    <div style={{ minHeight: '100%' }}>
-      <header style={{ borderBottom: `1px solid ${color.line}` }}>
-        <div style={{ maxWidth: 760, margin: '0 auto', padding: `${space[3]}px ${space[4]}px` }}>
-          <a href={hrefFor({ route: Route.Home })} style={{ fontSize: fontSize.h3, fontWeight: fontWeight.bold, color: color.ink, textDecoration: 'none' }}>inqi</a>
-        </div>
-      </header>
-      <main style={{ maxWidth: 760, margin: '0 auto', padding: space[4] }}>{children}</main>
+    <div style={{ minHeight: '100%', background: color.appBg }}>
+      <main>{children}</main>
     </div>
   );
+}
+
+/** HP-24: a guarded route hit while signed out — bounce to Sign in carrying returnTo. */
+function RequireAuthRedirect() {
+  useEffect(() => { redirectToSignIn(); }, []);
+  return <BareFrame><AccessScreenView screen={AccessScreen.SignInRequired} /></BareFrame>;
+}
+
+/** Operators don't use the customer area — bounce any customer-layout route to the console. */
+function RedirectToAdmin() {
+  useEffect(() => { navigate({ route: Route.Admin }); }, []);
+  return <BareFrame><div /></BareFrame>;
+}
+
+/** Root (`/`) + any unknown route → the right home: operators to the console, customers to
+ * the dashboard, signed-out to Sign in (where the role-aware default lands them after auth). */
+function RedirectHome() {
+  const session = useSelector((s) => s.session.session);
+  useEffect(() => {
+    if (!session) navigate({ route: Route.SignIn });
+    else navigate({ route: session.customer.role === AuthRole.Admin ? Route.Admin : Route.Dashboard });
+  }, [session]);
+  return <BareFrame><div /></BareFrame>;
 }
 
 function Home() {
@@ -72,7 +96,7 @@ function content(match: RouteMatch): ReactNode {
     case Route.StyleGuide: return <StyleGuide />;
     case Route.SignIn: return <SignIn />;
     case Route.Dashboard: return <Dashboard />;
-    case Route.NewInquiry: return <Placeholder title="New inquiry" story="FE-04" />;
+    case Route.NewInquiry: return <NewInquiry />;
     case Route.Questionnaire: return <Questionnaire token={match.params.token} />;
     case Route.Inquiry: return <LiveReport inquiryId={match.params.id} />;
     case Route.Freemium: return <FreemiumTeaser inquiryId={match.params.id} />;
@@ -81,6 +105,9 @@ function content(match: RouteMatch): ReactNode {
     case Route.Report: return <LiveReport token={match.params.token} />;
     case Route.Credits: return <Credits />;
     case Route.Admin: return <AdminBoard />;
+    case Route.AdminRun: return <AdminInquiryFrame title="Run controls" basePath="/admin/run">{({ board }) => <RunControlsPanel board={board} />}</AdminInquiryFrame>;
+    case Route.AdminCostOverview: return <AdminInquiryFrame title="Cost per report" basePath="/admin/cost">{({ inquiryId }) => <CostReport inquiryId={inquiryId} />}</AdminInquiryFrame>;
+    case Route.AdminCredits: return <CreditTopup />;
     case Route.AdminAudit: return <AuditTrail />;
     case Route.AdminWorkflows: return <WorkflowVersions />;
     case Route.AdminInquiry: return <AdminBoard inquiryId={match.params.id} />;
@@ -97,20 +124,28 @@ export function App() {
   const session = useSelector((s) => s.session.session);
   const match = matchRoute(hash);
 
-  // FE-02: a 401 anywhere clears the session + returns to Sign in.
+  // FE-02 / HP-24: a 401 anywhere clears the session + returns to Sign in, remembering
+  // where to resume (returnTo) so an expired-session deep link continues after re-auth.
   useEffect(() => {
-    setUnauthorizedHandler(() => { dispatch({ type: ActionType.SignedOut }); navigate({ route: Route.SignIn }); });
+    setUnauthorizedHandler(() => { dispatch({ type: ActionType.SignedOut }); redirectToSignIn(); });
     return () => setUnauthorizedHandler(null);
   }, [dispatch]);
 
   let body: ReactNode;
-  if (!match) {
-    body = <BareFrame><AccessScreenView screen={AccessScreen.NotFound} /></BareFrame>;
+  if (!match || match.route === Route.Home) {
+    // Root + unknown routes → role-aware home (operator console / dashboard / sign-in).
+    body = <RedirectHome />;
   } else {
     const meta = ROUTE_META[match.route];
     const access = resolveAccess({ meta, session });
     if (!access.allowed && access.screen) {
-      body = <BareFrame><AccessScreenView screen={access.screen} /></BareFrame>;
+      // HP-24: a signed-out (401) deep link bounces to Sign in with returnTo; 403/404 keep their screen.
+      body = access.screen === AccessScreen.SignInRequired
+        ? <RequireAuthRedirect />
+        : <BareFrame><AccessScreenView screen={access.screen} /></BareFrame>;
+    } else if (meta.layout === LayoutMode.Customer && session?.customer.role === AuthRole.Admin) {
+      // An operator on a customer-area route → straight to the console.
+      body = <RedirectToAdmin />;
     } else {
       const inner = content(match);
       if (meta.layout === LayoutMode.Admin) body = <AdminShell active={match.route}>{inner}</AdminShell>;

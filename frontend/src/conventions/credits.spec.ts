@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CreditKind } from '@inqi/shared';
 import { StatusTone } from './enums';
-import { ledgerTone, ledgerSign, sortedLedger, relativeTime } from './credits';
+import { ledgerTone, ledgerSign, ledgerIcon, sortedLedger, relativeTime } from './credits';
 import { CreditEntry } from '../api/types';
 
 describe('ledger presentation', () => {
@@ -16,6 +16,10 @@ describe('ledger presentation', () => {
     expect(ledgerSign(CreditKind.Refund)).toBe('+');
     expect(ledgerSign(CreditKind.Reserve)).toBe('−');
     expect(ledgerSign(CreditKind.Charge)).toBe('·');
+  });
+  it('gives each kind a distinct glyph', () => {
+    const icons = [CreditKind.Topup, CreditKind.Refund, CreditKind.Reserve, CreditKind.Charge].map(ledgerIcon);
+    expect(new Set(icons).size).toBe(4);
   });
 });
 

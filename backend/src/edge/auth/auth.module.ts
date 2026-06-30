@@ -44,5 +44,7 @@ import { StubTokenVerifier } from './stub-token.verifier';
         config.authVerifier === AuthVerifierDriver.Google ? google : stub,
     },
   ],
+  // HP-24: the former capability-token / public read surfaces now sit behind AuthGuard too.
+  exports: [SessionService, AuthGuard],
 })
 export class AuthModule {}

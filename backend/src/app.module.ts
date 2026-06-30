@@ -26,8 +26,10 @@ import { EvalModule } from './domain/eval/eval.module';
   imports: [
     // Infra
     ConfigModule, PersistenceModule, QueueModule, EventsModule, AiModule, ObservabilityModule, UsageModule,
-    // API throttling (separate from the orchestrator's per-email-domain send throttle)
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    // API throttling (separate from the orchestrator's per-email-domain send throttle).
+    // A report view fans out a provenance fetch per option (+polling), so the limit is
+    // generous and env-tunable (THROTTLE_LIMIT / THROTTLE_TTL_MS).
+    ThrottlerModule.forRoot([{ ttl: Number(process.env.THROTTLE_TTL_MS ?? 60_000), limit: Number(process.env.THROTTLE_LIMIT ?? 1000) }]),
     // Edge
     PublicModule, AuthModule, CapabilityTokenModule, WebhooksModule,
     // Domain

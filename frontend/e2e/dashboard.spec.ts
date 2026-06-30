@@ -10,7 +10,7 @@ test('empty state shows the first-run CTA', async ({ page }) => {
   await page.route('**/api/me/credits', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ balance: 0, history: [] }) }));
 
   await page.goto('/#/dashboard');
-  await expect(page.getByText('No inquiries yet')).toBeVisible();
+  await expect(page.getByText('Nothing in flight yet')).toBeVisible();
 });
 
 test('lists inquiries, updates a row on a live transition, and routes by stage', async ({ page }) => {
@@ -22,13 +22,22 @@ test('lists inquiries, updates a row on a live transition, and routes by stage',
   await page.goto('/#/dashboard');
   await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
   await expect(page.getByText('2 credits')).toBeVisible();
-  await expect(page.getByTestId('inquiry-status')).toHaveText('In progress');
+  await expect(page.getByTestId('inquiry-status')).toHaveText('Researching');
+
+  // HP-23: a stage-only transition (state holds at OUTREACH, ≥2 qualified) updates the pipeline live.
+  await page.evaluate(() => {
+    (window as unknown as { __inqiDispatch: (a: unknown) => void }).__inqiDispatch({
+      type: 'realtime/event',
+      event: { id: '98', type: 'inquiry.transitioned', inquiryId: 'inq11111aaaa', at: 'now', data: { from: 'OUTREACH', to: 'OUTREACH', stage: 'Partially ready', qualifiedCount: 2 } },
+    });
+  });
+  await expect(page.getByTestId('inquiry-status')).toHaveText('Partially ready');
 
   // Live: dispatch inquiry.transitioned → row badge becomes Ready (real reducer path).
   await page.evaluate(() => {
     (window as unknown as { __inqiDispatch: (a: unknown) => void }).__inqiDispatch({
       type: 'realtime/event',
-      event: { id: '99', type: 'inquiry.transitioned', inquiryId: 'inq11111aaaa', at: 'now', data: { to: 'REPORT_DELIVERED' } },
+      event: { id: '99', type: 'inquiry.transitioned', inquiryId: 'inq11111aaaa', at: 'now', data: { to: 'REPORT_DELIVERED', stage: 'Ready' } },
     });
   });
   await expect(page.getByTestId('inquiry-status')).toHaveText('Ready');

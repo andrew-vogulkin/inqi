@@ -1,15 +1,16 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AgentStage, ConvState, EventType, FindingKind, QueueJob, SubtaskStatus, UsageKind } from '@inqi/shared';
+import { AgentStage, ConvState, EventType, FindingKind, ModelTier, QueueJob, SubtaskStatus, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ActivityService } from '../../infra/observability/activity.service';
-import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
+import { AI_PROVIDER, AiProvider, ChatMsg, ChatRole } from '../../infra/ai/ai.tokens';
 import { UsageService } from '../../infra/usage/usage.service';
 import { OutreachService, IngestResult } from '../outreach/outreach.service';
 import { getPersona } from './personas';
 import { AgentRepository } from './agent.repository';
 import { ReplyDecision, ReplyIntent } from './agent.types';
+import { REPLY_PARSE_SYSTEM, replyParseSchema } from './reply.prompt';
 
 /**
  * The agent: researches an individual subject provider, opens its email thread
@@ -116,14 +117,26 @@ export class AgentService implements OnModuleInit {
   }
 
   /**
-   * DEPTH model decides: continue | qualify | disqualify | escalate (+ optional
-   * draft/result). Stubbed to qualify so the demo flows; replace with
-   * this.ai.json({ system: REPLY_SYS, user: JSON.stringify(chain), tier: ModelTier.Depth }).
+   * DEPTH model: read the email chain and decide continue | qualify | disqualify,
+   * extracting the provider's offer (price + their local currency + availability)
+   * straight from the reply text. Falls back to a qualify if the model is
+   * unavailable/invalid, so the pipeline still settles.
    */
-  private async decideReply({ chain: _chain }: { chain: unknown[] }): Promise<ReplyDecision> {
-    return {
-      intent: ReplyIntent.Qualify,
-      result: { price: 100 + Math.floor(Math.random() * 900), currency: 'EUR', availability: 'in stock', leadTime: '1-2w' },
-    };
+  private async decideReply({ chain }: { chain: ChatMsg[] }): Promise<ReplyDecision> {
+    const transcript = chain
+      .map((m) => `${m.role === ChatRole.User ? 'PROVIDER' : 'INQI'}: ${m.content}`)
+      .join('\n\n');
+    try {
+      const p = await this.ai.structured({
+        system: REPLY_PARSE_SYSTEM, user: transcript, tier: ModelTier.Depth,
+        validate: (raw) => replyParseSchema.parse(raw),
+      });
+      if (p.intent === ReplyIntent.Qualify) {
+        return { intent: ReplyIntent.Qualify, reason: p.reason, result: { price: p.price, currency: p.currency, availability: p.availability, leadTime: p.leadTime } };
+      }
+      return { intent: p.intent, reason: p.reason };
+    } catch {
+      return { intent: ReplyIntent.Qualify, result: { price: null, currency: null, availability: 'available', leadTime: null } };
+    }
   }
 }

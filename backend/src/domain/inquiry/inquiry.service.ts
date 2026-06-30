@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AuthRole, CreateInquiryDto, EventType, WorkflowEvent } from '@inqi/shared';
+import { AuthRole, CreateInquiryDto, EventType, WorkflowEvent, deriveStage } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ErrorCode, NotFoundError, PaymentRequiredError } from '../../common/errors';
 import { WorkflowEngine } from '../orchestrator/workflow-engine.service';
@@ -74,11 +74,17 @@ export class InquiryService {
     return inq;
   }
 
-  /** List read, ownership-scoped: admins see all; customers see only their own. */
-  list({ viewer }: { viewer: InquiryViewer }) {
-    return viewer.role === AuthRole.Admin
-      ? this.inquiries.listRecent()
-      : this.inquiries.listForOwner({ customerId: viewer.sub, email: viewer.email });
+  /** List read, ownership-scoped: admins see all; customers see only their own.
+   *  HP-23: each row is enriched with its qualified count + derived stage. */
+  async list({ viewer }: { viewer: InquiryViewer }) {
+    const rows = viewer.role === AuthRole.Admin
+      ? await this.inquiries.listRecent()
+      : await this.inquiries.listForOwner({ customerId: viewer.sub, email: viewer.email });
+    const counts = await this.inquiries.qualifiedCountsByInquiry({ inquiryIds: rows.map((r) => r.id) });
+    return rows.map((r) => {
+      const qualifiedCount = counts[r.id] ?? 0;
+      return { ...r, qualifiedCount, stage: deriveStage({ state: r.state, qualifiedCount }) };
+    });
   }
 
   /** Backfill ownership when a customer signs in (claims inquiries submitted with their email). */

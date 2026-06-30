@@ -33,9 +33,18 @@ export function inquiriesReducer(state: InquiriesState, action: Action): Inquiri
     }
     case ActionType.EventReceived: {
       const e = action.event;
+      // HP-23: a transition carries the new state AND the derived stage/qualifiedCount.
+      // A stage-only transition (to === from) updates the pipeline without a state change.
       if (e.type === EventType.InquiryTransitioned && state.byId[e.inquiryId]) {
-        const to = (e.data as { to?: string })?.to;
-        if (to) return { ...state, byId: { ...state.byId, [e.inquiryId]: { ...state.byId[e.inquiryId], state: to } } };
+        const d = (e.data ?? {}) as { to?: string; stage?: string; qualifiedCount?: number };
+        const cur = state.byId[e.inquiryId];
+        const next = {
+          ...cur,
+          ...(d.to ? { state: d.to } : {}),
+          ...(d.stage ? { stage: d.stage } : {}),
+          ...(typeof d.qualifiedCount === 'number' ? { qualifiedCount: d.qualifiedCount } : {}),
+        };
+        return { ...state, byId: { ...state.byId, [e.inquiryId]: next } };
       }
       return state;
     }

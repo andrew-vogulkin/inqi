@@ -2,9 +2,11 @@ import { CSSProperties, ReactNode } from 'react';
 import { ButtonVariant } from '../conventions/enums';
 import { color, radius, space, fontSize, fontWeight } from '../theme/tokens';
 
+// Prototype: the primary CTA is ink (#1c1c1a), not green — green is the brand mark
+// + status accents only. Secondary = white + hairline. Danger = red fill.
 const VARIANT: Record<ButtonVariant, CSSProperties> = {
-  [ButtonVariant.Primary]: { background: color.brand, color: color.onSolid, borderColor: color.brand },
-  [ButtonVariant.Secondary]: { background: color.surface, color: color.ink, borderColor: color.lineStrong },
+  [ButtonVariant.Primary]: { background: color.ink, color: color.onSolid, borderColor: color.ink },
+  [ButtonVariant.Secondary]: { background: color.surface, color: color.ink, borderColor: color.line },
   [ButtonVariant.Ghost]: { background: 'transparent', color: color.inkSoft, borderColor: 'transparent' },
   [ButtonVariant.Danger]: { background: color.danger, color: color.onSolid, borderColor: color.danger },
 };

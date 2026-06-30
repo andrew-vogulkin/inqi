@@ -5,6 +5,7 @@ import { ComplianceKind, QuestionnaireAnswersDto, ReviewStatus, WorkflowEvent } 
 import { ConfigService } from '../../infra/config/config.service';
 import { WorkflowEngine } from '../orchestrator/workflow-engine.service';
 import { ComplianceBlockedError, DomainError, ErrorCode, NotFoundError } from '../../common/errors';
+import { ownsResource, OwnershipViewer } from '../../common/ownership';
 import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
 import { QuestionnaireRepository } from './questionnaire.repository';
 import { QuestionnaireQuestion } from './questionnaire.types';
@@ -46,15 +47,21 @@ export class QuestionnaireService {
     return q ? `${this.config.publicBaseUrl}/q/${q.token}` : null;
   }
 
-  async getByToken({ token }: { token: string }) {
+  /** HP-24: the token resolves only within the owner's scope (non-owner → same 404). */
+  private async ownedByToken({ token, viewer }: { token: string; viewer: OwnershipViewer }) {
     const q = await this.questionnaires.findByToken({ token });
     if (!q) throw new NotFoundError({ code: ErrorCode.QuestionnaireNotFound, message: 'questionnaire not found' });
+    const owner = await this.questionnaires.inquiryOwner({ inquiryId: q.inquiryId });
+    if (!owner || !ownsResource({ resource: owner, viewer })) throw new NotFoundError({ code: ErrorCode.QuestionnaireNotFound, message: 'questionnaire not found' });
     return q;
   }
 
-  async submit({ token, answers }: { token: string; answers: QuestionnaireAnswersDto }): Promise<{ ok: true }> {
-    const q = await this.questionnaires.findByToken({ token });
-    if (!q) throw new NotFoundError({ code: ErrorCode.QuestionnaireNotFound, message: 'questionnaire not found' });
+  async getByToken({ token, viewer }: { token: string; viewer: OwnershipViewer }) {
+    return this.ownedByToken({ token, viewer });
+  }
+
+  async submit({ token, answers, viewer }: { token: string; answers: QuestionnaireAnswersDto; viewer: OwnershipViewer }): Promise<{ ok: true }> {
+    const q = await this.ownedByToken({ token, viewer });
     if (q.expiresAt < new Date()) throw new DomainError({ code: ErrorCode.QuestionnaireExpired, message: 'link expired' });
     if (!answers.confirmedSubject) {
       throw new DomainError({ code: ErrorCode.QuestionnaireNotConfirmed, message: 'customer must confirm the subject' });

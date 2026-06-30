@@ -5,7 +5,8 @@ import { Stage, stageForInquiryState, stageIndex, isFailedState, isLiveStage, st
 
 describe('stageForInquiryState', () => {
   it('maps internal states to the 6 customer stages', () => {
-    expect(stageForInquiryState(InquiryState.RECEIVED)).toBe(Stage.Preparing);
+    expect(stageForInquiryState(InquiryState.RECEIVED)).toBe(Stage.Draft);
+    expect(stageForInquiryState(InquiryState.PRE_RESEARCH)).toBe(Stage.Preparing);
     expect(stageForInquiryState(InquiryState.QUESTIONNAIRE_SENT)).toBe(Stage.Questionnaire);
     expect(stageForInquiryState(InquiryState.OUTREACH)).toBe(Stage.Researching);
     expect(stageForInquiryState(InquiryState.REPORT_DELIVERED)).toBe(Stage.Ready);

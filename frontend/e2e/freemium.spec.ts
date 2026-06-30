@@ -36,7 +36,7 @@ test('locked teaser leaks no hidden data; unlocking with credits reveals the ful
   await expect(page.getByTestId('freemium-teaser')).toBeVisible();
   await expect(page.getByText('+4 better options')).toBeVisible();
   await expect(page.getByText('Taster Co').first()).toBeVisible();
-  await expect(page.getByText('🔒 Locked')).toHaveCount(4);
+  await expect(page.getByText('🔒 locked')).toHaveCount(4);
 
   // The guardrail: hidden options are NOT in the DOM before unlock.
   await expect(page.getByText(HIDDEN)).toHaveCount(0);
@@ -52,7 +52,7 @@ test('zero balance shows the not-enough-credits path and routes to Credits', asy
   await page.route('**/api/me/credits', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ balance: 0, history: [] }) }));
 
   await page.goto('/#/f/i1');
-  await expect(page.getByText('0 credits available')).toBeVisible();
+  await expect(page.getByText('You have 0 credits')).toBeVisible();
   await page.getByRole('button', { name: /Unlock full report/ }).click();
   await expect(page.getByText('Not enough credits — top up to unlock.')).toBeVisible();
   await expect(page).toHaveURL(/#\/credits/);

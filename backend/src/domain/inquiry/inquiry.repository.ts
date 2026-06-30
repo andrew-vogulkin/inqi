@@ -39,4 +39,15 @@ export class InquiryRepository {
   linkOwnerByEmail({ email, customerId }: { email: string; customerId: string }) {
     return this.db.inquiry.updateMany({ where: { customerEmail: email, customerId: null }, data: { customerId } });
   }
+
+  /** HP-23: qualified-subtask count per inquiry (Subtask→Epic join), for the stage projection. */
+  async qualifiedCountsByInquiry({ inquiryIds }: { inquiryIds: string[] }): Promise<Record<string, number>> {
+    if (!inquiryIds.length) return {};
+    const rows = await this.db.$queryRaw<{ inquiryId: string; count: bigint }[]>`
+      SELECT e."inquiryId" AS "inquiryId", COUNT(*)::bigint AS count
+      FROM "Subtask" s JOIN "Epic" e ON s."epicId" = e.id
+      WHERE s.status = 'qualified' AND e."inquiryId" IN (${Prisma.join(inquiryIds)})
+      GROUP BY e."inquiryId"`;
+    return Object.fromEntries(rows.map((r) => [r.inquiryId, Number(r.count)]));
+  }
 }

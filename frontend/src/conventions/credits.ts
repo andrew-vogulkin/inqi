@@ -27,6 +27,14 @@ export function ledgerSign(kind: string): string {
   return '·';
 }
 
+/** A compact glyph for the ledger row icon tile (paired with `ledgerTone` colours). */
+export function ledgerIcon(kind: string): string {
+  if (kind === CreditKind.Topup) return '↑';
+  if (kind === CreditKind.Refund) return '↩';
+  if (kind === CreditKind.Reserve) return '⏸';
+  return '✓'; // charge — settled
+}
+
 /** Newest-first by createdAt (defensive — the API already returns desc). */
 export function sortedLedger(entries: CreditEntry[]): CreditEntry[] {
   return [...entries].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

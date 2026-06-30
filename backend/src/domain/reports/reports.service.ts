@@ -1,15 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { EventType, FindingKind, InquiryState, ModelTier, SubtaskStatus, ProvenanceDto, ProvenanceDepth, OutreachOutcome, AuditAction, AuditTargetType } from '@inqi/shared';
+import { EventType, FindingKind, InquiryState, ModelTier, SubtaskStatus, ProvenanceDto, ProvenanceDepth, OutreachOutcome, AuditAction, AuditTargetType, deriveStage, InquiryStage } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { ErrorCode, NotFoundError } from '../../common/errors';
+import { ownsResource, OwnershipViewer } from '../../common/ownership';
 import { CreditsService } from '../credits/credits.service';
 import { AuditService } from '../../infra/observability/audit.service';
 import { ReportsRepository } from './reports.repository';
 import { rankOptions, RankableOption, RankedOption } from './ranking';
 import { SYNTHESIS_SYSTEM, buildSynthesisUser, synthesisSchema } from './synthesis.prompt';
+import { PROVENANCE_SUMMARY_SYSTEM, buildProvenanceSummaryUser, provenanceSummarySchema, ProvenanceSummaryInput } from './provenance-summary.prompt';
+import { ProvenanceSummaries, MessageDirection, QuestionnaireQuestion } from '@inqi/shared';
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
@@ -165,9 +168,12 @@ export class ReportsService {
     return report;
   }
 
-  async getByToken({ token }: { token: string }) {
+  async getByToken({ token, viewer }: { token: string; viewer: OwnershipViewer }) {
     const report = await this.reports.findByToken({ token });
     if (!report) throw new NotFoundError({ code: ErrorCode.ReportNotFound, message: 'report not found' });
+    // HP-24: resolve the token within the owner's scope — non-owner → same 404 (no leak).
+    const inquiry = await this.reports.findInquiry({ id: report.inquiryId });
+    if (!inquiry || !ownsResource({ resource: inquiry, viewer })) throw new NotFoundError({ code: ErrorCode.ReportNotFound, message: 'report not found' });
     // HP-21: redact a free + locked report's options (top withheld) until unlocked.
     if (report.freemium && !report.unlocked) {
       const ranked = (report.options ?? []) as unknown as RankedOption[];
@@ -235,14 +241,58 @@ export class ReportsService {
     const contacted = status === SubtaskStatus.Contacted || status === SubtaskStatus.Replied || status === SubtaskStatus.Qualified;
     const hasFeedback = bg.rating != null || themes.length > 0;
 
+    const feedback = { rating: num(bg.rating), sentiment: num(bg.sentiment), themes, quotes };
+    const scoring = { feedbackScore: round3(opt.qualityScore), priceScore: round3(opt.priceScore), blendedScore: round3(opt.score), rank: idx + 1 };
+    const outcome = outreachOutcomeFor(status);
+
+    // AI transparency summaries (best-effort; the dossier still renders without them).
+    const summaries = await this.summarizeProvenance({
+      provider: ref, inquiryId, subtaskId: optionFinding?.subtaskId ?? null,
+      web, feedback, scoring, outcome, rank: idx + 1, totalOptions: ranked.length,
+      price: { amount: typeof opt.price === 'number' ? opt.price : null, currency: opt.currency ?? null },
+    });
+
     return {
       web,
-      feedback: { rating: num(bg.rating), sentiment: num(bg.sentiment), themes, quotes },
-      scoring: { feedbackScore: round3(opt.qualityScore), priceScore: round3(opt.priceScore), blendedScore: round3(opt.score), rank: idx + 1 },
+      feedback,
+      scoring,
       // REDACTED — no addresses/bodies/message ids; just persona + a generic relay + outcome.
-      outreach: { persona: subtask?.personaId ?? 'inqi', route: 'via inqi', outcome: outreachOutcomeFor(status) },
+      outreach: { persona: subtask?.personaId ?? 'inqi', route: 'via inqi', outcome },
       depth: contacted ? ProvenanceDepth.WebOutreachFeedback : hasFeedback ? ProvenanceDepth.WebFeedback : ProvenanceDepth.WebOnly,
+      summaries,
     };
+  }
+
+  /** One DEPTH call → a short transparency summary per evaluation section (best-effort). */
+  private async summarizeProvenance(ctx: {
+    provider: string; inquiryId: string; subtaskId: string | null;
+    web: { source: string; url: string; snippet: string }[];
+    feedback: { rating: number; sentiment: number; themes: string[]; quotes: string[] };
+    scoring: { feedbackScore: number; priceScore: number; blendedScore: number; rank: number };
+    outcome: string; rank: number; totalOptions: number; price: { amount: number | null; currency: string | null };
+  }): Promise<ProvenanceSummaries | undefined> {
+    try {
+      if (!this.ai?.isConfigured?.()) return undefined;
+      const inquiry = await this.reports.findInquiry({ id: ctx.inquiryId });
+      const msgs = ctx.subtaskId ? await this.reports.findMessages({ subtaskId: ctx.subtaskId }) : [];
+      const outbound = msgs.find((m) => m.direction === MessageDirection.Outbound);
+      const inbound = msgs.find((m) => m.direction === MessageDirection.Inbound);
+      const responseMinutes = outbound && inbound ? Math.max(0, Math.round((inbound.createdAt.getTime() - outbound.createdAt.getTime()) / 60_000)) : null;
+
+      const input: ProvenanceSummaryInput = {
+        provider: ctx.provider, request: inquiry?.rawRequest ?? '', rank: ctx.rank, totalOptions: ctx.totalOptions,
+        web: ctx.web, feedback: ctx.feedback, scoring: { feedbackScore: ctx.scoring.feedbackScore, priceScore: ctx.scoring.priceScore, blendedScore: ctx.scoring.blendedScore },
+        price: ctx.price,
+        outreach: { outcome: ctx.outcome, responseMinutes, reply: inbound?.body ?? null },
+      };
+      const r = await this.ai.structured({
+        system: PROVENANCE_SUMMARY_SYSTEM, user: buildProvenanceSummaryUser(input), tier: ModelTier.Depth,
+        validate: (raw) => provenanceSummarySchema.parse(raw),
+      });
+      return { web: r.web ?? '', outreach: r.outreach ?? '', feedback: r.feedback ?? '', ranking: r.ranking ?? '' };
+    } catch {
+      return undefined; // never fail the dossier on a summary hiccup
+    }
   }
 
   /**
@@ -252,9 +302,11 @@ export class ReportsService {
    * + token so the live view matches the final report. The frontend layers the
    * realtime event stream on top of this for the live timeline.
    */
-  async live({ inquiryId }: { inquiryId: string }): Promise<LiveReport> {
+  async live({ inquiryId, viewer }: { inquiryId: string; viewer: OwnershipViewer }): Promise<LiveReport> {
     const inquiry = await this.reports.findInquiry({ id: inquiryId });
     if (!inquiry) throw new NotFoundError({ code: ErrorCode.ReportNotFound, message: 'inquiry not found' });
+    // HP-24: owner/admin only — a non-owner gets the same 404 (no existence leak).
+    if (!ownsResource({ resource: inquiry, viewer })) throw new NotFoundError({ code: ErrorCode.ReportNotFound, message: 'inquiry not found' });
     const findings = await this.reports.findFindings({ inquiryId, kinds: [FindingKind.Option, FindingKind.SubjectProviderBackground] });
     const ranked = assembleOptions(findings);
     const snapshot = await this.reports.findReportByInquiry({ inquiryId });
@@ -262,9 +314,24 @@ export class ReportsService {
     // HP-21: a free + locked report is redacted on read until unlocked.
     const locked = !!snapshot?.freemium && !snapshot?.unlocked;
     const redaction = locked ? redactFreemium(ranked) : null;
+    // HP-23: qualified count = the assembled (pre-redaction) options; drives the stage.
+    const qualifiedCount = ranked.length;
+    const stage = deriveStage({ state: inquiry.state, qualifiedCount });
+    // While awaiting scope confirmation, surface the questionnaire token so the owner's
+    // report view (/i/:id) can route to the questions + confirm form.
+    const questionnaireToken = stage === InquiryStage.Questionnaire ? await this.reports.findPendingQuestionnaireToken({ inquiryId }) : null;
+    // The answered scope, read-only, so the report can show what the customer confirmed.
+    const q = await this.reports.findQuestionnaire({ inquiryId });
+    const questionnaire: LiveReport['questionnaire'] = q
+      ? { questions: (q.questions ?? []) as unknown as QuestionnaireQuestion[], answers: (q.answers ?? null) as unknown as Record<string, string> | null, confirmed: q.confirmed }
+      : null;
     return {
       inquiryId,
       state: inquiry.state,
+      stage,
+      qualifiedCount,
+      questionnaireToken,
+      questionnaire,
       delivered,
       rawRequest: inquiry.rawRequest,
       reportId: snapshot?.id ?? null,
@@ -283,6 +350,10 @@ export class ReportsService {
 export interface LiveReport {
   inquiryId: string;
   state: string;
+  stage: string;
+  qualifiedCount: number;
+  questionnaireToken: string | null;
+  questionnaire: { questions: QuestionnaireQuestion[]; answers: Record<string, string> | null; confirmed: boolean } | null;
   delivered: boolean;
   rawRequest: string;
   reportId: string | null;

@@ -2,17 +2,19 @@ import { useEffect, useState } from 'react';
 import { EventType, SubtaskStatus } from '@inqi/shared';
 import { AsyncStatus, StatusTone } from '../conventions/enums';
 import { Route, navigate, hrefFor } from '../conventions/routes';
-import { color, space, fontSize, fontWeight, radius } from '../theme/tokens';
+import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
 import { inquiriesApi } from '../api';
 import { InquiryDto } from '../api/types';
-import { Card, Badge, StatusBadge, StatusDot, MonoRef, EmptyState, Skeleton, Button } from '../ui';
-import { ButtonVariant } from '../conventions/enums';
-import { toneForInquiryState, toneForSubtaskStatus } from '../ui/tone';
+import { Skeleton } from '../ui';
+import { toneForInquiryState, toneForSubtaskStatus, toneColors } from '../ui/tone';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
-import { AdminBoardState, EpicVM, epicSubtasks, epicNeedsAttention, epicProgress } from '../state/adminBoard.reducer';
+import { AdminBoardState, EpicVM, epicSubtasks, epicProgress } from '../state/adminBoard.reducer';
 import { RunControlsPanel } from './RunControls';
+
+const EPIC_PALETTE = [color.brand, color.info, color.inkSoft, color.warn];
+const epicColor = (i: number) => EPIC_PALETTE[i % EPIC_PALETTE.length];
 
 /** FE-10 — operator live board for one inquiry: epics → subtasks → findings + activity stream. */
 export function AdminBoard({ inquiryId }: { inquiryId?: string }) {
@@ -30,108 +32,177 @@ export function AdminBoard({ inquiryId }: { inquiryId?: string }) {
   // Admin room → reducer (the reducer scopes events to the active inquiry).
   useRealtime({ kind: 'admin' });
 
+  const ready = board.status === AsyncStatus.Ready && board.inquiryId === activeId;
+
   return (
-    <section style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: space[5] }}>
-      <div style={{ display: 'grid', gap: space[4] }}>
+    <div>
+      <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h1 style={{ fontSize: 21, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: 0 }}>Live board</h1>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: fontSize.sm, color: color.brand, background: color.brandTint, padding: '4px 10px', borderRadius: radius.pill }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: color.brand, animation: 'inqi-pulse 1.3s ease-in-out infinite' }} />Live
+            </span>
+          </div>
+          <p style={{ fontSize: fontSize.base, color: color.muted, margin: '5px 0 0' }}>Inquiries → epics → subtasks → findings, updating in real time.</p>
+        </div>
         <Tabs tabs={tabs} activeId={activeId} />
-        {board.status !== AsyncStatus.Ready || board.inquiryId !== activeId
-          ? <Card><Skeleton width="50%" /></Card>
-          : <Board board={board} />}
+      </header>
+
+      <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {ready ? <Board board={board} /> : <div style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '14px 16px' }}><Skeleton width="50%" /></div>}
+        </div>
+        <ActivityStream board={board} />
       </div>
-      <ActivityStream board={board} />
-    </section>
+    </div>
   );
 }
 
 function Tabs({ tabs, activeId }: { tabs: InquiryDto[]; activeId: string | null }) {
   if (!tabs.length) return null;
   return (
-    <div style={{ display: 'flex', gap: space[2], flexWrap: 'wrap' }}>
-      {tabs.map((t) => (
-        <button key={t.id} onClick={() => navigate({ route: Route.AdminInquiry, params: { id: t.id } })}
-          style={{ border: `1px solid ${t.id === activeId ? color.brand : color.lineStrong}`, background: t.id === activeId ? color.brandTint : color.surface, color: t.id === activeId ? color.brandStrong : color.inkSoft, borderRadius: radius.pill, padding: `${space[1]}px ${space[3]}px`, fontSize: fontSize.sm, cursor: 'pointer' }}>
-          <MonoRef muted>#{t.id.slice(0, 6)}</MonoRef> {t.rawRequest.slice(0, 28)}
-        </button>
-      ))}
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      {tabs.map((t) => {
+        const on = t.id === activeId;
+        return (
+          <button key={t.id} onClick={() => navigate({ route: Route.AdminInquiry, params: { id: t.id } })}
+            style={{ fontSize: 12.5, padding: '7px 12px', borderRadius: radius.md, border: `1px solid ${on ? color.brand : color.lineStrong}`, background: on ? color.brandTint : color.surface, color: on ? color.brandStrong : color.inkSoft, fontWeight: fontWeight.medium, cursor: 'pointer' }}>
+            {t.rawRequest.slice(0, 30)}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 function Board({ board }: { board: AdminBoardState }) {
   const [openEpic, setOpenEpic] = useState<string | null>(null);
+  const subCount = Object.keys(board.subtasksById).length;
   return (
-    <div style={{ display: 'grid', gap: space[3] }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: space[2] }}>
-        <h1 style={{ fontSize: fontSize.h3, flex: 1 }}>{board.title}</h1>
-        {board.inquiryId && <a href={hrefFor({ route: Route.AdminCost, params: { id: board.inquiryId } })} style={{ fontSize: fontSize.sm }} data-testid="cost-link">cost →</a>}
-        <StatusBadge label={board.inquiryState} tone={toneForInquiryState(board.inquiryState)} />
-      </header>
+    <div>
+      {/* Inquiry summary bar */}
+      <div style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '14px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>{board.inquiryId ? `#${board.inquiryId.slice(0, 8)} · ` : ''}{board.title}</div>
+        <div style={{ fontSize: fontSize.sm, color: color.subtle }}>{board.epicOrder.length} epics · {subCount} subtasks</div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: toneColors[toneForInquiryState(board.inquiryState)].fg, background: toneColors[toneForInquiryState(board.inquiryState)].bg, padding: '4px 10px', borderRadius: radius.pill }}>{board.inquiryState}</span>
+          {board.inquiryId && <a href={hrefFor({ route: Route.AdminCost, params: { id: board.inquiryId } })} style={{ fontSize: fontSize.sm, color: color.info }} data-testid="cost-link">cost →</a>}
+        </div>
+      </div>
 
       <RunControlsPanel board={board} />
 
-      {board.epicOrder.length === 0 && <EmptyState title="No epics yet" hint="Epics + subtasks appear here as the agent works." />}
+      {board.epicOrder.length === 0 && (
+        <div style={{ background: color.surface, border: `1px dashed ${color.lineStrong}`, borderRadius: radius.lg, padding: space[6], textAlign: 'center', color: color.subtle, fontSize: fontSize.sm, marginTop: 14 }}>Epics + subtasks appear here as the agent works.</div>
+      )}
 
-      {board.epicOrder.map((id) => {
-        const epic = board.epicsById[id];
-        return openEpic === id
-          ? <EpicDetail key={id} board={board} epic={epic} onClose={() => setOpenEpic(null)} />
-          : <EpicCard key={id} board={board} epic={epic} onOpen={() => setOpenEpic(id)} />;
-      })}
+      <div style={{ marginTop: 14 }}>
+        {openEpic && board.epicsById[openEpic]
+          ? <EpicDetail board={board} epic={board.epicsById[openEpic]} index={board.epicOrder.indexOf(openEpic)} onClose={() => setOpenEpic(null)} />
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {board.epicOrder.map((id, i) => <EpicCard key={id} board={board} epic={board.epicsById[id]} index={i} onOpen={() => setOpenEpic(id)} />)}
+            </div>
+          )}
+      </div>
     </div>
   );
 }
 
-function EpicCard({ board, epic, onOpen }: { board: AdminBoardState; epic: EpicVM; onOpen: () => void }) {
+function PersonaTile({ index, strategy, size = 22 }: { index: number; strategy: string; size?: number }) {
+  return <span style={{ width: size, height: size, borderRadius: radius.sm, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size > 22 ? fontSize.sm : fontSize.xs, fontWeight: fontWeight.semibold, color: color.onSolid, background: epicColor(index) }}>{(strategy[0] ?? 'E').toUpperCase()}</span>;
+}
+
+function EpicCard({ board, epic, index, onOpen }: { board: AdminBoardState; epic: EpicVM; index: number; onOpen: () => void }) {
   const subs = epicSubtasks(board, epic.id);
-  const attention = epicNeedsAttention(board, epic.id);
+  const failed = subs.filter((s) => s.status === SubtaskStatus.Failed).length;
   const { qualified, target } = epicProgress(board, epic.id);
   return (
-    <Card style={{ cursor: 'pointer' }}>
-      <div role="button" data-testid="epic-card" onClick={onOpen} style={{ display: 'grid', gap: space[2] }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: space[2] }}>
-          <b style={{ flex: 1 }}>{epic.strategy} epic</b>
-          {attention && <Badge tone={StatusTone.Danger}>{subs.filter((s) => s.status === SubtaskStatus.Failed).length} need attention</Badge>}
-          <span style={{ fontSize: fontSize.sm, color: color.muted }}>{qualified}/{target} qualified</span>
-        </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {subs.map((s) => <StatusDot key={s.id} tone={toneForSubtaskStatus(s.status)} />)}
-          {subs.length === 0 && <span style={{ fontSize: fontSize.xs, color: color.subtle }}>no subtasks yet</span>}
-        </div>
+    <button data-testid="epic-card" onClick={onOpen}
+      style={{ textAlign: 'left', background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '15px 17px', cursor: 'pointer', width: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+        <PersonaTile index={index} strategy={epic.strategy} />
+        <span style={{ fontSize: 14.5, fontWeight: fontWeight.semibold, flex: 1, minWidth: 0 }}>{epic.strategy} epic</span>
+        {failed > 0 && <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: color.danger, background: color.dangerTint, padding: '3px 9px', borderRadius: radius.sm }}>{failed} need attention</span>}
+        <span style={{ color: '#c9c8c2', fontSize: 18 }}>›</span>
       </div>
-    </Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 11 }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {subs.length === 0
+            ? <span style={{ fontSize: fontSize.xs, color: color.subtle }}>no subtasks yet</span>
+            : subs.map((s) => <span key={s.id} style={{ width: 18, height: 5, borderRadius: 3, background: toneColors[toneForSubtaskStatus(s.status)].fg }} />)}
+        </div>
+        <span style={{ fontSize: fontSize.sm, color: color.brand, fontWeight: fontWeight.medium }}>{qualified}/{target} qualified</span>
+        <span style={{ fontSize: fontSize.xs, color: color.subtle }}>· {epic.strategy}</span>
+      </div>
+    </button>
   );
 }
 
-function EpicDetail({ board, epic, onClose }: { board: AdminBoardState; epic: EpicVM; onClose: () => void }) {
-  const subs = epicSubtasks(board, epic.id);
-  const step = (label: string, value: string) => (
-    <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: space[2], fontSize: fontSize.sm }}>
-      <span style={{ color: color.muted }}>{label}</span><span>{value}</span>
+function LineageStep({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '15px 17px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
+        <span style={{ width: 22, height: 22, borderRadius: 7, background: color.ink, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.xs, fontWeight: fontWeight.semibold, fontFamily: font.mono }}>{n}</span>
+        <span style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>{title}</span>
+      </div>
+      <div style={{ paddingLeft: 31 }}>{children}</div>
     </div>
   );
+}
+
+function EpicDetail({ board, epic, index, onClose }: { board: AdminBoardState; epic: EpicVM; index: number; onClose: () => void }) {
+  const subs = epicSubtasks(board, epic.id);
   return (
-    <Card>
-      <div style={{ display: 'flex', alignItems: 'center', gap: space[2], marginBottom: space[3] }}>
-        <b style={{ flex: 1 }}>{epic.strategy} epic</b>
-        <Button variant={ButtonVariant.Ghost} onClick={onClose}>← list</Button>
+    <div>
+      <button onClick={onClose} style={{ fontSize: fontSize.base, color: color.muted, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer' }}>‹ All epics</button>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '15px 17px', marginBottom: 12 }}>
+        <PersonaTile index={index} strategy={epic.strategy} size={26} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold }}>{epic.strategy} epic</div>
+          <div style={{ fontSize: fontSize.sm, color: color.subtle, marginTop: 2 }}>{epic.strategy} · {board.inquiryId ? `#${board.inquiryId.slice(0, 8)}` : ''}</div>
+        </div>
       </div>
-      <div style={{ display: 'grid', gap: space[1], marginBottom: space[3], paddingBottom: space[3], borderBottom: `1px solid ${color.line}` }}>
-        {step('User request', board.lineage.userRequest)}
-        {step('Initial research', board.lineage.initialResearch)}
-        {step('Confirmed scope', board.lineage.confirmedScope)}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+        <LineageStep n={1} title="User request">
+          <div style={{ fontSize: 13.5, color: color.inkSoft, lineHeight: 1.5 }}>"{board.lineage.userRequest}"</div>
+        </LineageStep>
+        <LineageStep n={2} title="Initial research">
+          <div style={{ fontSize: 12.5, color: color.muted, lineHeight: 1.45, display: 'flex', gap: 8 }}><span style={{ color: color.brand }}>✓</span>{board.lineage.initialResearch}</div>
+        </LineageStep>
+        <LineageStep n={3} title="Confirmed scope · questionnaire">
+          <span style={{ fontSize: fontSize.sm, color: color.inkSoft, background: color.surfaceSunken, padding: '4px 10px', borderRadius: 7 }}>{board.lineage.confirmedScope}</span>
+        </LineageStep>
       </div>
-      <div style={{ display: 'grid', gap: space[1] }}>
-        {subs.map((s) => (
-          <a key={s.id} href={hrefFor({ route: Route.AdminSubtask, params: { id: s.id } })} data-testid="subtask-row"
-            style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: space[2], alignItems: 'center', padding: `${space[1]}px ${space[2]}px`, border: `1px solid ${color.line}`, borderRadius: 8, textDecoration: 'none', color: 'inherit' }}>
-            <StatusDot tone={toneForSubtaskStatus(s.status)} />
-            <span style={{ fontSize: fontSize.sm }}>{s.provider} <MonoRef muted>· w{s.wave}</MonoRef></span>
-            <StatusBadge label={s.status} tone={toneForSubtaskStatus(s.status)} />
-          </a>
-        ))}
-        {subs.length === 0 && <span style={{ fontSize: fontSize.sm, color: color.subtle }}>No subtasks yet.</span>}
+
+      <div style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '14px 17px', borderBottom: `1px solid ${color.surfaceAlt}` }}>
+          <span style={{ width: 22, height: 22, borderRadius: 7, background: color.ink, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.xs, fontWeight: fontWeight.semibold, fontFamily: font.mono }}>4</span>
+          <span style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>Subtasks</span>
+          <span style={{ fontSize: fontSize.sm, color: color.subtle, fontFamily: font.mono }}>{subs.length}</span>
+        </div>
+        {subs.length === 0 && <div style={{ padding: '14px 17px', fontSize: fontSize.sm, color: color.subtle }}>No subtasks yet.</div>}
+        {subs.map((s) => {
+          const tone = toneColors[toneForSubtaskStatus(s.status)];
+          const finding = s.status === SubtaskStatus.Qualified && typeof s.qualityScore === 'number' ? `Qualified · feedback ${Math.round(s.qualityScore * 100)}` : null;
+          return (
+            <a key={s.id} href={hrefFor({ route: Route.AdminSubtask, params: { id: s.id } })} data-testid="subtask-row"
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 17px', borderBottom: `1px solid ${color.surfaceSunken}`, textDecoration: 'none', color: 'inherit' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', flex: 'none', background: tone.fg }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: fontWeight.medium }}>{s.provider} <span style={{ color: color.subtle, fontFamily: font.mono, fontWeight: fontWeight.regular }}>· w{s.wave}</span></div>
+                {finding && <div style={{ fontSize: 11.5, color: color.brand, marginTop: 2 }}>{finding}</div>}
+              </div>
+              <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.semibold, padding: '3px 9px', borderRadius: radius.sm, flex: 'none', background: tone.bg, color: tone.fg }}>{s.status}</span>
+              <span style={{ color: '#c9c8c2', fontSize: 16, flex: 'none' }}>›</span>
+            </a>
+          );
+        })}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -147,20 +218,43 @@ const STREAM_LABEL: Record<string, (d: Record<string, unknown>) => string> = {
   [EventType.InquiryTransitioned]: (d) => `→ ${d.to}`,
   [EventType.AgentProgress]: (d) => `${d.stage}: ${d.message}`,
 };
+const STREAM_ICON: Record<string, { icon: string; tone: StatusTone }> = {
+  [EventType.EpicCreated]: { icon: '◆', tone: StatusTone.Info },
+  [EventType.SubtaskCreated]: { icon: '＋', tone: StatusTone.Muted },
+  [EventType.SubtaskUpdated]: { icon: '↻', tone: StatusTone.Info },
+  [EventType.WaveReleased]: { icon: '⇧', tone: StatusTone.Brand },
+  [EventType.FunnelWidened]: { icon: '⊕', tone: StatusTone.Info },
+  [EventType.MessageSent]: { icon: '✉', tone: StatusTone.Info },
+  [EventType.MessageReceived]: { icon: '↩', tone: StatusTone.Brand },
+  [EventType.RunReaped]: { icon: '⚠', tone: StatusTone.Warn },
+  [EventType.InquiryTransitioned]: { icon: '→', tone: StatusTone.Muted },
+  [EventType.AgentProgress]: { icon: '•', tone: StatusTone.Muted },
+};
+const STREAM_FALLBACK = { icon: '•', tone: StatusTone.Muted };
 
 function ActivityStream({ board }: { board: AdminBoardState }) {
   const rows = board.events.filter((e) => e.type !== EventType.AgentHeartbeat).slice(-80).reverse();
   return (
-    <aside>
-      <h3 style={{ fontSize: fontSize.h3, marginBottom: space[2] }}>Agent activity</h3>
-      <div data-testid="activity-stream" style={{ maxHeight: 520, overflow: 'auto', fontSize: fontSize.xs, fontFamily: 'var(--font-mono)', background: color.surfaceSunken, border: `1px solid ${color.line}`, borderRadius: radius.md, padding: space[2] }}>
-        {rows.length === 0 && <div style={{ color: color.subtle }}>Waiting for activity…</div>}
-        {rows.map((e) => (
-          <div key={e.id} style={{ padding: '2px 0' }}>
-            <span style={{ color: color.subtle }}>{e.at && e.at !== 'now' ? new Date(e.at).toLocaleTimeString() : ''}</span>{' '}
-            {(STREAM_LABEL[e.type] ?? (() => e.type))(e.data)}
-          </div>
-        ))}
+    <aside style={{ width: 300, flex: 'none', background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '16px 16px 8px', position: 'sticky', top: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+        <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: color.subtle, letterSpacing: '.04em', textTransform: 'uppercase' }}>Agent activity</span>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: color.brand, animation: 'inqi-pulse 1.3s ease-in-out infinite' }} />
+      </div>
+      <div data-testid="activity-stream" style={{ maxHeight: 560, overflow: 'auto' }}>
+        {rows.length === 0 && <div style={{ color: color.subtle, fontSize: fontSize.sm, paddingBottom: 12 }}>Waiting for activity…</div>}
+        {rows.map((e) => {
+          const ic = STREAM_ICON[e.type] ?? STREAM_FALLBACK;
+          const tone = toneColors[ic.tone];
+          return (
+            <div key={e.id} style={{ display: 'flex', gap: 10, paddingBottom: 15 }}>
+              <div style={{ width: 24, height: 24, borderRadius: 7, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.xs, background: tone.bg, color: tone.fg }}>{ic.icon}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, color: color.inkSoft, lineHeight: 1.4 }}>{(STREAM_LABEL[e.type] ?? (() => e.type))(e.data)}</div>
+                <div style={{ fontSize: fontSize.xs, color: color.subtle, marginTop: 2, fontFamily: font.mono }}>{e.at && e.at !== 'now' ? new Date(e.at).toLocaleTimeString() : 'now'}</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </aside>
   );

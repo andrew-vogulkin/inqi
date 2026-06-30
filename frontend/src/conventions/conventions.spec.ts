@@ -39,7 +39,12 @@ describe('resolveAccess', () => {
   it('allows an admin', () => {
     expect(resolveAccess({ meta: ROUTE_META[Route.Admin], session: admin })).toEqual({ allowed: true });
   });
-  it('lets anyone view public routes', () => {
-    expect(resolveAccess({ meta: ROUTE_META[Route.Report], session: null })).toEqual({ allowed: true });
+  it('lets anyone view truly-public routes (sign-in / styleguide)', () => {
+    expect(resolveAccess({ meta: ROUTE_META[Route.StyleGuide], session: null })).toEqual({ allowed: true });
+    expect(resolveAccess({ meta: ROUTE_META[Route.SignIn], session: null })).toEqual({ allowed: true });
+  });
+  it('HP-24: questionnaire + report deep links now require auth (401 when signed out)', () => {
+    expect(resolveAccess({ meta: ROUTE_META[Route.Questionnaire], session: null })).toEqual({ allowed: false, screen: AccessScreen.SignInRequired });
+    expect(resolveAccess({ meta: ROUTE_META[Route.Report], session: null })).toEqual({ allowed: false, screen: AccessScreen.SignInRequired });
   });
 });

@@ -41,6 +41,8 @@ export interface InquiryDto {
   id: string;
   rawRequest: string;
   state: string;
+  stage?: string;            // HP-23: derived InquiryStage (from state + qualifiedCount)
+  qualifiedCount?: number;   // HP-23: subtasks qualified so far (drives the stage)
   customerEmail: string;
   customerId?: string | null;
   createdAt: string;
@@ -66,6 +68,10 @@ export interface ReportOption {
 export interface LiveReportDto {
   inquiryId: string;
   state: string;
+  stage?: string;            // HP-23: derived InquiryStage
+  qualifiedCount?: number;   // HP-23: subtasks qualified so far
+  questionnaireToken?: string | null; // capability token while in the Questionnaire stage
+  questionnaire?: { questions: QuestionnaireQuestion[]; answers: Record<string, string> | null; confirmed: boolean } | null; // read-only scope shown on the report
   delivered: boolean;
   rawRequest: string;
   reportId?: string | null;  // HP-21: the snapshot id (for POST /reports/:id/unlock)
@@ -245,4 +251,7 @@ export interface ProvenanceDto {
   scoring: { feedbackScore: number; priceScore: number; blendedScore: number; rank: number };
   outreach: { persona: string; route: string; outcome: OutreachOutcome };
   depth: ProvenanceDepth;
+  /** AI transparency summaries — how inqi evaluated this option, per section + an overall ranking rationale. */
+  summaries?: ProvenanceSummaries;
 }
+export interface ProvenanceSummaries { web: string; outreach: string; feedback: string; ranking: string }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ResearchDepth, ResearchMethod, OutreachVariant, DossierOrigin } from './enums';
-import { deriveDepth, deriveMethods, outreachVariant, assembleDossier } from './dossier';
+import { ProvenanceDepth } from '@inqi/shared';
+import { deriveDepth, deriveMethods, outreachVariant, assembleDossier, depthFromProvenance } from './dossier';
 import { ReportOption } from '../api/types';
 import { dossierReducer, initialDossierState } from '../state/dossier.reducer';
 import { ActionType } from '../state/actions';
@@ -17,6 +18,15 @@ describe('deriveMethods', () => {
   it('lists only the methods that ran, in order', () => {
     expect(deriveMethods({ hasWeb: true, hasOutreach: false, hasFeedback: true })).toEqual([ResearchMethod.WebSearch, ResearchMethod.FeedbackScan]);
     expect(deriveMethods({ hasWeb: true, hasOutreach: true, hasFeedback: true })).toEqual([ResearchMethod.WebSearch, ResearchMethod.Outreach, ResearchMethod.FeedbackScan]);
+  });
+});
+
+describe('depthFromProvenance', () => {
+  it('translates the server PascalCase depth to the FE snake_case enum', () => {
+    expect(depthFromProvenance(ProvenanceDepth.WebOnly)).toBe(ResearchDepth.WebOnly);
+    expect(depthFromProvenance(ProvenanceDepth.WebFeedback)).toBe(ResearchDepth.WebFeedback);
+    expect(depthFromProvenance(ProvenanceDepth.WebOutreachFeedback)).toBe(ResearchDepth.WebOutreachFeedback);
+    expect(depthFromProvenance('garbage' as ProvenanceDepth)).toBe(ResearchDepth.WebOnly);
   });
 });
 
@@ -50,6 +60,13 @@ describe('assembleDossier', () => {
     const vm = assembleDossier({ option: { subjectProvider: 'X', background: { sources: ['a'] } }, rank: 3 });
     expect(vm.outreach.variant).toBe(OutreachVariant.NotContacted);
     expect(vm.depth).toBe(ResearchDepth.WebOnly);
+  });
+
+  it('normalizes object-shaped web sources to renderable strings (no React-child objects)', () => {
+    const vm = assembleDossier({ option: option({ background: { sources: [{ source: 'TrustReviews', url: 'https://x/y', snippet: '4.5★' }, 'plain-string-source'] } }), rank: 1 });
+    expect(vm.web).toEqual([{ source: 'TrustReviews', url: 'https://x/y', snippet: '4.5★' }, { source: 'plain-string-source' }]);
+    // every field must be a primitive (would otherwise crash the dossier on render)
+    for (const w of vm.web) { expect(typeof w.source).toBe('string'); if (w.url !== undefined) expect(typeof w.url).toBe('string'); }
   });
 
   it('pending when contacted (leadTime) but no reply (availability)', () => {

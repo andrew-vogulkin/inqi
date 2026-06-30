@@ -18,6 +18,9 @@ export const Route = {
   Report: '/r/:token',
   Questionnaire: '/q/:token',
   Admin: '/admin',
+  AdminRun: '/admin/run',                 // FE-12 run controls (top-level; auto-selects an inquiry)
+  AdminCostOverview: '/admin/cost',       // FE-13 cost (top-level; auto-selects an inquiry)
+  AdminCredits: '/admin/topup',           // FE-16 operator credit top-up
   AdminAudit: '/admin/audit',
   AdminWorkflows: '/admin/workflows',
   AdminInquiry: '/admin/i/:id',
@@ -45,9 +48,12 @@ export const ROUTE_META: Record<Route, RouteMeta> = {
   [Route.Inquiry]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Freemium]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Dossier]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },     // customer provenance (redacted outreach)
-  [Route.Report]: { layout: LayoutMode.Bare, requiresAuth: false, adminOnly: false },        // public deep link
-  [Route.Questionnaire]: { layout: LayoutMode.Bare, requiresAuth: false, adminOnly: false },  // public capability token
+  [Route.Report]: { layout: LayoutMode.Bare, requiresAuth: true, adminOnly: false },          // HP-24: report deep link now owner-gated
+  [Route.Questionnaire]: { layout: LayoutMode.Bare, requiresAuth: true, adminOnly: false },    // HP-24: questionnaire now owner-gated
   [Route.Admin]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },
+  [Route.AdminRun]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },            // FE-12 run controls (top-level)
+  [Route.AdminCostOverview]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },   // FE-13 cost (top-level)
+  [Route.AdminCredits]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },        // FE-16 credit top-up
   [Route.AdminAudit]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },          // FE-14 audit trail
   [Route.AdminWorkflows]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },      // FE-15 workflow versions
   [Route.AdminInquiry]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },
@@ -71,6 +77,24 @@ export function hrefFor({ route, params = {} }: { route: Route; params?: Record<
 /** Imperative navigation (FE-02: sign-in → Dashboard; 401 → Sign in). */
 export function navigate({ route, params = {} }: { route: Route; params?: Record<string, string> }): void {
   window.location.hash = hrefFor({ route, params }).slice(1); // strip '#'; the browser re-adds it
+}
+
+/**
+ * HP-24 — bounce a signed-out deep link to Sign in, remembering where to resume.
+ * The current hash path is carried as `?returnTo=` so sign-in (or a notification link)
+ * can land the user back where they intended.
+ */
+export function redirectToSignIn(): void {
+  const current = window.location.hash.replace(/^#/, '') || '/';
+  if (current.split('?')[0] === Route.SignIn) return; // already there — don't loop
+  window.location.hash = `${Route.SignIn}?returnTo=${encodeURIComponent(current)}`;
+}
+
+/** Read a same-app `returnTo` target from the current hash query (set by `redirectToSignIn`). */
+export function readReturnTo(): string | null {
+  const q = window.location.hash.split('?')[1];
+  const rt = q ? new URLSearchParams(q).get('returnTo') : null;
+  return rt && rt.startsWith('/') && !rt.startsWith('//') ? rt : null; // same-app hash paths only
 }
 
 function matchPattern(pattern: string, path: string): Record<string, string> | null {

@@ -39,6 +39,8 @@ button { font-family: inherit; }
 h1, h2, h3 { color: var(--color-ink-soft); margin: 0; font-weight: 600; }
 ::placeholder { color: var(--color-subtle); }
 @keyframes inqi-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes inqi-spin { to { transform: rotate(360deg); } }
+@keyframes inqi-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 `;
 }
 

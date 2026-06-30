@@ -19,6 +19,11 @@ export class QuestionnaireRepository {
     return this.db.questionnaire.findUnique({ where: { inquiryId } });
   }
 
+  /** HP-24: the owner-identifying fields of the inquiry this questionnaire belongs to. */
+  inquiryOwner({ inquiryId }: { inquiryId: string }) {
+    return this.db.inquiry.findUnique({ where: { id: inquiryId }, select: { customerId: true, customerEmail: true } });
+  }
+
   update({ token, data }: { token: string; data: Prisma.QuestionnaireUncheckedUpdateInput }) {
     return this.db.questionnaire.update({ where: { token }, data });
   }

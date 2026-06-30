@@ -77,10 +77,10 @@ export class SubjectProvidersService implements OnModuleInit {
    * yet). Varies per provider so ranking is meaningful in the demo. Replaced by
    * the BREADTH gather + DEPTH judgement at the TODO seams above.
    */
-  private deriveBackground({ name, external }: { name: string; external: string[] }): SubjectProviderBackground {
-    const h = [...name].reduce((acc, c) => acc + c.charCodeAt(0), 0);
-    const qualityScore = Math.round((0.45 + (h % 50) / 100) * 100) / 100; // 0.45..0.94
-    const rating = Math.round((3 + (h % 20) / 10) * 10) / 10; // 3.0..4.9
+  private deriveBackground({ external }: { name: string; external: string[] }): SubjectProviderBackground {
+    const h = 99; // TEMP: hardcoded seed (was a name-hash) until the DEPTH web-scan judgement lands → constant quality/rating/reviews
+    const qualityScore = Math.round((0.45 + (h % 50) / 100) * 100) / 100; // 0.94
+    const rating = Math.round((3 + (h % 20) / 10) * 10) / 10; // 4.9
     const reviewsCount = 20 + (h % 480);
     const redFlags = qualityScore < 0.55 ? ['limited track record'] : [];
     const sources = external.length ? external : ['model-derived (no live ratings source configured)'];

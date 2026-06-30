@@ -15,6 +15,12 @@ export class InquiryDto {
   @ApiProperty({ enum: Object.values(InquiryState), example: InquiryState.PRE_RESEARCH })
   state!: InquiryState;
 
+  @ApiPropertyOptional({ example: 'Researching', description: 'HP-23: derived InquiryStage' })
+  stage?: string;
+
+  @ApiPropertyOptional({ example: 2, description: 'HP-23: subtasks qualified so far' })
+  qualifiedCount?: number;
+
   @ApiProperty({ example: 'clz1wf000def' })
   workflowVersionId!: string;
 

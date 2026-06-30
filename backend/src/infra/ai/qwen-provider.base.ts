@@ -75,10 +75,16 @@ export abstract class QwenProviderBase implements AiProvider {
   /** Single call site for the model. `jsonMode` forces JSON output (suppresses prose/reasoning). */
   private async createChat({ messages, tier, jsonMode }: { messages: ChatMsg[]; tier: ModelTier; jsonMode: boolean }): Promise<string> {
     try {
+      // The Qwen reasoning model "thinks" before answering; left unbounded it burns a huge
+      // token budget (a stage can run for minutes and get reaped). Disable thinking and cap
+      // output for fast, bounded structured replies. `chat_template_kwargs` is the
+      // llama.cpp/vLLM convention; harmless (ignored) on backends that don't support it.
       const r = await this.client.chat.completions.create({
         model: this.models[tier],
         messages,
+        max_tokens: 6000,
         ...(jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+        ...({ chat_template_kwargs: { enable_thinking: false } } as Record<string, unknown>),
       });
       // Cost accounting (HP-15): record token usage from the API's usage block in this one place.
       const u = r.usage;

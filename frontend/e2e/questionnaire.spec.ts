@@ -1,6 +1,9 @@
 import { test, expect, Route } from '@playwright/test';
 
-// FE-05: login-free /q/:token — data-driven form, confirm gate, submit → Live report, token states.
+// FE-05 / HP-24: owner-gated /q/:token — data-driven form, confirm gate, submit → Live report, token states.
+
+const SESSION = JSON.stringify({ token: 't', customer: { id: 'c1', email: 'c@x.io', role: 'customer' } });
+test.beforeEach(async ({ page }) => { await page.addInitScript((s) => localStorage.setItem('inqi.session', s), SESSION); });
 
 const TOKEN = 'tok123';
 const future = '2999-01-01T00:00:00Z';
@@ -31,7 +34,7 @@ test('renders the form from the payload; confirm-gate blocks then enables; submi
   });
 
   await page.goto(`/#/q/${TOKEN}`);
-  await expect(page.getByText("Here's what we understood")).toBeVisible();
+  await expect(page.getByText('inqi pre-researched your request')).toBeVisible();
   await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
   await expect(page.getByText('A few details to get it right')).toBeVisible();
   await expect(page.getByPlaceholder('Your answer')).toBeVisible();              // text field (budget)
@@ -51,7 +54,7 @@ test('expired token shows the friendly recovery', async ({ page }) => {
   await page.route('**/api/q/*', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dto({ expiresAt: past })) }));
   await page.goto(`/#/q/${TOKEN}`);
   await expect(page.getByText('This link has expired')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Go to sign in' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go to sign in' })).toBeVisible();
 });
 
 test('invalid token (404) shows recovery', async ({ page }) => {
