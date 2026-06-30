@@ -8,6 +8,7 @@ import { PersistenceModule } from './infra/persistence/persistence.module';
 import { QueueModule } from './infra/queue/queue.module';
 import { EventsModule } from './infra/events/events.module';
 import { AiModule } from './infra/ai/ai.module';
+import { WebSearchModule } from './infra/websearch/websearch.module';
 import { ObservabilityModule } from './infra/observability/observability.module';
 import { UsageModule } from './infra/usage/usage.module';
 
@@ -25,7 +26,7 @@ import { EvalModule } from './domain/eval/eval.module';
 @Module({
   imports: [
     // Infra
-    ConfigModule, PersistenceModule, QueueModule, EventsModule, AiModule, ObservabilityModule, UsageModule,
+    ConfigModule, PersistenceModule, QueueModule, EventsModule, AiModule, WebSearchModule, ObservabilityModule, UsageModule,
     // API throttling (separate from the orchestrator's per-email-domain send throttle).
     // A report view fans out a provenance fetch per option (+polling), so the limit is
     // generous and env-tunable (THROTTLE_LIMIT / THROTTLE_TTL_MS).

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AgentStage, AuditAction, AuditTargetType, EventType, FindingKind, InquiryState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, SubtaskStatus, TERMINAL_STATES, WorkflowEvent, failureEventForState, READY_MIN, PARTIAL_READY_MIN, deriveStage } from '@inqi/shared';
+import { AgentStage, AuditAction, AuditTargetType, EpicStatus, EventType, FindingKind, InquiryState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, ReaperAction, SubtaskStatus, TERMINAL_STATES, UsageStage, WorkflowEvent, failureEventForState, READY_MIN, PARTIAL_READY_MIN, deriveStage } from '@inqi/shared';
 import type { Prisma } from '@prisma/client';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
@@ -85,7 +85,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     await this.boss.work<{ inquiryId: string }>({ job: QueueJob.BuildFunnel, handler: stage(AgentStage.BuildFunnel, (d) => this.buildFunnel(d)) });
     await this.boss.work<{ inquiryId: string }>({ job: QueueJob.StartOutreach, handler: stage(AgentStage.StartOutreach, (d) => this.startOutreach(d)) });
     // Agentic reactor: every subtask settlement (qualify/fail/blocked) drives the next move.
-    await this.boss.work<{ inquiryId: string; epicId: string }>({ job: QueueJob.SubtaskSettled, handler: (j) => this.usageCtx.run({ inquiryId: j.data.inquiryId, stage: 'reactor' }, () => this.onSubtaskSettled(j.data)) });
+    await this.boss.work<{ inquiryId: string; epicId: string }>({ job: QueueJob.SubtaskSettled, handler: (j) => this.usageCtx.run({ inquiryId: j.data.inquiryId, stage: UsageStage.Reactor }, () => this.onSubtaskSettled(j.data)) });
     await this.boss.work<{ inquiryId: string }>({ job: QueueJob.GenerateReport, handler: stage(AgentStage.GenerateReport, (d) => this.generateReport(d)) });
     // Reaper: recover stuck runs so no job ever goes stale. In-process scheduler
     // (Postgres-only, no Redis); a multi-instance deployment would gate the sweep
@@ -221,7 +221,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         await this.outbox.emit({ type: EventType.EpicCreated, inquiryId, epicId: epic.id, data: { strategy } });
 
         const candidates = await this.subjectProviders.discover({ subject: await this.subjectContext({ inquiryId }), count: planSize(strategy), exclude: [] });
-        for (const c of assignWaves(candidates, strategy)) {
+        for (const c of assignWaves({ candidates, strategy })) {
           const st = await this.repo.createSubtask({ data: { epicId: epic.id, subjectProviderName: c.name, wave: c.wave, source: c.source, contact: { country: c.country } } });
           await this.outbox.emit({ type: EventType.SubtaskCreated, inquiryId, epicId: epic.id, subtaskId: st.id, data: { subjectProviderName: c.name, wave: c.wave, source: c.source } });
         }
@@ -326,7 +326,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       await this.repo.updateSubtask({ id: s.id, data: { status: SubtaskStatus.Skipped } });
       await this.outbox.emit({ type: EventType.SubtaskUpdated, inquiryId, epicId: epic.id, subtaskId: s.id, data: { status: SubtaskStatus.Skipped, wave: s.wave } });
     }
-    await this.repo.setEpicStatus({ epicId: epic.id, status: 'done' });
+    await this.repo.setEpicStatus({ epicId: epic.id, status: EpicStatus.Done });
     try {
       await this.wf.advance({ inquiryId, event: WorkflowEvent.OUTREACH_DONE });
     } catch (e) {
@@ -348,15 +348,15 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     const info = RECOVERY[inq.state as InquiryState];
     if (!info) return; // not in a recoverable processing state (already advanced / terminal)
     const attempts = await this.repo.countAgentRuns({ inquiryId, stage: info.stage });
-    const action = info.job ? decideReaperAction({ attempts, maxAttempts: this.config.resilience.maxAttempts }) : 'fail';
-    if (action === 'retry' && info.job) {
+    const action = info.job ? decideReaperAction({ attempts, maxAttempts: this.config.resilience.maxAttempts }) : ReaperAction.Fail;
+    if (action === ReaperAction.Retry && info.job) {
       const delay = retryBackoffSeconds({ attempts });
-      await this.outbox.emit({ type: EventType.RunReaped, inquiryId, data: { stage: info.stage, action: 'retry', attempts, delay, error } });
+      await this.outbox.emit({ type: EventType.RunReaped, inquiryId, data: { stage: info.stage, action: ReaperAction.Retry, attempts, delay, error } });
       await this.boss.enqueue({ job: info.job, data: { inquiryId }, options: { startAfter: delay } });
       return;
     }
     const event = failureEventForState(inq.state);
-    await this.outbox.emit({ type: EventType.RunReaped, inquiryId, data: { stage: info.stage, action: 'fail', attempts, error } });
+    await this.outbox.emit({ type: EventType.RunReaped, inquiryId, data: { stage: info.stage, action: ReaperAction.Fail, attempts, error } });
     if (event) {
       try {
         await this.wf.advance({ inquiryId, event });

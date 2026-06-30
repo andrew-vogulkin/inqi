@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AiDriver, AuthVerifierDriver, ComplianceFailMode, EmbeddingsDriver, MailDriver, ModelTier } from '@inqi/shared';
+import { AiDriver, AuthVerifierDriver, ComplianceFailMode, EmbeddingsDriver, MailDriver, ModelTier, WebSearchDriver } from '@inqi/shared';
 
 /** A resolved connection profile for an OpenAI-compatible Qwen backend. */
 export interface QwenProfile {
@@ -205,14 +205,6 @@ export class ConfigService {
     return process.env.GOOGLE_CLIENT_ID ? AuthVerifierDriver.Google : AuthVerifierDriver.Stub;
   }
 
-  /** Admin allowlist: explicit emails and/or an entire email domain (e.g. `monkeycode.io`). */
-  get adminAllowlist(): { emails: string[]; domain?: string } {
-    return {
-      emails: (process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
-      domain: process.env.ADMIN_DOMAIN?.trim().toLowerCase() || undefined,
-    };
-  }
-
   /** Session JWT signing secret + lifetime. Dev default is clearly non-production. */
   get session(): { secret: string; ttlHours: number } {
     return {
@@ -290,5 +282,25 @@ export class ConfigService {
    */
   get webhookInboundAuth(): { user?: string; pass?: string } {
     return { user: process.env.WEBHOOK_INBOUND_USER, pass: process.env.WEBHOOK_INBOUND_PASS };
+  }
+
+  /** Which web-search backend to bind to WEB_SEARCH. Explicit WEBSEARCH_DRIVER wins; defaults to the self-hosted SearXNG. */
+  get webSearchDriver(): WebSearchDriver {
+    const explicit = process.env.WEBSEARCH_DRIVER?.toLowerCase();
+    if (explicit === WebSearchDriver.Searxng || explicit === WebSearchDriver.Cloud) return explicit;
+    return WebSearchDriver.Searxng;
+  }
+
+  /**
+   * Web-search tool connection profile (SearXNG today). `baseUrl` is the instance
+   * origin (the provider appends `/search?format=json`); results are capped to
+   * `maxResults` and each request is bounded by `timeoutMs`.
+   */
+  get webSearch(): { baseUrl: string; timeoutMs: number; maxResults: number } {
+    return {
+      baseUrl: process.env.WEBSEARCH_BASE_URL ?? 'https://orange.tail035fe2.ts.net:8443',
+      timeoutMs: Number(process.env.WEBSEARCH_TIMEOUT_MS ?? 10_000),
+      maxResults: Number(process.env.WEBSEARCH_MAX_RESULTS ?? 8),
+    };
   }
 }

@@ -5,7 +5,7 @@ import { AuthUser } from './auth.tokens';
 import { SessionService } from './session.service';
 
 /** Extract + verify the Bearer session, returning the principal (typed 401 on failure). */
-export function authenticate(req: Request, session: SessionService): AuthUser {
+export function authenticate({ req, session }: { req: Request; session: SessionService }): AuthUser {
   const header = req.headers['authorization'];
   if (!header || !header.startsWith('Bearer ')) {
     throw new UnauthorizedError({ message: 'authentication required (Bearer token)' });
@@ -24,7 +24,7 @@ export class AuthGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
-    (req as Request & { user: AuthUser }).user = authenticate(req, this.session);
+    (req as Request & { user: AuthUser }).user = authenticate({ req, session: this.session });
     return true;
   }
 }

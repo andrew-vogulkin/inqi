@@ -45,7 +45,7 @@ const byId = new Map(PERSONAS.map((p) => [p.id, p]));
 
 export const getPersona = ({ id }: { id?: string | null }): Persona => (id && byId.get(id)) || byId.get(DEFAULT_PERSONA_ID)!;
 
-function matches(hint: string, serves: string[]): boolean {
+function matches({ hint, serves }: { hint: string; serves: string[] }): boolean {
   const h = hint.toLowerCase().trim();
   const tokens = h.split(/[^a-zà-ú]+/).filter(Boolean);
   return serves.some((s) => (s.includes(' ') ? h.includes(s) : tokens.includes(s)));
@@ -54,7 +54,7 @@ function matches(hint: string, serves: string[]): boolean {
 /** Region-aware routing: pick the proxy-hub persona local to the subject
  *  provider's region/country. Unknown region -> English hub (London/Ellis). */
 export function pickPersona({ regionHint }: { regionHint?: string | null }): Persona {
-  if (regionHint) for (const p of PERSONAS) if (matches(regionHint, p.serves)) return p;
+  if (regionHint) for (const p of PERSONAS) if (matches({ hint: regionHint, serves: p.serves })) return p;
   return byId.get(DEFAULT_PERSONA_ID)!;
 }
 

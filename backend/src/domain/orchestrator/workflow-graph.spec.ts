@@ -52,7 +52,7 @@ describe('diffVersions', () => {
       states: [...good.states, { name: 'C', isInitial: false, isTerminal: false }],
       transitions: [good.transitions[0], { fromState: 'A', toState: 'C', event: 'branch' }],
     };
-    const d = diffVersions(good, next);
+    const d = diffVersions({ a: good, b: next });
     expect(d.states.added).toEqual(['C']);
     expect(d.transitions.added).toContain('A --branch--> C');
     expect(d.transitions.removed).toContain('B --finish--> DONE');

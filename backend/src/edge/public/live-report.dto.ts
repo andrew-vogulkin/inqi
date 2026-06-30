@@ -2,14 +2,17 @@ import { ApiProperty } from '@nestjs/swagger';
 
 /** One ranked option in the live report (mirrors RankedOption). */
 export class LiveOptionDto {
-  @ApiProperty() subjectProvider!: string;
-  @ApiProperty({ nullable: true }) price!: number | null;
-  @ApiProperty({ nullable: true }) currency!: string | null;
-  @ApiProperty({ nullable: true }) availability!: string | null;
-  @ApiProperty({ nullable: true }) leadTime!: string | null;
-  @ApiProperty({ description: '0..1 eligibility/quality score' }) qualityScore!: number;
-  @ApiProperty({ description: 'blended quality+price rank score 0..1' }) score!: number;
-  @ApiProperty({ required: false, nullable: true, type: Object }) background!: unknown;
+  @ApiProperty({ example: 'Acme Trading Co' }) subjectProvider!: string;
+  @ApiProperty({ nullable: true, example: 290 }) price!: number | null;
+  @ApiProperty({ nullable: true, example: 'EUR' }) currency!: string | null;
+  @ApiProperty({ nullable: true, example: 'in stock' }) availability!: string | null;
+  @ApiProperty({ nullable: true, example: '1-2 weeks' }) leadTime!: string | null;
+  @ApiProperty({ description: '0..1 eligibility/quality score', example: 0.86 }) qualityScore!: number;
+  @ApiProperty({ description: 'blended quality+price rank score 0..1', example: 0.74 }) score!: number;
+  @ApiProperty({
+    required: false, nullable: true, type: Object,
+    example: { rating: 4.6, reviewsCount: 128, eligibility: 'eligible', redFlags: [], qualityScore: 0.86, sources: [{ source: 'TrustSite', url: 'https://example.com', snippet: 'Highly rated' }] },
+  }) background!: unknown;
 }
 
 /** Live-assembled report read surface (HP-08). */

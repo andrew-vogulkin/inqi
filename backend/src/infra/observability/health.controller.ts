@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { HealthStatus } from '@inqi/shared';
 import { HealthDto } from './health.dto';
 
 @ApiTags('observability')
@@ -9,6 +10,6 @@ export class HealthController {
   @ApiOperation({ summary: 'Liveness probe' })
   @ApiOkResponse({ type: HealthDto })
   check(): HealthDto {
-    return { status: 'ok', at: new Date().toISOString() };
+    return { status: HealthStatus.Ok, at: new Date().toISOString() };
   }
 }

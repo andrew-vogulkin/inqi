@@ -37,5 +37,6 @@ export const ErrorCode = {
   AiInvalidJson: 'AI_INVALID_JSON',
   MailSendFailed: 'MAIL_SEND_FAILED',
   WebhookSignatureInvalid: 'WEBHOOK_SIGNATURE_INVALID',
+  WebSearchFailed: 'WEB_SEARCH_FAILED',
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

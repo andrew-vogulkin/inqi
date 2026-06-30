@@ -59,7 +59,8 @@ model WorkflowTransition {
 // Core aggregates
 // ---------------------------------------------------------------------------
 // Authenticated identity (Sign in with Google). Inquiries are linked to a Customer
-// by verified email; the admin role is granted by the config allowlist (HP-10).
+// by verified email. Role is owned by the DB: new accounts default to `customer`;
+// admins are marked manually (set role='admin', e.g. `db:promote-admin`). HP-10.
 model Customer {
   id        String   @id @default(cuid())
   email     String   @unique

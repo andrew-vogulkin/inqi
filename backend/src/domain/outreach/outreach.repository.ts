@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { MessageDirection } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for the outreach communication track (messages + thread reads). */
@@ -26,7 +27,7 @@ export class OutreachRepository {
 
   /** First outbound message on a subtask, if any — used to make the initial send idempotent. */
   findFirstOutbound({ subtaskId, tx }: { subtaskId: string; tx?: DbTx }) {
-    return this.exec(tx).inquiryMessage.findFirst({ where: { subtaskId, direction: 'outbound' }, orderBy: { createdAt: 'asc' } });
+    return this.exec(tx).inquiryMessage.findFirst({ where: { subtaskId, direction: MessageDirection.Outbound }, orderBy: { createdAt: 'asc' } });
   }
 
   findSubtask({ id, tx }: { id: string; tx?: DbTx }) {

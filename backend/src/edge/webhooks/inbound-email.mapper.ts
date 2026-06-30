@@ -12,7 +12,7 @@ export interface InboundEmail {
 }
 
 /** Look up an RFC 5322 header by name (case-insensitive) from a Postmark payload. */
-function header(dto: InboundEmailDto, name: string): string | undefined {
+function header({ dto, name }: { dto: InboundEmailDto; name: string }): string | undefined {
   return dto.Headers?.find((h) => h.Name?.toLowerCase() === name.toLowerCase())?.Value;
 }
 
@@ -22,7 +22,7 @@ function header(dto: InboundEmailDto, name: string): string | undefined {
  * the controller stays thin.
  */
 export function toInboundEmail(dto: InboundEmailDto): InboundEmail {
-  const references = dto.references ?? header(dto, 'References')?.split(/\s+/).filter(Boolean);
+  const references = dto.references ?? header({ dto, name: 'References' })?.split(/\s+/).filter(Boolean);
   return {
     // OriginalRecipient is Postmark's bare delivered address — best for thread mapping.
     toAddr: dto.to ?? dto.toAddr ?? dto.OriginalRecipient ?? dto.To ?? '',
@@ -30,8 +30,8 @@ export function toInboundEmail(dto: InboundEmailDto): InboundEmail {
     subject: dto.subject ?? dto.Subject,
     body: dto.text ?? dto.body ?? dto.TextBody ?? dto.HtmlBody ?? '',
     // Prefer the original Message-ID header (provider's id) for threading/idempotency.
-    externalId: dto.messageId ?? dto.externalId ?? header(dto, 'Message-ID') ?? dto.MessageID,
-    inReplyTo: dto.inReplyTo ?? header(dto, 'In-Reply-To'),
+    externalId: dto.messageId ?? dto.externalId ?? header({ dto, name: 'Message-ID' }) ?? dto.MessageID,
+    inReplyTo: dto.inReplyTo ?? header({ dto, name: 'In-Reply-To' }),
     references,
   };
 }

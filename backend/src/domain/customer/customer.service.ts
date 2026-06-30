@@ -7,7 +7,7 @@ import { CustomerRepository } from './customer.repository';
 export class CustomerService {
   constructor(private readonly customers: CustomerRepository) {}
 
-  upsertByEmail(args: { email: string; googleSub?: string; name?: string; role: string; tx?: DbTx }) {
+  upsertByEmail(args: { email: string; googleSub?: string; name?: string; tx?: DbTx }) {
     return this.customers.upsertByEmail(args);
   }
 

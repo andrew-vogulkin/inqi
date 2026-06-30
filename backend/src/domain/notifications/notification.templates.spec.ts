@@ -3,17 +3,17 @@ import { isReminderDue, renderNotification } from './notification.templates';
 
 describe('renderNotification', () => {
   it('report-ready includes the report webview link', () => {
-    const t = renderNotification(NotificationKind.ReportReady, { reportUrl: 'https://app/r/abc' });
+    const t = renderNotification({ kind: NotificationKind.ReportReady, ctx: { reportUrl: 'https://app/r/abc' } });
     expect(t.subject).toMatch(/report is ready/i);
     expect(t.body).toContain('https://app/r/abc');
   });
   it('reminder includes the questionnaire link + expiry', () => {
-    const t = renderNotification(NotificationKind.QuestionnaireReminder, { questionnaireUrl: 'https://app/q/tok', expiresAt: new Date('2026-07-01T00:00:00Z') });
+    const t = renderNotification({ kind: NotificationKind.QuestionnaireReminder, ctx: { questionnaireUrl: 'https://app/q/tok', expiresAt: new Date('2026-07-01T00:00:00Z') } });
     expect(t.body).toContain('https://app/q/tok');
     expect(t.body).toContain('2026-07-01');
   });
   it('denial includes the reason', () => {
-    const t = renderNotification(NotificationKind.Denial, { reason: 'prohibited item' });
+    const t = renderNotification({ kind: NotificationKind.Denial, ctx: { reason: 'prohibited item' } });
     expect(t.body).toContain('prohibited item');
   });
 });

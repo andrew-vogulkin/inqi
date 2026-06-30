@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { SubtaskStatus } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for the Inquiry aggregate. */
@@ -46,7 +47,7 @@ export class InquiryRepository {
     const rows = await this.exec(tx).$queryRaw<{ inquiryId: string; count: bigint }[]>`
       SELECT e."inquiryId" AS "inquiryId", COUNT(*)::bigint AS count
       FROM "Subtask" s JOIN "Epic" e ON s."epicId" = e.id
-      WHERE s.status = 'qualified' AND e."inquiryId" IN (${Prisma.join(inquiryIds)})
+      WHERE s.status = ${SubtaskStatus.Qualified} AND e."inquiryId" IN (${Prisma.join(inquiryIds)})
       GROUP BY e."inquiryId"`;
     return Object.fromEntries(rows.map((r) => [r.inquiryId, Number(r.count)]));
   }

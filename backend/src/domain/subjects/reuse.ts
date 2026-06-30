@@ -31,9 +31,9 @@ export interface ReuseCandidate {
  * (within the freshness window). Geo is only enforced when `distanceMeters` is
  * known — a missing point doesn't disqualify a strong semantic + fresh match.
  */
-export function decideReuse(c: ReuseCandidate, t: ReuseThresholds): boolean {
-  if (!(c.distance < t.similarityThreshold)) return false;
-  if (c.ageDays > t.freshnessDays) return false;
-  if (c.distanceMeters != null && c.distanceMeters > t.radiusMeters) return false;
+export function decideReuse({ candidate, thresholds }: { candidate: ReuseCandidate; thresholds: ReuseThresholds }): boolean {
+  if (!(candidate.distance < thresholds.similarityThreshold)) return false;
+  if (candidate.ageDays > thresholds.freshnessDays) return false;
+  if (candidate.distanceMeters != null && candidate.distanceMeters > thresholds.radiusMeters) return false;
   return true;
 }

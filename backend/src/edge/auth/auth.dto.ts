@@ -4,7 +4,7 @@ import { AuthRole } from '@inqi/shared';
 
 /** POST /auth/google — a Google ID token obtained client-side (or `stub:<email>` in dev). */
 export class GoogleSignInDto {
-  @ApiProperty({ description: 'Google ID token (client-side), or `stub:<email>` when AUTH_VERIFIER=stub' })
+  @ApiProperty({ description: 'Google ID token (client-side), or `stub:<email>` when AUTH_VERIFIER=stub', example: 'stub:ada@example.com' })
   @IsString()
   @MinLength(1)
   idToken!: string;

@@ -32,7 +32,7 @@ export class SessionService {
     const payload: TokenPayload = { ...claims, iat: now, exp: now + Math.round(ttlHours * 3600) };
     const head = enc({ alg: 'HS256', typ: 'JWT' });
     const body = enc(payload);
-    return `${head}.${body}.${this.sig(`${head}.${body}`, secret)}`;
+    return `${head}.${body}.${this.sig({ data: `${head}.${body}`, secret })}`;
   }
 
   /** Verify signature + expiry; returns the claims or throws a typed 401. */
@@ -40,7 +40,7 @@ export class SessionService {
     const parts = token.split('.');
     if (parts.length !== 3) throw new UnauthorizedError({ code: ErrorCode.AuthInvalidToken, message: 'malformed session token' });
     const [head, body, sig] = parts;
-    const expected = this.sig(`${head}.${body}`, this.config.session.secret);
+    const expected = this.sig({ data: `${head}.${body}`, secret: this.config.session.secret });
     const a = Buffer.from(sig);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) {
@@ -58,7 +58,7 @@ export class SessionService {
     return { sub: payload.sub, email: payload.email, role: payload.role };
   }
 
-  private sig(data: string, secret: string): string {
+  private sig({ data, secret }: { data: string; secret: string }): string {
     return createHmac('sha256', secret).update(data).digest('base64url');
   }
 }

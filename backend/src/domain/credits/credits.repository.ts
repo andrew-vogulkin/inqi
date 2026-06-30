@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CreditKind } from '@inqi/shared';
+import { AuditActor, CreditKind } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 import { ErrorCode, NotFoundError, PaymentRequiredError } from '../../common/errors';
 import { SettlementAction } from './credits.balance';
@@ -156,7 +156,7 @@ export class CreditsRepository {
         if (action === 'refund') {
           await tx.customer.update({ where: { id: reserve.customerId }, data: { credits: { increment: reserve.amount } } });
         }
-        await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind, amount: reserve.amount, inquiryId, actor: 'system', reason } });
+        await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind, amount: reserve.amount, inquiryId, actor: AuditActor.System, reason } });
         return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId };
       });
     } catch (err) {

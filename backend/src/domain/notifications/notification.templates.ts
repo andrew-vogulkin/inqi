@@ -11,7 +11,7 @@ export interface TemplateContext {
 export interface RenderedTemplate { subject: string; body: string }
 
 /** Pure: render the email subject+body for a notification kind. Links are capability-token (no login). */
-export function renderNotification(kind: NotificationKind, ctx: TemplateContext): RenderedTemplate {
+export function renderNotification({ kind, ctx }: { kind: NotificationKind; ctx: TemplateContext }): RenderedTemplate {
   switch (kind) {
     case NotificationKind.ReportReady:
       return {

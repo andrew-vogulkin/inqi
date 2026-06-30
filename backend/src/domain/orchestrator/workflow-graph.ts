@@ -63,7 +63,7 @@ export interface VersionDiff {
 const tkey = (t: GraphTransition) => `${t.fromState} --${t.event}--> ${t.toState}`;
 
 /** Pure diff of two versions (b relative to a): what states/transitions were added/removed. */
-export function diffVersions(a: WorkflowGraph, b: WorkflowGraph): VersionDiff {
+export function diffVersions({ a, b }: { a: WorkflowGraph; b: WorkflowGraph }): VersionDiff {
   const aStates = new Set(a.states.map((s) => s.name));
   const bStates = new Set(b.states.map((s) => s.name));
   const aTrans = new Set(a.transitions.map(tkey));

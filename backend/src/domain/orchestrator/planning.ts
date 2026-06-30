@@ -19,7 +19,7 @@ export interface WavedProvider extends DiscoveredProvider {
 }
 
 /** Assign discovered candidates to release waves per strategy. */
-export function assignWaves(candidates: DiscoveredProvider[], strategy: OutreachStrategy): WavedProvider[] {
+export function assignWaves({ candidates, strategy }: { candidates: DiscoveredProvider[]; strategy: OutreachStrategy }): WavedProvider[] {
   if (strategy === OutreachStrategy.PARALLEL) {
     return candidates.map((c) => ({ ...c, wave: 1 }));
   }

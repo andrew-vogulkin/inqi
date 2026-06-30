@@ -122,6 +122,15 @@ export const AiDriver = {
 } as const;
 export type AiDriver = (typeof AiDriver)[keyof typeof AiDriver];
 
+/** Web-search tool backend selected via DI. */
+export const WebSearchDriver = {
+  /** Self-hosted SearXNG instance (local). */
+  Searxng: 'searxng',
+  /** A future hosted/cloud search API. */
+  Cloud: 'cloud',
+} as const;
+export type WebSearchDriver = (typeof WebSearchDriver)[keyof typeof WebSearchDriver];
+
 /** Usage-ledger row kinds (HP-15): one AI-call/token row, plus counted outreach/agent actions. */
 export const UsageKind = {
   AiCall: 'ai_call',
@@ -311,3 +320,37 @@ export const SubjectCategory = {
   Trade: 'trade',
 } as const;
 export type SubjectCategory = (typeof SubjectCategory)[keyof typeof SubjectCategory];
+
+/** Constant (non-human) actors in the audit log; operator actions carry the operator's email instead. */
+export const AuditActor = {
+  System: 'system',
+  Compliance: 'compliance',
+  Engine: 'engine',
+} as const;
+export type AuditActor = (typeof AuditActor)[keyof typeof AuditActor];
+
+/** Reaper recovery decision for a stuck agent run (HP-09): retry-with-backoff or dead-letter. */
+export const ReaperAction = {
+  Retry: 'retry',
+  Fail: 'fail',
+} as const;
+export type ReaperAction = (typeof ReaperAction)[keyof typeof ReaperAction];
+
+/** Origin of a discovered subject-provider candidate (`Subtask.source`). */
+export const DiscoverySourceKind = {
+  Ai: 'ai',
+  Fallback: 'fallback',
+} as const;
+export type DiscoverySourceKind = (typeof DiscoverySourceKind)[keyof typeof DiscoverySourceKind];
+
+/** Non-pipeline usage-attribution context labels (complements AgentStage in the usage ledger). */
+export const UsageStage = {
+  Reactor: 'reactor',
+} as const;
+export type UsageStage = (typeof UsageStage)[keyof typeof UsageStage];
+
+/** Liveness probe status (`GET /health`). */
+export const HealthStatus = {
+  Ok: 'ok',
+} as const;
+export type HealthStatus = (typeof HealthStatus)[keyof typeof HealthStatus];

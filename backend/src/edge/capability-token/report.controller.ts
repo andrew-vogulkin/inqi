@@ -1,5 +1,5 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { ReportsService } from '../../domain/reports/reports.service';
 import { ReportDto } from './report-dto/report.dto';
 import { AuthGuard } from '../auth/auth.guard';
@@ -16,6 +16,7 @@ export class ReportController {
 
   @Get(':token')
   @ApiOperation({ summary: 'Fetch a report by its webview token (owner/admin only)' })
+  @ApiParam({ name: 'token', description: 'Report webview token', example: 'a1b2c3d4e5f6a1b2c3d4' })
   @ApiOkResponse({ type: ReportDto })
   get(@Param('token') token: string, @CurrentUser() user: AuthUser) {
     return this.reports.getByToken({ token, viewer: { sub: user.sub, email: user.email, role: user.role } });

@@ -55,7 +55,7 @@ export class SubjectsService {
         inquiryId, embedding, lat: geo?.geoLat ?? null, lng: geo?.geoLng ?? null, limit: REUSE_CANDIDATE_LIMIT,
       });
       const { similarityThreshold, radiusMeters, freshnessDays } = this.config.reuse;
-      const hit = candidates.find((c) => decideReuse(c, { similarityThreshold, radiusMeters, freshnessDays }));
+      const hit = candidates.find((c) => decideReuse({ candidate: c, thresholds: { similarityThreshold, radiusMeters, freshnessDays } }));
       if (!hit) return null;
       this.logger.log(`reusable prior report ${hit.reportId} (cosine ${hit.distance.toFixed(3)}, ${hit.distanceMeters ?? 'n/a'}m, ${hit.ageDays.toFixed(1)}d)`);
       return { reportId: hit.reportId, token: hit.token, distance: hit.distance };

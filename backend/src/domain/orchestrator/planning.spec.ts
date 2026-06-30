@@ -13,19 +13,19 @@ describe('planSize', () => {
 
 describe('assignWaves', () => {
   it('escalating → 1:3:9', () => {
-    const w = assignWaves(cands(13), OutreachStrategy.ESCALATING);
+    const w = assignWaves({ candidates: cands(13), strategy: OutreachStrategy.ESCALATING });
     const byWave = (n: number) => w.filter((x) => x.wave === n).length;
     expect([byWave(1), byWave(2), byWave(3)]).toEqual([1, 3, 9]);
   });
   it('escalating overflow falls into the last wave', () => {
-    const w = assignWaves(cands(15), OutreachStrategy.ESCALATING);
+    const w = assignWaves({ candidates: cands(15), strategy: OutreachStrategy.ESCALATING });
     expect(w.filter((x) => x.wave === 3).length).toBe(11);
   });
   it('parallel → all wave 1', () => {
-    expect(assignWaves(cands(5), OutreachStrategy.PARALLEL).every((x) => x.wave === 1)).toBe(true);
+    expect(assignWaves({ candidates: cands(5), strategy: OutreachStrategy.PARALLEL }).every((x) => x.wave === 1)).toBe(true);
   });
   it('one_by_one → ascending waves', () => {
-    expect(assignWaves(cands(3), OutreachStrategy.ONE_BY_ONE).map((x) => x.wave)).toEqual([1, 2, 3]);
+    expect(assignWaves({ candidates: cands(3), strategy: OutreachStrategy.ONE_BY_ONE }).map((x) => x.wave)).toEqual([1, 2, 3]);
   });
 });
 

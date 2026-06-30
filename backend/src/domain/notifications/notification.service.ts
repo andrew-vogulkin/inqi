@@ -45,7 +45,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     const ctx = kind === NotificationKind.ReportReady
       ? { reportUrl: this.reportUrl(inquiryId) }
       : { reason: inq.denyReason ?? undefined };
-    const { subject, body } = renderNotification(kind, ctx);
+    const { subject, body } = renderNotification({ kind, ctx });
     await this.channel.send({ to: inq.customerEmail, subject, body });
     await this.outbox.emit({ type: EventType.NotificationSent, inquiryId, data: { kind, to: inq.customerEmail } });
     this.logger.log(`notification ${kind} sent to ${inq.customerEmail}`);
@@ -62,7 +62,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
         if (!isReminderDue({ now, expiresAt: q.expiresAt, leadHours: this.config.notifications.reminderLeadHours, filledAt: null, reminderSentAt: null })) continue;
         if (await this.optedOut(email)) continue;
         if ((await this.repo.claimReminder({ id: q.id })) !== 1) continue; // someone else claimed it
-        const { subject, body } = renderNotification(NotificationKind.QuestionnaireReminder, { questionnaireUrl: this.questionnaireUrl(q.token), expiresAt: q.expiresAt });
+        const { subject, body } = renderNotification({ kind: NotificationKind.QuestionnaireReminder, ctx: { questionnaireUrl: this.questionnaireUrl(q.token), expiresAt: q.expiresAt } });
         await this.channel.send({ to: email, subject, body });
         await this.outbox.emit({ type: EventType.NotificationSent, inquiryId: q.inquiryId, data: { kind: NotificationKind.QuestionnaireReminder, to: email } });
         this.logger.log(`questionnaire reminder sent to ${email}`);

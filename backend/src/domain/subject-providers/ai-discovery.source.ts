@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { ModelTier } from '@inqi/shared';
+import { DiscoverySourceKind, ModelTier } from '@inqi/shared';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { DiscoverArgs, DiscoveredProvider, DiscoverySource } from './discovery.tokens';
 import { discoverySystem, buildDiscoveryUser, discoverySchema } from './discovery.prompt';
@@ -29,7 +29,7 @@ export class AiDiscoverySource implements DiscoverySource {
         const fresh = result.candidates
           .filter((c) => !exclude.includes(c.name))
           .slice(0, count)
-          .map((c) => ({ name: c.name, country: c.country || 'unknown', source: 'ai' }));
+          .map((c) => ({ name: c.name, country: c.country || 'unknown', source: DiscoverySourceKind.Ai }));
         if (fresh.length) return fresh;
       } catch (e) {
         this.logger.warn(`AI discovery failed, using fallback: ${(e as Error).message}`);
@@ -44,7 +44,7 @@ export class AiDiscoverySource implements DiscoverySource {
     for (let i = 1; out.length < count && i < count + exclude.length + 1; i++) {
       const name = `Subject Provider ${i}`;
       if (exclude.includes(name)) continue;
-      out.push({ name, country: DEMO_REGIONS[(i - 1) % DEMO_REGIONS.length], source: 'fallback' });
+      out.push({ name, country: DEMO_REGIONS[(i - 1) % DEMO_REGIONS.length], source: DiscoverySourceKind.Fallback });
     }
     return out;
   }

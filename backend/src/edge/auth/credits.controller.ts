@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CreditsService } from '../../domain/credits/credits.service';
 import { AuthGuard } from './auth.guard';
 import { AdminGuard } from './admin.guard';
@@ -38,7 +38,7 @@ export class AdminCustomersController {
   // HP-22: customer directory/search so an operator can find a customer before a top-up.
   @Get()
   @ApiOperation({ summary: 'Search customers by name / email / id (admin only)' })
-  @ApiQuery({ name: 'q', required: false, description: 'Search term (empty → [])' })
+  @ApiQuery({ name: 'q', required: false, description: 'Search term (empty → [])', example: 'ada@example.com' })
   @ApiOkResponse({ type: [CustomerDirectoryDto] })
   search(@Query('q') q?: string): Promise<CustomerDirectoryDto[]> {
     return this.credits.searchCustomers({ q: q ?? '' });
@@ -46,6 +46,7 @@ export class AdminCustomersController {
 
   @Post(':id/credits')
   @ApiOperation({ summary: 'Grant credits to a customer (admin only; audited)' })
+  @ApiParam({ name: 'id', description: 'Customer id', example: 'clz1cust0000xy' })
   @ApiOkResponse({ type: TopUpResultDto })
   topUp(@Param('id') id: string, @Body() dto: TopUpDto, @CurrentUser() user: AuthUser): Promise<TopUpResultDto> {
     return this.credits.topUp({ customerId: id, amount: dto.amount, note: dto.note, actor: user.email });

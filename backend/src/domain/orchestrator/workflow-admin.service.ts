@@ -48,7 +48,7 @@ export class WorkflowAdminService {
     return {
       from: active ? { id: active.id, version: active.version } : null,
       to: { id: def.id, version: def.version },
-      diff: diffVersions(base, toGraph(def)),
+      diff: diffVersions({ a: base, b: toGraph(def) }),
     };
   }
 

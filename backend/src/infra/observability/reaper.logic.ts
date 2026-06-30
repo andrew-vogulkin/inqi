@@ -1,4 +1,4 @@
-import { AgentRunStatus } from '@inqi/shared';
+import { AgentRunStatus, ReaperAction } from '@inqi/shared';
 
 /** Minimal shape of an AgentRun the reaper reasons about (pure — no Prisma types). */
 export interface ReapableRun {
@@ -26,8 +26,8 @@ export function findStuckRuns({ runs, now }: { runs: ReapableRun[]; now: Date })
  * What to do with a stuck run: reschedule (with backoff) while attempts remain,
  * else dead-letter it (fail) so the inquiry takes its workflow failure path.
  */
-export function decideReaperAction({ attempts, maxAttempts }: { attempts: number; maxAttempts: number }): 'retry' | 'fail' {
-  return attempts < maxAttempts ? 'retry' : 'fail';
+export function decideReaperAction({ attempts, maxAttempts }: { attempts: number; maxAttempts: number }): ReaperAction {
+  return attempts < maxAttempts ? ReaperAction.Retry : ReaperAction.Fail;
 }
 
 /** Exponential backoff (seconds) for a retry attempt, capped. */
