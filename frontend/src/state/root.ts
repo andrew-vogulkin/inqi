@@ -1,12 +1,12 @@
 import { Action } from './actions';
 import { SessionState, sessionReducer, hydratedSessionState } from './session.reducer';
 import { CreditsState, creditsReducer, initialCreditsState } from './credits.reducer';
-import { InquiriesState, inquiriesReducer, initialInquiriesState } from './inquiries.reducer';
+import { ReportsState, reportsReducer, initialReportsState } from './reports.reducer';
 import { ReportState, reportReducer, initialReportState } from './report.reducer';
 import { AdminBoardState, adminBoardReducer, initialAdminBoardState } from './adminBoard.reducer';
 import { QuestionnaireState, questionnaireReducer, initialQuestionnaireState } from './questionnaire.reducer';
 import { DossierState, dossierReducer, initialDossierState } from './dossier.reducer';
-import { SubtaskState, subtaskReducer, initialSubtaskState } from './subtask.reducer';
+import { InquiryState, inquiryReducer, initialInquiryState } from './inquiry.reducer';
 import { ThreadState, threadReducer, initialThreadState } from './thread.reducer';
 import { RunControlsState, runControlsReducer, initialRunControlsState } from './runControls.reducer';
 import { AuditState, auditReducer, initialAuditState } from './audit.reducer';
@@ -16,12 +16,12 @@ import { ToastsState, toastsReducer, initialToastsState } from './toasts.reducer
 export interface AppState {
   session: SessionState;
   credits: CreditsState;
-  inquiries: InquiriesState;
+  reports: ReportsState;
   report: ReportState;
   adminBoard: AdminBoardState;
   questionnaire: QuestionnaireState;
   dossier: DossierState;
-  subtask: SubtaskState;
+  inquiry: InquiryState;
   thread: ThreadState;
   runControls: RunControlsState;
   audit: AuditState;
@@ -34,12 +34,12 @@ export function rootReducer(state: AppState, action: Action): AppState {
   return {
     session: sessionReducer(state.session, action),
     credits: creditsReducer(state.credits, action),
-    inquiries: inquiriesReducer(state.inquiries, action),
+    reports: reportsReducer(state.reports, action),
     report: reportReducer(state.report, action),
     adminBoard: adminBoardReducer(state.adminBoard, action),
     questionnaire: questionnaireReducer(state.questionnaire, action),
     dossier: dossierReducer(state.dossier, action),
-    subtask: subtaskReducer(state.subtask, action),
+    inquiry: inquiryReducer(state.inquiry, action),
     thread: threadReducer(state.thread, action),
     runControls: runControlsReducer(state.runControls, action),
     audit: auditReducer(state.audit, action),
@@ -53,12 +53,12 @@ export function initialAppState(): AppState {
   return {
     session: hydratedSessionState(),
     credits: initialCreditsState,
-    inquiries: initialInquiriesState,
+    reports: initialReportsState,
     report: initialReportState,
     adminBoard: initialAdminBoardState,
     questionnaire: initialQuestionnaireState,
     dossier: initialDossierState,
-    subtask: initialSubtaskState,
+    inquiry: initialInquiryState,
     thread: initialThreadState,
     runControls: initialRunControlsState,
     audit: initialAuditState,

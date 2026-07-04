@@ -35,7 +35,8 @@ export function toWebSource(s: BackgroundSource): WebSource {
 
 export interface WebSource { source: string; url?: string; snippet?: string }
 export interface FeedbackVM { rating: number | null; sentiment: number; themes: string[]; quotes: string[]; reviewsCount: number | null; eligibility: string | null }
-export interface OutreachVM { variant: OutreachVariant; route: string; outcome: string | null; persona: string | null }
+export interface ChainMessageVM { direction: string; body: string; at: string }
+export interface OutreachVM { variant: OutreachVariant; route: string; outcome: string | null; persona: string | null; chain: ChainMessageVM[] }
 export interface ScoringVM { feedbackScore: number; priceScore: number; blendedScore: number; rank: number }
 
 export interface DossierVM {
@@ -45,7 +46,9 @@ export interface DossierVM {
   qualityScore: number;
   depth: ResearchDepth;
   methods: ResearchMethod[];
-  subtaskId: string | null;
+  inquiryId: string | null;
+  /** True while the inquiry's depth-research job is still queued/running — sections may still fill in. */
+  researchPending: boolean;
   web: WebSource[];
   feedback: FeedbackVM;
   outreach: OutreachVM;
@@ -97,6 +100,7 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
   const hasOutreach = provenance.outreach.outcome !== OutreachOutcome.NotContacted;
   return {
     ...vm,
+    researchPending: provenance.researchPending ?? false,
     depth: depthFromProvenance(provenance.depth),
     methods: deriveMethods({ hasWeb, hasOutreach, hasFeedback }),
     qualityScore: provenance.scoring.feedbackScore,
@@ -114,6 +118,7 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
       route: provenance.outreach.route,
       outcome: vm.outreach.outcome,
       persona: provenance.outreach.persona,
+      chain: (provenance.outreach.chain ?? []).map((m) => ({ direction: m.direction, body: m.body, at: m.at })),
     },
     scoring: { feedbackScore: provenance.scoring.feedbackScore, priceScore: provenance.scoring.priceScore, blendedScore: provenance.scoring.blendedScore, rank: provenance.scoring.rank },
     summaries: provenance.summaries,
@@ -146,10 +151,11 @@ export function assembleDossier({ option, rank }: { option: ReportOption; rank: 
     qualityScore: quality,
     depth: deriveDepth({ hasWeb, hasOutreach, hasFeedback }),
     methods: deriveMethods({ hasWeb, hasOutreach, hasFeedback }),
-    subtaskId: option.subtaskId ?? null,
+    inquiryId: option.inquiryId ?? null,
+    researchPending: false, // the option alone can't tell; the provenance overlay is authoritative
     web,
     feedback: { rating: bg.rating ?? null, sentiment: quality, themes, quotes: [], reviewsCount: bg.reviewsCount ?? null, eligibility: bg.eligibility ?? null },
-    outreach: { variant, route: '✉ via inqi', outcome: option.availability ?? null, persona: null },
+    outreach: { variant, route: '✉ via inqi', outcome: option.availability ?? null, persona: null, chain: [] },
     scoring: { feedbackScore: quality, priceScore: (option as { priceScore?: number }).priceScore ?? 0, blendedScore: option.score ?? 0, rank },
   };
 }

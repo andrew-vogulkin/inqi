@@ -15,14 +15,16 @@ export const ErrorCode = {
   AuthForbidden: 'AUTH_FORBIDDEN',
   AuthTokenExpired: 'AUTH_TOKEN_EXPIRED',
   AuthInvalidToken: 'AUTH_INVALID_TOKEN',
+  AuthInvalidCode: 'AUTH_INVALID_CODE', // two-step email sign-in: the MFA code did not match
 
   // domain
+  ReportNotFound: 'REPORT_NOT_FOUND',
   InquiryNotFound: 'INQUIRY_NOT_FOUND',
   QuestionnaireNotFound: 'QUESTIONNAIRE_NOT_FOUND',
   QuestionnaireExpired: 'QUESTIONNAIRE_EXPIRED',
   QuestionnaireNotConfirmed: 'QUESTIONNAIRE_NOT_CONFIRMED',
-  SubtaskThreadNotFound: 'SUBTASK_THREAD_NOT_FOUND',
-  ReportNotFound: 'REPORT_NOT_FOUND',
+  InquiryThreadNotFound: 'INQUIRY_THREAD_NOT_FOUND',
+  SnapshotNotFound: 'SNAPSHOT_NOT_FOUND',
   NoActiveWorkflow: 'NO_ACTIVE_WORKFLOW',
   InvalidWorkflowTransition: 'INVALID_WORKFLOW_TRANSITION',
   WorkflowGuardBlocked: 'WORKFLOW_GUARD_BLOCKED',

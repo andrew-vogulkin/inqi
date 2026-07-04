@@ -13,3 +13,4 @@ frontend/playwright-report
 
 # editor/FUSE orphans
 .fuse_hidden*
+*.tsbuildinfo

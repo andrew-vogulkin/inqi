@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { ReportsModule } from '../../domain/reports/reports.module';
+import { SnapshotsModule } from '../../domain/snapshot/snapshots.module';
 import { AuthModule } from '../auth/auth.module';
-import { PublicInquiriesController } from './public-inquiries.controller';
+import { PublicReportsController } from './public-reports.controller';
 
 /** Edge: the live-report read for the webview. HP-24: now AuthGuard + ownership (no longer public). */
 @Module({
-  imports: [ReportsModule, AuthModule],
-  controllers: [PublicInquiriesController],
+  imports: [SnapshotsModule, AuthModule],
+  controllers: [PublicReportsController],
 })
 export class PublicModule {}

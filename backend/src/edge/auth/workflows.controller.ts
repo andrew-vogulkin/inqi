@@ -5,17 +5,19 @@ import { AdminGuard } from './admin.guard';
 import { CurrentUser } from './current-user.decorator';
 import { AuthUser } from './auth.tokens';
 import { WorkflowDiffDto, WorkflowInspectDto, WorkflowPublishResultDto, WorkflowVersionDto } from './workflow.dto';
+import { ApiStandardErrors } from '../../common/errors';
 
 /** Admin-only workflow-version management (HP-12): list / inspect / diff / publish. */
 @ApiTags('auth')
 @ApiBearerAuth()
 @UseGuards(AdminGuard)
+@ApiStandardErrors(401, 403, 404) // every endpoint here can return these (ErrorEnvelope)
 @Controller('workflows')
 export class WorkflowsController {
   constructor(private readonly workflows: WorkflowAdminService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List workflow versions (key, version, status, pinned-inquiry counts)' })
+  @ApiOperation({ summary: 'List workflow versions (key, version, status, pinned-report counts)' })
   @ApiOkResponse({ type: [WorkflowVersionDto] })
   list() {
     return this.workflows.list();

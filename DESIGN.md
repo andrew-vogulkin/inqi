@@ -9,6 +9,17 @@ This document is the source of truth for the architecture. It is intentionally
 opinionated so the scaffold in this repo is coherent. Sections marked **(v1)**
 are in the initial scaffold; **(later)** are designed-for but stubbed.
 
+> **Terminology migration (2026-07-02):** the data model was restructured to
+> **Report 1:M Inquiry 1:M Source**. What this document calls an *Inquiry* (the
+> root customer request) is now the **Report** (with a 1:1 persona carrying all
+> interaction); a *Subtask* (one candidate under investigation) is now an
+> **Inquiry**; each channel touchpoint of an inquiry (websearch page, ratings
+> digest, email thread, whatsapp) is a typed **Source** row — thread channels
+> anchor the Message store and reply address. The old *Report* snapshot table is
+> now **ReportSnapshot** (`/snapshots/:token`, unlock at `/snapshots/:id/unlock`).
+> Sections below still use the old names pending a full rewrite; the schema,
+> code, and README are already on the new model.
+
 ---
 
 ## 1. Product flow (what the system does)

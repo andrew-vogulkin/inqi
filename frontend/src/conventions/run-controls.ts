@@ -1,9 +1,9 @@
-import { InquiryState, SubtaskStatus } from '@inqi/shared';
+import { ReportState, InquiryStatus } from '@inqi/shared';
 import { StatusTone } from './enums';
 
 /**
  * FE-12 — operator run-control state machine. The backend's granular
- * {@link InquiryState} is projected onto a coarse {@link RunState} the operator
+ * {@link ReportState} is projected onto a coarse {@link RunState} the operator
  * reasons about (running / paused / a terminal). All enablement + apply logic
  * lives here (convention #2); the component is a pure view over it.
  */
@@ -18,7 +18,7 @@ export const RunState = {
 } as const;
 export type RunState = (typeof RunState)[keyof typeof RunState];
 
-/** The three operator actions (POST /inquiries/:id/{pause,resume,cancel}). */
+/** The three operator actions (POST /reports/:id/{pause,resume,cancel}). */
 export const RunAction = {
   Pause: 'pause',
   Resume: 'resume',
@@ -54,15 +54,15 @@ export function isTerminalRunState(runState: RunState): boolean {
   return TERMINAL.includes(runState);
 }
 
-/** Coarse projection of a granular inquiry state onto the run-state machine. */
-export function runStateFromInquiry({ state }: { state: string }): RunState {
+/** Coarse projection of a granular report state onto the run-state machine. */
+export function runStateFromReport({ state }: { state: string }): RunState {
   switch (state) {
-    case InquiryState.ON_HOLD: return RunState.Paused;
-    case InquiryState.CANCELLED: return RunState.Cancelled;
-    case InquiryState.REPORT_DELIVERED: return RunState.Delivered;
-    case InquiryState.FAILED: return RunState.Failed;
-    case InquiryState.DENIED: return RunState.Denied;
-    case InquiryState.DROPPED: return RunState.Dropped;
+    case ReportState.ON_HOLD: return RunState.Paused;
+    case ReportState.CANCELLED: return RunState.Cancelled;
+    case ReportState.REPORT_DELIVERED: return RunState.Delivered;
+    case ReportState.FAILED: return RunState.Failed;
+    case ReportState.DENIED: return RunState.Denied;
+    case ReportState.DROPPED: return RunState.Dropped;
     default: return RunState.Running; // any active intake/processing state
   }
 }
@@ -82,11 +82,11 @@ export function runActionEnabled({ runState, action }: { runState: RunState; act
 }
 
 /**
- * In-flight outreach jobs the cancel would abandon = subtasks actively researching
+ * In-flight outreach jobs the cancel would abandon = inquiries actively researching
  * or contacted (board-derived; the `/cost` summary does not expose this).
  */
 export function countInFlightJobs({ statuses }: { statuses: string[] }): number {
-  return statuses.filter((s) => s === SubtaskStatus.Researching || s === SubtaskStatus.Contacted).length;
+  return statuses.filter((s) => s === InquiryStatus.Researching || s === InquiryStatus.Contacted).length;
 }
 
 export function runStateTone(runState: RunState): StatusTone {

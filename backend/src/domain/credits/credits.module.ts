@@ -4,7 +4,7 @@ import { CreditsRepository } from './credits.repository';
 
 /**
  * Domain: customer credits (HP-19). Depends only on global infra (persistence,
- * events, observability/audit, config), so the workflow engine + inquiry intake +
+ * events, observability/audit, config), so the workflow engine + report intake +
  * edge controllers can all import it without a cycle.
  */
 @Module({

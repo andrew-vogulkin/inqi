@@ -1,15 +1,13 @@
 import { Module } from '@nestjs/common';
-import { AuthVerifierDriver } from '@inqi/shared';
-import { InquiryModule } from '../../domain/inquiry/inquiry.module';
+import { ReportModule } from '../../domain/report/report.module';
 import { KanbanModule } from '../../domain/kanban/kanban.module';
 import { CustomerModule } from '../../domain/customer/customer.module';
 import { CreditsModule } from '../../domain/credits/credits.module';
-import { ReportsModule } from '../../domain/reports/reports.module';
+import { SnapshotsModule } from '../../domain/snapshot/snapshots.module';
 import { OrchestratorWorkersModule } from '../../domain/orchestrator/orchestrator-workers.module';
-import { ConfigService } from '../../infra/config/config.service';
-import { AdminInquiriesController } from './admin-inquiries.controller';
+import { AdminReportsController } from './admin-reports.controller';
 import { AdminThreadController } from './admin-thread.controller';
-import { AuthedReportsController } from './authed-reports.controller';
+import { AuthedSnapshotsController } from './authed-snapshots.controller';
 import { WorkflowsController } from './workflows.controller';
 import { AuditController } from './audit.controller';
 import { MeCreditsController, AdminCustomersController } from './credits.controller';
@@ -18,32 +16,15 @@ import { AuthService } from './auth.service';
 import { SessionService } from './session.service';
 import { AuthGuard } from './auth.guard';
 import { AdminGuard } from './admin.guard';
-import { TOKEN_VERIFIER } from './auth.tokens';
-import { GoogleTokenVerifier } from './google-token.verifier';
-import { StubTokenVerifier } from './stub-token.verifier';
 
 /**
- * Edge: authentication (Sign in with Google) + authenticated dashboards. The
- * identity verifier is driver-selected — real Google when GOOGLE_CLIENT_ID is set,
- * else the dev/e2e stub.
+ * Edge: authentication (two-step email sign-in: email → MFA code, transport
+ * mocked for now) + authenticated dashboards.
  */
 @Module({
-  imports: [InquiryModule, KanbanModule, CustomerModule, CreditsModule, ReportsModule, OrchestratorWorkersModule],
-  controllers: [AuthController, AdminInquiriesController, AdminThreadController, AuthedReportsController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController],
-  providers: [
-    AuthService,
-    SessionService,
-    AuthGuard,
-    AdminGuard,
-    GoogleTokenVerifier,
-    StubTokenVerifier,
-    {
-      provide: TOKEN_VERIFIER,
-      inject: [ConfigService, GoogleTokenVerifier, StubTokenVerifier],
-      useFactory: (config: ConfigService, google: GoogleTokenVerifier, stub: StubTokenVerifier) =>
-        config.authVerifier === AuthVerifierDriver.Google ? google : stub,
-    },
-  ],
+  imports: [ReportModule, KanbanModule, CustomerModule, CreditsModule, SnapshotsModule, OrchestratorWorkersModule],
+  controllers: [AuthController, AdminReportsController, AdminThreadController, AuthedSnapshotsController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController],
+  providers: [AuthService, SessionService, AuthGuard, AdminGuard],
   // HP-24: the former capability-token / public read surfaces now sit behind AuthGuard too.
   exports: [SessionService, AuthGuard],
 })

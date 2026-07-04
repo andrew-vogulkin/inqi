@@ -13,6 +13,14 @@ export interface ChatMsg {
   content: string;
 }
 
+/** An OpenAI function-calling tool set the model may use during a {@link AiProvider.toolStructured} run. */
+export interface ToolSet {
+  /** OpenAI-format tool definitions to advertise to the model. */
+  definitions: unknown[];
+  /** Run one tool call; the returned string is what the model sees as the tool result. Never throw — return an error JSON string instead. */
+  execute(call: { name: string; args: unknown }): Promise<string>;
+}
+
 /**
  * Swappable LLM provider (Qwen today → any OpenAI-compatible model). Bind a
  * concrete impl to {@link AI_PROVIDER}; inject by token, never by class.
@@ -30,6 +38,16 @@ export interface AiProvider {
    * contract — domain prompts own their zod schemas and pass `schema.parse`.
    */
   structured<T>(args: { system: string; user: string; tier?: ModelTier; validate: (raw: unknown) => T }): Promise<T>;
+  /**
+   * Agentic structured output: run a bounded tool-calling loop (the model may call
+   * the given tools up to `maxToolCalls` times), then force a final strict-JSON
+   * answer and validate it. `onToolCall` lets callers log tool activity.
+   */
+  toolStructured<T>(args: {
+    system: string; user: string; tier?: ModelTier; tools: ToolSet;
+    maxToolCalls?: number; validate: (raw: unknown) => T;
+    onToolCall?: (call: { name: string; args: unknown }) => void;
+  }): Promise<T>;
 }
 export const AI_PROVIDER = Symbol('AiProvider');
 

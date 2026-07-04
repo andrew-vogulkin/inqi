@@ -18,12 +18,17 @@ export function creditsReducer(state: CreditsState, action: Action): CreditsStat
       const { type, data } = action.event;
       const d = (data ?? {}) as { amount?: number; balance?: number };
       if (type === EventType.CreditsReserved) {
+        // legacy hold event (pre-pay-on-delivery runs)
         return { ...state, balance: typeof d.balance === 'number' ? d.balance : state.balance - (d.amount ?? 0) };
       }
       if (type === EventType.CreditsRefunded) {
         return { ...state, balance: state.balance + (d.amount ?? 0) };
       }
-      return state; // charge finalizes a hold → no balance change
+      if (type === EventType.CreditsCharged) {
+        // pay-on-delivery: the charge IS the debit (report reached Ready)
+        return { ...state, balance: state.balance - (d.amount ?? 0) };
+      }
+      return state;
     }
     default:
       return state;

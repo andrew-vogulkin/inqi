@@ -11,12 +11,12 @@ import { Card, MonoRef, Skeleton, ErrorState, Badge } from '../ui';
 import { AccessScreenView } from './AccessScreens';
 
 /**
- * FE-13 — admin-only per-report cost rollup. Reads `GET /inquiries/:id/cost`; a
+ * FE-13 — admin-only per-report cost rollup. Reads `GET /reports/:id/cost`; a
  * non-admin gets a typed 403 → the Forbidden screen with **zero** cost figures in
  * the DOM. Derivation (tiles, totals, reconciliation) is the pure {@link deriveCostView}
  * selector; this is a flat view with Geist Mono numbers.
  */
-export function CostReport({ inquiryId }: { inquiryId: string }) {
+export function CostReport({ reportId }: { reportId: string }) {
   const [status, setStatus] = useState<AsyncStatus>(AsyncStatus.Loading);
   const [forbidden, setForbidden] = useState(false);
   const [cost, setCost] = useState<CostSummaryDto | null>(null);
@@ -25,7 +25,7 @@ export function CostReport({ inquiryId }: { inquiryId: string }) {
     let live = true;
     setStatus(AsyncStatus.Loading);
     setForbidden(false);
-    adminApi.cost({ inquiryId })
+    adminApi.cost({ reportId })
       .then((c) => { if (live) { setCost(c); setStatus(AsyncStatus.Ready); } })
       .catch((err) => {
         if (!live) return;
@@ -33,12 +33,12 @@ export function CostReport({ inquiryId }: { inquiryId: string }) {
         else setStatus(AsyncStatus.Error);
       });
     return () => { live = false; };
-  }, [inquiryId]);
+  }, [reportId]);
 
   // Admin-only: never render any cost figure on the forbidden path.
   if (forbidden) return <AccessScreenView screen={AccessScreen.Forbidden} />;
 
-  const backHref = hrefFor({ route: Route.AdminInquiry, params: { id: inquiryId } });
+  const backHref = hrefFor({ route: Route.AdminReport, params: { id: reportId } });
 
   if (status === AsyncStatus.Loading) return <Card><Skeleton width="40%" /></Card>;
   if (status === AsyncStatus.Error || !cost) {

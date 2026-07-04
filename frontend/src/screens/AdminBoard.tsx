@@ -1,38 +1,38 @@
 import { useEffect, useState } from 'react';
-import { EventType, SubtaskStatus } from '@inqi/shared';
+import { EventType, InquiryStatus, SourceType } from '@inqi/shared';
 import { AsyncStatus, StatusTone } from '../conventions/enums';
 import { Route, navigate, hrefFor } from '../conventions/routes';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
-import { inquiriesApi } from '../api';
-import { InquiryDto } from '../api/types';
+import { reportsApi } from '../api';
+import { ReportDto } from '../api/types';
 import { Skeleton } from '../ui';
-import { toneForInquiryState, toneForSubtaskStatus, toneColors } from '../ui/tone';
+import { toneForReportState, toneForInquiryStatus, toneColors } from '../ui/tone';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
-import { AdminBoardState, EpicVM, epicSubtasks, epicProgress } from '../state/adminBoard.reducer';
+import { AdminBoardState, EpicVM, epicInquiries, epicProgress } from '../state/adminBoard.reducer';
 import { RunControlsPanel } from './RunControls';
 
 const EPIC_PALETTE = [color.brand, color.info, color.inkSoft, color.warn];
 const epicColor = (i: number) => EPIC_PALETTE[i % EPIC_PALETTE.length];
 
-/** FE-10 — operator live board for one inquiry: epics → subtasks → findings + activity stream. */
-export function AdminBoard({ inquiryId }: { inquiryId?: string }) {
+/** FE-10 — operator live board for one report: epics → inquiries → findings + activity stream. */
+export function AdminBoard({ reportId }: { reportId?: string }) {
   const dispatch = useAppDispatch();
   const board = useSelector((s) => s.adminBoard);
-  const [tabs, setTabs] = useState<InquiryDto[]>([]);
-  const activeId = inquiryId ?? tabs[0]?.id ?? null;
+  const [tabs, setTabs] = useState<ReportDto[]>([]);
+  const activeId = reportId ?? tabs[0]?.id ?? null;
 
-  // Inquiry tabs (nav). Lightweight list, not board state.
-  useEffect(() => { inquiriesApi.list().then((rows) => setTabs(Array.isArray(rows) ? rows : [])).catch(() => undefined); }, []);
+  // Report tabs (nav). Lightweight list, not board state.
+  useEffect(() => { reportsApi.list().then((rows) => setTabs(Array.isArray(rows) ? rows : [])).catch(() => undefined); }, []);
 
-  // Board detail for the active inquiry.
-  useEffect(() => { if (activeId) inquiriesApi.detail({ id: activeId }).then((b) => dispatch({ type: ActionType.AdminBoardLoaded, board: b })).catch(() => undefined); }, [activeId, dispatch]);
+  // Board detail for the active report.
+  useEffect(() => { if (activeId) reportsApi.detail({ id: activeId }).then((b) => dispatch({ type: ActionType.AdminBoardLoaded, board: b })).catch(() => undefined); }, [activeId, dispatch]);
 
-  // Admin room → reducer (the reducer scopes events to the active inquiry).
+  // Admin room → reducer (the reducer scopes events to the active report).
   useRealtime({ kind: 'admin' });
 
-  const ready = board.status === AsyncStatus.Ready && board.inquiryId === activeId;
+  const ready = board.status === AsyncStatus.Ready && board.reportId === activeId;
 
   return (
     <div>
@@ -44,7 +44,7 @@ export function AdminBoard({ inquiryId }: { inquiryId?: string }) {
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: color.brand, animation: 'inqi-pulse 1.3s ease-in-out infinite' }} />Live
             </span>
           </div>
-          <p style={{ fontSize: fontSize.base, color: color.muted, margin: '5px 0 0' }}>Inquiries → epics → subtasks → findings, updating in real time.</p>
+          <p style={{ fontSize: fontSize.base, color: color.muted, margin: '5px 0 0' }}>Reports → epics → inquiries → findings, updating in real time.</p>
         </div>
         <Tabs tabs={tabs} activeId={activeId} />
       </header>
@@ -59,14 +59,14 @@ export function AdminBoard({ inquiryId }: { inquiryId?: string }) {
   );
 }
 
-function Tabs({ tabs, activeId }: { tabs: InquiryDto[]; activeId: string | null }) {
+function Tabs({ tabs, activeId }: { tabs: ReportDto[]; activeId: string | null }) {
   if (!tabs.length) return null;
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
       {tabs.map((t) => {
         const on = t.id === activeId;
         return (
-          <button key={t.id} onClick={() => navigate({ route: Route.AdminInquiry, params: { id: t.id } })}
+          <button key={t.id} onClick={() => navigate({ route: Route.AdminReport, params: { id: t.id } })}
             style={{ fontSize: 12.5, padding: '7px 12px', borderRadius: radius.md, border: `1px solid ${on ? color.brand : color.lineStrong}`, background: on ? color.brandTint : color.surface, color: on ? color.brandStrong : color.inkSoft, fontWeight: fontWeight.medium, cursor: 'pointer' }}>
             {t.rawRequest.slice(0, 30)}
           </button>
@@ -78,23 +78,23 @@ function Tabs({ tabs, activeId }: { tabs: InquiryDto[]; activeId: string | null 
 
 function Board({ board }: { board: AdminBoardState }) {
   const [openEpic, setOpenEpic] = useState<string | null>(null);
-  const subCount = Object.keys(board.subtasksById).length;
+  const subCount = Object.keys(board.inquiriesById).length;
   return (
     <div>
-      {/* Inquiry summary bar */}
+      {/* Report summary bar */}
       <div style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '14px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>{board.inquiryId ? `#${board.inquiryId.slice(0, 8)} · ` : ''}{board.title}</div>
-        <div style={{ fontSize: fontSize.sm, color: color.subtle }}>{board.epicOrder.length} epics · {subCount} subtasks</div>
+        <div style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>{board.reportId ? `#${board.reportId.slice(0, 8)} · ` : ''}{board.title}</div>
+        <div style={{ fontSize: fontSize.sm, color: color.subtle }}>{board.epicOrder.length} epics · {subCount} inquiries</div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: toneColors[toneForInquiryState(board.inquiryState)].fg, background: toneColors[toneForInquiryState(board.inquiryState)].bg, padding: '4px 10px', borderRadius: radius.pill }}>{board.inquiryState}</span>
-          {board.inquiryId && <a href={hrefFor({ route: Route.AdminCost, params: { id: board.inquiryId } })} style={{ fontSize: fontSize.sm, color: color.info }} data-testid="cost-link">cost →</a>}
+          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: toneColors[toneForReportState(board.reportState)].fg, background: toneColors[toneForReportState(board.reportState)].bg, padding: '4px 10px', borderRadius: radius.pill }}>{board.reportState}</span>
+          {board.reportId && <a href={hrefFor({ route: Route.AdminCost, params: { id: board.reportId } })} style={{ fontSize: fontSize.sm, color: color.info }} data-testid="cost-link">cost →</a>}
         </div>
       </div>
 
       <RunControlsPanel board={board} />
 
       {board.epicOrder.length === 0 && (
-        <div style={{ background: color.surface, border: `1px dashed ${color.lineStrong}`, borderRadius: radius.lg, padding: space[6], textAlign: 'center', color: color.subtle, fontSize: fontSize.sm, marginTop: 14 }}>Epics + subtasks appear here as the agent works.</div>
+        <div style={{ background: color.surface, border: `1px dashed ${color.lineStrong}`, borderRadius: radius.lg, padding: space[6], textAlign: 'center', color: color.subtle, fontSize: fontSize.sm, marginTop: 14 }}>Epics + inquiries appear here as the agent works.</div>
       )}
 
       <div style={{ marginTop: 14 }}>
@@ -115,8 +115,8 @@ function PersonaTile({ index, strategy, size = 22 }: { index: number; strategy: 
 }
 
 function EpicCard({ board, epic, index, onOpen }: { board: AdminBoardState; epic: EpicVM; index: number; onOpen: () => void }) {
-  const subs = epicSubtasks(board, epic.id);
-  const failed = subs.filter((s) => s.status === SubtaskStatus.Failed).length;
+  const subs = epicInquiries(board, epic.id);
+  const failed = subs.filter((s) => s.status === InquiryStatus.Failed).length;
   const { qualified, target } = epicProgress(board, epic.id);
   return (
     <button data-testid="epic-card" onClick={onOpen}
@@ -130,8 +130,8 @@ function EpicCard({ board, epic, index, onOpen }: { board: AdminBoardState; epic
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 11 }}>
         <div style={{ display: 'flex', gap: 4 }}>
           {subs.length === 0
-            ? <span style={{ fontSize: fontSize.xs, color: color.subtle }}>no subtasks yet</span>
-            : subs.map((s) => <span key={s.id} style={{ width: 18, height: 5, borderRadius: 3, background: toneColors[toneForSubtaskStatus(s.status)].fg }} />)}
+            ? <span style={{ fontSize: fontSize.xs, color: color.subtle }}>no inquiries yet</span>
+            : subs.map((s) => <span key={s.id} style={{ width: 18, height: 5, borderRadius: 3, background: toneColors[toneForInquiryStatus(s.status)].fg }} />)}
         </div>
         <span style={{ fontSize: fontSize.sm, color: color.brand, fontWeight: fontWeight.medium }}>{qualified}/{target} qualified</span>
         <span style={{ fontSize: fontSize.xs, color: color.subtle }}>· {epic.strategy}</span>
@@ -153,7 +153,7 @@ function LineageStep({ n, title, children }: { n: number; title: string; childre
 }
 
 function EpicDetail({ board, epic, index, onClose }: { board: AdminBoardState; epic: EpicVM; index: number; onClose: () => void }) {
-  const subs = epicSubtasks(board, epic.id);
+  const subs = epicInquiries(board, epic.id);
   return (
     <div>
       <button onClick={onClose} style={{ fontSize: fontSize.base, color: color.muted, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer' }}>‹ All epics</button>
@@ -162,7 +162,7 @@ function EpicDetail({ board, epic, index, onClose }: { board: AdminBoardState; e
         <PersonaTile index={index} strategy={epic.strategy} size={26} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold }}>{epic.strategy} epic</div>
-          <div style={{ fontSize: fontSize.sm, color: color.subtle, marginTop: 2 }}>{epic.strategy} · {board.inquiryId ? `#${board.inquiryId.slice(0, 8)}` : ''}</div>
+          <div style={{ fontSize: fontSize.sm, color: color.subtle, marginTop: 2 }}>{epic.strategy} · {board.reportId ? `#${board.reportId.slice(0, 8)}` : ''}</div>
         </div>
       </div>
 
@@ -181,21 +181,27 @@ function EpicDetail({ board, epic, index, onClose }: { board: AdminBoardState; e
       <div style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '14px 17px', borderBottom: `1px solid ${color.surfaceAlt}` }}>
           <span style={{ width: 22, height: 22, borderRadius: 7, background: color.ink, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.xs, fontWeight: fontWeight.semibold, fontFamily: font.mono }}>4</span>
-          <span style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>Subtasks</span>
+          <span style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>Inquiries</span>
           <span style={{ fontSize: fontSize.sm, color: color.subtle, fontFamily: font.mono }}>{subs.length}</span>
         </div>
-        {subs.length === 0 && <div style={{ padding: '14px 17px', fontSize: fontSize.sm, color: color.subtle }}>No subtasks yet.</div>}
+        {subs.length === 0 && <div style={{ padding: '14px 17px', fontSize: fontSize.sm, color: color.subtle }}>No inquiries yet.</div>}
         {subs.map((s) => {
-          const tone = toneColors[toneForSubtaskStatus(s.status)];
-          const finding = s.status === SubtaskStatus.Qualified && typeof s.qualityScore === 'number' ? `Qualified · feedback ${Math.round(s.qualityScore * 100)}` : null;
+          const tone = toneColors[toneForInquiryStatus(s.status)];
+          const finding = s.status === InquiryStatus.Qualified && typeof s.qualityScore === 'number' ? `Qualified · feedback ${Math.round(s.qualityScore * 100)}` : null;
           return (
-            <a key={s.id} href={hrefFor({ route: Route.AdminSubtask, params: { id: s.id } })} data-testid="subtask-row"
+            <a key={s.id} href={hrefFor({ route: Route.AdminInquiry, params: { id: s.id } })} data-testid="inquiry-row"
               style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 17px', borderBottom: `1px solid ${color.surfaceSunken}`, textDecoration: 'none', color: 'inherit' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', flex: 'none', background: tone.fg }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, fontWeight: fontWeight.medium }}>{s.provider} <span style={{ color: color.subtle, fontFamily: font.mono, fontWeight: fontWeight.regular }}>· w{s.wave}</span></div>
                 {finding && <div style={{ fontSize: 11.5, color: color.brand, marginTop: 2 }}>{finding}</div>}
               </div>
+              {s.researchPending && (
+                <span data-testid="research-pending-chip" title="Depth research still queued/running" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: fontSize.xs, fontWeight: fontWeight.medium, padding: '3px 9px', borderRadius: radius.sm, flex: 'none', background: color.infoTint, color: color.info }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', flex: 'none', border: `2px solid ${color.info}`, borderTopColor: 'transparent', animation: 'inqi-spin .9s linear infinite' }} />
+                  researching
+                </span>
+              )}
               <span style={{ fontSize: fontSize.xs, fontWeight: fontWeight.semibold, padding: '3px 9px', borderRadius: radius.sm, flex: 'none', background: tone.bg, color: tone.fg }}>{s.status}</span>
               <span style={{ color: '#c9c8c2', fontSize: 16, flex: 'none' }}>›</span>
             </a>
@@ -208,26 +214,43 @@ function EpicDetail({ board, epic, index, onClose }: { board: AdminBoardState; e
 
 const STREAM_LABEL: Record<string, (d: Record<string, unknown>) => string> = {
   [EventType.EpicCreated]: (d) => `epic created (${d.strategy})`,
-  [EventType.SubtaskCreated]: (d) => `subtask: ${d.subjectProviderName}`,
-  [EventType.SubtaskUpdated]: (d) => `subtask → ${d.status ?? `quality ${d.qualityScore}`}`,
+  [EventType.InquiryCreated]: (d) => `inquiry: ${d.name}`,
+  [EventType.SourceAdded]: (d) => {
+    const rows = Array.isArray(d.sources) ? (d.sources as { type?: string; title?: string; url?: string }[]) : [];
+    const first = rows[0];
+    if (!first) return `sources +${d.count ?? 1}`;
+    const kind = first.type === SourceType.RatingFeedback ? 'ratings' : first.type === SourceType.Email ? 'email thread' : 'web';
+    return `source (${kind}): ${String(first.title || first.url || '').slice(0, 60)}${rows.length > 1 ? ` (+${rows.length - 1})` : ''}`;
+  },
+  [EventType.InquiryUpdated]: (d) => {
+    const name = typeof d.name === 'string' && d.name ? d.name : 'inquiry';
+    const reason = d.reason ? ` — ${String(d.reason).slice(0, 70)}` : '';
+    return `${name} → ${d.status ?? (typeof d.qualityScore === 'number' ? `quality ${Math.round(Number(d.qualityScore) * 100)}` : 'updated')}${reason}`;
+  },
   [EventType.WaveReleased]: (d) => `wave ${d.wave} released (${d.count})`,
   [EventType.FunnelWidened]: (d) => `funnel widened (+${d.added})`,
   [EventType.MessageSent]: () => 'emailed a provider',
   [EventType.MessageReceived]: () => 'reply received',
   [EventType.RunReaped]: (d) => `recovered a stalled step (${d.action})`,
-  [EventType.InquiryTransitioned]: (d) => `→ ${d.to}`,
+  [EventType.ReportTransitioned]: (d) => `→ ${d.to}`,
   [EventType.AgentProgress]: (d) => `${d.stage}: ${d.message}`,
+  [EventType.ModelUsed]: (d) => {
+    const version = d.modelVersion && d.modelVersion !== d.model ? ` (${d.modelVersion})` : '';
+    return `model engaged: ${d.model}${version}${d.tier ? ` · ${d.tier}` : ''}`;
+  },
 };
 const STREAM_ICON: Record<string, { icon: string; tone: StatusTone }> = {
+  [EventType.ModelUsed]: { icon: '⚙', tone: StatusTone.Info },
   [EventType.EpicCreated]: { icon: '◆', tone: StatusTone.Info },
-  [EventType.SubtaskCreated]: { icon: '＋', tone: StatusTone.Muted },
-  [EventType.SubtaskUpdated]: { icon: '↻', tone: StatusTone.Info },
+  [EventType.InquiryCreated]: { icon: '＋', tone: StatusTone.Muted },
+  [EventType.SourceAdded]: { icon: '⌕', tone: StatusTone.Muted },
+  [EventType.InquiryUpdated]: { icon: '↻', tone: StatusTone.Info },
   [EventType.WaveReleased]: { icon: '⇧', tone: StatusTone.Brand },
   [EventType.FunnelWidened]: { icon: '⊕', tone: StatusTone.Info },
   [EventType.MessageSent]: { icon: '✉', tone: StatusTone.Info },
   [EventType.MessageReceived]: { icon: '↩', tone: StatusTone.Brand },
   [EventType.RunReaped]: { icon: '⚠', tone: StatusTone.Warn },
-  [EventType.InquiryTransitioned]: { icon: '→', tone: StatusTone.Muted },
+  [EventType.ReportTransitioned]: { icon: '→', tone: StatusTone.Muted },
   [EventType.AgentProgress]: { icon: '•', tone: StatusTone.Muted },
 };
 const STREAM_FALLBACK = { icon: '•', tone: StatusTone.Muted };

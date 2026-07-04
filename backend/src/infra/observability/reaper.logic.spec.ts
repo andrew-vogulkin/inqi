@@ -1,7 +1,7 @@
 import { decideReaperAction, findStuckRuns, ReapableRun, retryBackoffSeconds } from './reaper.logic';
 
 const run = (over: Partial<ReapableRun>): ReapableRun => ({
-  id: 'r', inquiryId: 'i', stage: 'outreach_subtask', status: 'running', attempts: 1, leaseUntil: null, ...over,
+  id: 'r', reportId: 'i', stage: 'outreach_inquiry', status: 'running', attempts: 1, leaseUntil: null, ...over,
 });
 const NOW = new Date('2026-06-29T12:00:00Z');
 const past = new Date('2026-06-29T11:59:00Z');

@@ -1,4 +1,4 @@
-import { InquiryState, SubtaskStatus } from '@inqi/shared';
+import { ReportState, InquiryStatus } from '@inqi/shared';
 import { StatusTone } from '../conventions/enums';
 import { color } from '../theme/tokens';
 
@@ -14,28 +14,29 @@ export const toneColors: Record<StatusTone, ToneColors> = {
   [StatusTone.Subtle]: { fg: color.subtle, bg: color.surfaceSunken, border: color.line },
 };
 
-/** Inquiry state → tone (status→color enum, FE styling spec). */
-export function toneForInquiryState(state: string): StatusTone {
+/** Report state → tone (status→color enum, FE styling spec). */
+export function toneForReportState(state: string): StatusTone {
   switch (state) {
-    case InquiryState.REPORT_DELIVERED: return StatusTone.Brand;
-    case InquiryState.DENIED:
-    case InquiryState.DROPPED:
-    case InquiryState.FAILED: return StatusTone.Danger;
-    case InquiryState.CANCELLED:
-    case InquiryState.ON_HOLD: return StatusTone.Warn;
+    case ReportState.REPORT_DELIVERED: return StatusTone.Brand;
+    case ReportState.DENIED:
+    case ReportState.DROPPED:
+    case ReportState.FAILED: return StatusTone.Danger;
+    case ReportState.CANCELLED:
+    case ReportState.ON_HOLD: return StatusTone.Warn;
     default: return StatusTone.Info; // in-flight processing
   }
 }
 
-/** Subtask status → tone. */
-export function toneForSubtaskStatus(status: string): StatusTone {
+/** Inquiry status → tone. */
+export function toneForInquiryStatus(status: string): StatusTone {
   switch (status) {
-    case SubtaskStatus.Qualified: return StatusTone.Brand;
-    case SubtaskStatus.Contacted:
-    case SubtaskStatus.Replied:
-    case SubtaskStatus.Researching: return StatusTone.Info;
-    case SubtaskStatus.Failed: return StatusTone.Danger;
-    case SubtaskStatus.Skipped: return StatusTone.Subtle;
+    case InquiryStatus.Qualified: return StatusTone.Brand;
+    case InquiryStatus.Contacted:
+    case InquiryStatus.Replied:
+    case InquiryStatus.Researching: return StatusTone.Info;
+    case InquiryStatus.Unresponsive: return StatusTone.Warn; // silent, but the thread stays open
+    case InquiryStatus.Failed: return StatusTone.Danger;
+    case InquiryStatus.Skipped: return StatusTone.Subtle;
     default: return StatusTone.Muted; // pending / queued
   }
 }

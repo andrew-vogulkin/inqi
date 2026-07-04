@@ -88,7 +88,7 @@ export function WorkflowVersions() {
       <ConfirmDialog
         open={confirmPublish}
         title={selected ? `Publish v${selected.version}?` : 'Publish'}
-        message="This makes it the active version for new inquiries. In-flight inquiries stay pinned to their current version."
+        message="This makes it the active version for new reports. In-flight reports stay pinned to their current version."
         confirmLabel="Publish"
         confirmTestId="wf-publish-yes"
         cancelTestId="wf-publish-no"
@@ -111,7 +111,7 @@ function Tree({ tree, selectedId, onSelect }: { tree: ReturnType<typeof buildTre
                 style={{ display: 'flex', alignItems: 'center', gap: space[2], textAlign: 'left', padding: `${space[1]}px ${space[2]}px`, border: `1px solid ${v.id === selectedId ? color.brand : color.line}`, background: v.id === selectedId ? color.brandTint : color.surface, borderRadius: radius.md, cursor: 'pointer' }}>
                 <span style={{ flex: 1, fontSize: fontSize.sm }}>v{v.version}</span>
                 <StatusBadge label={v.status} tone={versionStatusTone(v.status)} />
-                <Pill>{v.pinnedInquiries} pinned</Pill>
+                <Pill>{v.pinnedReports} pinned</Pill>
               </button>
             ))}
           </div>

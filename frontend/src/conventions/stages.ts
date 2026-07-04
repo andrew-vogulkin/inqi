@@ -1,45 +1,45 @@
-import { InquiryState, InquiryStage, STAGE_ORDER, stageIndex, deriveStage } from '@inqi/shared';
+import { ReportState, ReportStage, STAGE_ORDER, stageIndex, deriveStage } from '@inqi/shared';
 import { StatusTone } from './enums';
 import { Route, RouteMatch } from './routes';
 
 /**
- * Customer-facing pipeline stage. HP-23 promoted `InquiryStage` + `deriveStage` into
+ * Customer-facing pipeline stage. HP-23 promoted `ReportStage` + `deriveStage` into
  * the shared contract — the backend computes the stage from (state, qualifiedCount)
  * and the FE renders it from the DTO/events. These re-exports keep the FE call sites.
  */
-export const Stage = InquiryStage;
-export type Stage = InquiryStage;
+export const Stage = ReportStage;
+export type Stage = ReportStage;
 export { STAGE_ORDER, stageIndex, deriveStage };
 
-/** @deprecated state-only projection (qualifiedCount=0). Prefer the DTO `stage` via `stageForInquiry`. */
-export function stageForInquiryState(state: string): Stage {
+/** @deprecated state-only projection (qualifiedCount=0). Prefer the DTO `stage` via `stageForReport`. */
+export function stageForReportState(state: string): Stage {
   return deriveStage({ state, qualifiedCount: 0 });
 }
 
-/** The stage to render for an inquiry row — trust the backend `stage`, else derive from state + count. */
-export function stageForInquiry({ state, stage, qualifiedCount }: { state: string; stage?: string; qualifiedCount?: number }): Stage {
+/** The stage to render for a report row — trust the backend `stage`, else derive from state + count. */
+export function stageForReport({ state, stage, qualifiedCount }: { state: string; stage?: string; qualifiedCount?: number }): Stage {
   return (stage as Stage) || deriveStage({ state, qualifiedCount: qualifiedCount ?? 0 });
 }
 
-/** Preparing / Researching / Partially ready show a live pulse (work is ongoing). */
+/** Preparing / Researching / Partially ready / Finalizing show a live pulse (work is ongoing). */
 export function isLiveStage(stage: Stage): boolean {
-  return stage === Stage.Preparing || stage === Stage.Researching || stage === Stage.PartiallyReady;
+  return stage === Stage.Preparing || stage === Stage.Researching || stage === Stage.PartiallyReady || stage === Stage.Finalizing;
 }
 
 /** A terminal *unsuccessful* state (paints the pipeline failed + a danger/warn badge). */
 export function isFailedState(state: string): boolean {
-  return state === InquiryState.DENIED || state === InquiryState.DROPPED || state === InquiryState.FAILED || state === InquiryState.CANCELLED;
+  return state === ReportState.DENIED || state === ReportState.DROPPED || state === ReportState.FAILED || state === ReportState.CANCELLED;
 }
 
-/** Badge label + tone for an inquiry *state* (terminal/declined/needs-you). */
+/** Badge label + tone for a report *state* (terminal/declined/needs-you). */
 export function statusBadge(state: string): { label: string; tone: StatusTone } {
   switch (state) {
-    case InquiryState.REPORT_DELIVERED: return { label: 'Ready', tone: StatusTone.Brand };
-    case InquiryState.DENIED: return { label: 'Declined', tone: StatusTone.Danger };
-    case InquiryState.DROPPED: return { label: 'Dropped', tone: StatusTone.Danger };
-    case InquiryState.FAILED: return { label: 'Failed', tone: StatusTone.Danger };
-    case InquiryState.CANCELLED: return { label: 'Cancelled', tone: StatusTone.Warn };
-    case InquiryState.QUESTIONNAIRE_SENT: return { label: 'Needs you', tone: StatusTone.Warn };
+    case ReportState.REPORT_DELIVERED: return { label: 'Ready', tone: StatusTone.Brand };
+    case ReportState.DENIED: return { label: 'Declined', tone: StatusTone.Danger };
+    case ReportState.DROPPED: return { label: 'Dropped', tone: StatusTone.Danger };
+    case ReportState.FAILED: return { label: 'Failed', tone: StatusTone.Danger };
+    case ReportState.CANCELLED: return { label: 'Cancelled', tone: StatusTone.Warn };
+    case ReportState.QUESTIONNAIRE_SENT: return { label: 'Needs you', tone: StatusTone.Warn };
     default: return { label: 'In progress', tone: StatusTone.Info };
   }
 }
@@ -50,9 +50,10 @@ export function statusBadge(state: string): { label: string; tone: StatusTone } 
  */
 export function stageBadge({ stage, state }: { stage: Stage; state: string }): { label: string; tone: StatusTone } {
   if (isFailedState(state)) return statusBadge(state);
-  if (state === InquiryState.ON_HOLD) return { label: 'On hold', tone: StatusTone.Warn };
+  if (state === ReportState.ON_HOLD) return { label: 'On hold', tone: StatusTone.Warn };
   switch (stage) {
     case Stage.Ready: return { label: 'Ready', tone: StatusTone.Brand };
+    case Stage.Finalizing: return { label: 'Finalizing', tone: StatusTone.Info };
     case Stage.PartiallyReady: return { label: 'Partially ready', tone: StatusTone.Info };
     case Stage.Researching: return { label: 'Researching', tone: StatusTone.Info };
     case Stage.Questionnaire: return { label: 'Needs you', tone: StatusTone.Warn };
@@ -63,19 +64,20 @@ export function stageBadge({ stage, state }: { stage: Stage; state: string }): {
 
 /**
  * Row routing by stage (FE-03). Researching/Ready → the live report (own view);
- * Partially ready → freemium teaser; Questionnaire → own view (confirm); Draft → new inquiry.
+ * Partially ready → freemium teaser; Questionnaire → own view (confirm); Draft → new report.
  */
-export function routeForStage({ stage, inquiryId }: { stage: Stage; inquiryId: string }): RouteMatch {
+export function routeForStage({ stage, reportId }: { stage: Stage; reportId: string }): RouteMatch {
   switch (stage) {
     case Stage.Ready:
+    case Stage.Finalizing:      // target met, delivery wrapping up — the live report shows the countdown
     case Stage.Researching:
     case Stage.Preparing:       // HP-23: preparing shows the live report too (minimal agent activity)
     case Stage.Questionnaire:   // the live report detects this stage and routes to the questions + confirm form
-      return { route: Route.Inquiry, params: { id: inquiryId } };
+      return { route: Route.Report, params: { id: reportId } };
     case Stage.PartiallyReady:
-      return { route: Route.Freemium, params: { id: inquiryId } };
+      return { route: Route.Freemium, params: { id: reportId } };
     case Stage.Draft:
     default:
-      return { route: Route.NewInquiry, params: {} };
+      return { route: Route.NewReport, params: {} };
   }
 }

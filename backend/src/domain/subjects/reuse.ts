@@ -9,7 +9,7 @@
 export interface ReuseThresholds {
   /** Max cosine distance (lower = more similar); candidate must be strictly below. */
   similarityThreshold: number;
-  /** Max geo distance in meters; ignored when the candidate/inquiry has no geo. */
+  /** Max geo distance in meters; ignored when the candidate/report has no geo. */
   radiusMeters: number;
   /** Max report age in days; older reports are too stale to reuse. */
   freshnessDays: number;

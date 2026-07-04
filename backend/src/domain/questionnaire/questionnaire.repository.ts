@@ -20,13 +20,13 @@ export class QuestionnaireRepository {
     return this.exec(tx).questionnaire.findUnique({ where: { token } });
   }
 
-  findByInquiry({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
-    return this.exec(tx).questionnaire.findUnique({ where: { inquiryId } });
+  findByReport({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.findUnique({ where: { reportId } });
   }
 
-  /** HP-24: the owner-identifying fields of the inquiry this questionnaire belongs to. */
-  inquiryOwner({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
-    return this.exec(tx).inquiry.findUnique({ where: { id: inquiryId }, select: { customerId: true, customerEmail: true } });
+  /** HP-24: the owner-identifying fields of the report this questionnaire belongs to. */
+  reportOwner({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).report.findUnique({ where: { id: reportId }, select: { customerId: true, customerEmail: true } });
   }
 
   update({ token, data, tx }: { token: string; data: Prisma.QuestionnaireUncheckedUpdateInput; tx?: DbTx }) {

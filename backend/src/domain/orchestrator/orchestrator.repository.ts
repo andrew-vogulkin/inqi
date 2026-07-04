@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AgentRunStatus, SubtaskStatus } from '@inqi/shared';
+import { AgentRunStatus, InquiryStatus } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
-/** Thin data-access for orchestrator pipeline stages (inquiry + epic + subtask writes). */
+/** Thin data-access for orchestrator pipeline stages (report + epic + inquiry writes). */
 @Injectable()
 export class OrchestratorRepository {
   constructor(private readonly db: PrismaService) {}
@@ -13,43 +13,62 @@ export class OrchestratorRepository {
     return tx ?? this.db;
   }
 
-  findInquiry({ id, tx }: { id: string; tx?: DbTx }) {
-    return this.exec(tx).inquiry.findUniqueOrThrow({ where: { id } });
+  findReport({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).report.findUniqueOrThrow({ where: { id } });
   }
 
-  findSubject({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
-    return this.exec(tx).subject.findUnique({ where: { inquiryId } });
+  findSubject({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).subject.findUnique({ where: { reportId } });
   }
 
-  updateInquiry({ id, data, tx }: { id: string; data: Prisma.InquiryUncheckedUpdateInput; tx?: DbTx }) {
-    return this.exec(tx).inquiry.update({ where: { id }, data });
+  updateReport({ id, data, tx }: { id: string; data: Prisma.ReportUncheckedUpdateInput; tx?: DbTx }) {
+    return this.exec(tx).report.update({ where: { id }, data });
   }
 
   createEpic({ data, tx }: { data: Prisma.EpicUncheckedCreateInput; tx?: DbTx }) {
     return this.exec(tx).epic.create({ data });
   }
 
-  findLatestEpic({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
-    return this.exec(tx).epic.findFirstOrThrow({ where: { inquiryId }, orderBy: { createdAt: 'desc' } });
+  findLatestEpic({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).epic.findFirstOrThrow({ where: { reportId }, orderBy: { createdAt: 'desc' } });
   }
 
-  createSubtask({ data, tx }: { data: Prisma.SubtaskUncheckedCreateInput; tx?: DbTx }) {
-    return this.exec(tx).subtask.create({ data });
+  createInquiry({ data, tx }: { data: Prisma.InquiryUncheckedCreateInput; tx?: DbTx }) {
+    return this.exec(tx).inquiry.create({ data });
   }
 
-  /** Pending subtasks for an epic, optionally restricted to specific waves (omit `waves` for all). */
-  findPendingSubtasks({ epicId, waves, tx }: { epicId: string; waves?: number[]; tx?: DbTx }) {
-    return this.exec(tx).subtask.findMany({
-      where: { epicId, status: SubtaskStatus.Pending, ...(waves ? { wave: { in: waves } } : {}) },
+  /** Pending inquiries for an epic, optionally restricted to specific waves (omit `waves` for all). */
+  findPendingInquiries({ epicId, waves, tx }: { epicId: string; waves?: number[]; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findMany({
+      where: { epicId, status: InquiryStatus.Pending, ...(waves ? { wave: { in: waves } } : {}) },
     });
   }
 
-  findEpicWithSubtasks({ epicId, tx }: { epicId: string; tx?: DbTx }) {
-    return this.exec(tx).epic.findUniqueOrThrow({ where: { id: epicId }, include: { subtasks: true } });
+  findEpicWithInquiries({ epicId, tx }: { epicId: string; tx?: DbTx }) {
+    return this.exec(tx).epic.findUniqueOrThrow({ where: { id: epicId }, include: { inquiries: true } });
   }
 
-  updateSubtask({ id, data, tx }: { id: string; data: Prisma.SubtaskUncheckedUpdateInput; tx?: DbTx }) {
-    return this.exec(tx).subtask.update({ where: { id }, data });
+  updateInquiry({ id, data, tx }: { id: string; data: Prisma.InquiryUncheckedUpdateInput; tx?: DbTx }) {
+    return this.exec(tx).inquiry.update({ where: { id }, data });
+  }
+
+  /** Contacted inquiries that have heard nothing since `olderThan` — reply-timeout candidates for the reaper. */
+  findStaleContactedInquiries({ olderThan, tx }: { olderThan: Date; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findMany({
+      where: { status: InquiryStatus.Contacted, updatedAt: { lt: olderThan } },
+      select: { id: true, name: true, reportId: true, epicId: true },
+    });
+  }
+
+  /**
+   * How many of the report's inquiries still have a depth-research job queued/running.
+   * Failed/skipped inquiries are excluded — they never surface as report options, so
+   * their late research must not hold report generation back.
+   */
+  countResearchPending({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.count({
+      where: { reportId, researchPending: true, status: { notIn: [InquiryStatus.Failed, InquiryStatus.Skipped, InquiryStatus.Unresponsive] } },
+    });
   }
 
   createFinding({ data, tx }: { data: Prisma.FindingUncheckedCreateInput; tx?: DbTx }) {
@@ -63,12 +82,12 @@ export class OrchestratorRepository {
     return this.exec(tx).agentRun.findMany({ where: { status: AgentRunStatus.Running } });
   }
 
-  /** How many times this stage has run for the inquiry (= attempt count). */
-  countAgentRuns({ inquiryId, stage, tx }: { inquiryId: string; stage: string; tx?: DbTx }) {
-    return this.exec(tx).agentRun.count({ where: { inquiryId, stage } });
+  /** How many times this stage has run for the report (= attempt count). */
+  countAgentRuns({ reportId, stage, tx }: { reportId: string; stage: string; tx?: DbTx }) {
+    return this.exec(tx).agentRun.count({ where: { reportId, stage } });
   }
 
-  /** Mark a stuck run failed (used by the reaper before it recovers the inquiry). */
+  /** Mark a stuck run failed (used by the reaper before it recovers the report). */
   failRun({ id, error, tx }: { id: string; error: string; tx?: DbTx }) {
     return this.exec(tx).agentRun.update({ where: { id }, data: { status: AgentRunStatus.Failed, error, endedAt: new Date(), leaseUntil: null } });
   }

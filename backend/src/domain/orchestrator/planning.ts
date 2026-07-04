@@ -39,12 +39,21 @@ export function assignWaves({ candidates, strategy }: { candidates: DiscoveredPr
   });
 }
 
-/** The agentic reactor's next action after a subtask settles. */
+/** The agentic reactor's action kinds (convention #1: no bare string comparisons). */
+export const OutreachActionKind = {
+  Wait: 'wait',
+  Finish: 'finish',
+  Release: 'release',
+  Widen: 'widen',
+} as const;
+export type OutreachActionKind = (typeof OutreachActionKind)[keyof typeof OutreachActionKind];
+
+/** The agentic reactor's next action after an inquiry settles. */
 export type OutreachAction =
-  | { kind: 'wait' }
-  | { kind: 'finish' }
-  | { kind: 'release'; wave: number }
-  | { kind: 'widen' };
+  | { kind: typeof OutreachActionKind.Wait }
+  | { kind: typeof OutreachActionKind.Finish }
+  | { kind: typeof OutreachActionKind.Release; wave: number }
+  | { kind: typeof OutreachActionKind.Widen };
 
 /**
  * Decide what the orchestrator does next given the live epic state. Stop at
@@ -57,8 +66,29 @@ export function decideNextAction({ qualified, target, inFlight, pendingWaves }: 
   inFlight: number;
   pendingWaves: number[];
 }): OutreachAction {
-  if (qualified >= target) return inFlight > 0 ? { kind: 'wait' } : { kind: 'finish' };
-  if (inFlight > 0) return { kind: 'wait' };
-  if (pendingWaves.length > 0) return { kind: 'release', wave: Math.min(...pendingWaves) };
-  return { kind: 'widen' };
+  if (qualified >= target) return inFlight > 0 ? { kind: OutreachActionKind.Wait } : { kind: OutreachActionKind.Finish };
+  if (inFlight > 0) return { kind: OutreachActionKind.Wait };
+  if (pendingWaves.length > 0) return { kind: OutreachActionKind.Release, wave: Math.min(...pendingWaves) };
+  return { kind: OutreachActionKind.Widen };
+}
+
+/** Synthesis-gate verdicts (convention #1). */
+export const SynthesisGate = {
+  Proceed: 'proceed',
+  Defer: 'defer',
+} as const;
+export type SynthesisGate = (typeof SynthesisGate)[keyof typeof SynthesisGate];
+
+/**
+ * Depth-research gate before report synthesis: defer while any inquiry still has a
+ * research job queued/running (so options never render with empty dossiers), but
+ * never past `maxWaits` polls — a permanently failed research job must not strand
+ * the report.
+ */
+export function decideSynthesisGate({ outstandingResearch, waits, maxWaits }: {
+  outstandingResearch: number;
+  waits: number;
+  maxWaits: number;
+}): SynthesisGate {
+  return outstandingResearch > 0 && waits < maxWaits ? SynthesisGate.Defer : SynthesisGate.Proceed;
 }

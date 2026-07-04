@@ -6,7 +6,7 @@ const DIM = 256;
 function svc(): EmbeddingsService {
   const config = { embeddingsDriver: 'local', embeddings: { dim: DIM, model: 'x', apiKey: undefined, baseUrl: undefined } } as unknown as ConfigService;
   const usage = { recordAi: async () => {} } as any;
-  const usageCtx = { inquiryId: () => undefined } as any;
+  const usageCtx = { reportId: () => undefined } as any;
   return new EmbeddingsService(config, usage, usageCtx);
 }
 

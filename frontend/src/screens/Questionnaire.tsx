@@ -2,7 +2,7 @@ import { ReactNode, CSSProperties, useEffect, useState } from 'react';
 import { AsyncStatus, TokenState, FieldType, fieldTypeFromWire, QuestionnaireField } from '../conventions/enums';
 import { Route, navigate, hrefFor } from '../conventions/routes';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
-import { questionnaireApi, inquiriesApi, ApiError, ApiErrorCode } from '../api';
+import { questionnaireApi, reportsApi, ApiError, ApiErrorCode } from '../api';
 import { QuestionnaireQuestion } from '../api/types';
 import { Skeleton } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
@@ -25,7 +25,7 @@ export function Questionnaire({ token }: { token: string }) {
     questionnaireApi.get({ token })
       .then((data) => {
         dispatch({ type: ActionType.QuestionnaireLoaded, data, now: Date.now() });
-        inquiriesApi.reportLive({ id: data.inquiryId }).then((live) => setRequest(live.rawRequest)).catch(() => undefined);
+        reportsApi.reportLive({ id: data.reportId }).then((live) => setRequest(live.rawRequest)).catch(() => undefined);
       })
       .catch((e) => dispatch({ type: ActionType.QuestionnaireLoadFailed, code: e instanceof ApiError ? e.code : ApiErrorCode.QuestionnaireNotFound }));
   }, [token, dispatch]);
@@ -36,7 +36,7 @@ export function Questionnaire({ token }: { token: string }) {
     try {
       await questionnaireApi.submit({ token, confirmedSubject: body.confirmedSubject, answers: body.answers });
       dispatch({ type: ActionType.SubmitSucceeded });
-      if (q.data) navigate({ route: Route.Inquiry, params: { id: q.data.inquiryId } });
+      if (q.data) navigate({ route: Route.Report, params: { id: q.data.reportId } });
     } catch (e) {
       const expired = e instanceof ApiError && e.code === ApiErrorCode.QuestionnaireExpired;
       dispatch({ type: ActionType.SubmitFailed, message: e instanceof ApiError ? e.message : 'Could not submit. Please try again.', expired });
@@ -68,7 +68,7 @@ export function Questionnaire({ token }: { token: string }) {
         {q.tokenState === TokenState.Submitted && (
           <StatusCard tile="✓" tone="brand" title="Scope confirmed — research is underway"
             body="inqi's agents are reaching out to providers now. Your live report opens as options come in.">
-            {q.data && <a href={hrefFor({ route: Route.Inquiry, params: { id: q.data.inquiryId } })} style={inkBtn}>Open live report →</a>}
+            {q.data && <a href={hrefFor({ route: Route.Report, params: { id: q.data.reportId } })} style={inkBtn}>Open live report →</a>}
           </StatusCard>
         )}
 

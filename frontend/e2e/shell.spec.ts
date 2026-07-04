@@ -13,7 +13,7 @@ test('/styleguide draws tokens + components', async ({ page }) => {
 test('root → role-aware home (→ sign-in when signed out)', async ({ page }) => {
   await page.goto('/#/');
   await expect(page).toHaveURL(/#\/signin$/);
-  await expect(page.getByText('One inquiry. AI agents on it.')).toBeVisible();
+  await expect(page.getByText('One report. AI agents on it.')).toBeVisible();
 });
 
 test('navigates sign-in → styleguide', async ({ page }) => {
@@ -33,7 +33,7 @@ test('guarded admin route as a non-admin → 403 Forbidden', async ({ page }) =>
 test('signed-out protected route → sign-in (401), carrying returnTo to resume', async ({ page }) => {
   await page.goto('/#/dashboard');
   await expect(page).toHaveURL(/#\/signin\?returnTo=%2Fdashboard/);
-  await expect(page.getByText('One inquiry. AI agents on it.')).toBeVisible();
+  await expect(page.getByText('One report. AI agents on it.')).toBeVisible();
 });
 
 test('unknown route → role-aware home (→ sign-in when signed out)', async ({ page }) => {

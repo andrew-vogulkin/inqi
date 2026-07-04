@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { EventType } from '@inqi/shared';
 import { parseEvent, createIngestState, ingest } from './envelope';
 
-const ev = (id: string, over: Record<string, unknown> = {}) => ({ id, type: EventType.SubtaskUpdated, inquiryId: 'i1', at: 't', data: {}, ...over });
+const ev = (id: string, over: Record<string, unknown> = {}) => ({ id, type: EventType.InquiryUpdated, reportId: 'i1', at: 't', data: {}, ...over });
 
 describe('parseEvent — validate the envelope', () => {
   it('accepts a well-formed event', () => {

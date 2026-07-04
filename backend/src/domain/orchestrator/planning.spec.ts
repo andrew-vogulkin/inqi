@@ -1,5 +1,5 @@
 import { OutreachStrategy } from '@inqi/shared';
-import { assignWaves, decideNextAction, planSize } from './planning';
+import { OutreachActionKind, SynthesisGate, assignWaves, decideNextAction, decideSynthesisGate, planSize } from './planning';
 
 const cands = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `P${i}`, country: 'X' }));
 
@@ -31,18 +31,30 @@ describe('assignWaves', () => {
 
 describe('decideNextAction', () => {
   it('finishes at target when nothing is in flight', () => {
-    expect(decideNextAction({ qualified: 3, target: 3, inFlight: 0, pendingWaves: [2, 3] })).toEqual({ kind: 'finish' });
+    expect(decideNextAction({ qualified: 3, target: 3, inFlight: 0, pendingWaves: [2, 3] })).toEqual({ kind: OutreachActionKind.Finish });
   });
-  it('waits at target while subtasks are still in flight', () => {
-    expect(decideNextAction({ qualified: 3, target: 3, inFlight: 1, pendingWaves: [] })).toEqual({ kind: 'wait' });
+  it('waits at target while inquiries are still in flight', () => {
+    expect(decideNextAction({ qualified: 3, target: 3, inFlight: 1, pendingWaves: [] })).toEqual({ kind: OutreachActionKind.Wait });
   });
   it('waits while the current wave is in flight', () => {
-    expect(decideNextAction({ qualified: 0, target: 3, inFlight: 2, pendingWaves: [2] })).toEqual({ kind: 'wait' });
+    expect(decideNextAction({ qualified: 0, target: 3, inFlight: 2, pendingWaves: [2] })).toEqual({ kind: OutreachActionKind.Wait });
   });
   it('releases the lowest pending wave when idle and under target', () => {
-    expect(decideNextAction({ qualified: 1, target: 3, inFlight: 0, pendingWaves: [3, 2] })).toEqual({ kind: 'release', wave: 2 });
+    expect(decideNextAction({ qualified: 1, target: 3, inFlight: 0, pendingWaves: [3, 2] })).toEqual({ kind: OutreachActionKind.Release, wave: 2 });
   });
   it('widens when the funnel is dry and under target', () => {
-    expect(decideNextAction({ qualified: 1, target: 3, inFlight: 0, pendingWaves: [] })).toEqual({ kind: 'widen' });
+    expect(decideNextAction({ qualified: 1, target: 3, inFlight: 0, pendingWaves: [] })).toEqual({ kind: OutreachActionKind.Widen });
+  });
+});
+
+describe('decideSynthesisGate (depth-research gate before report synthesis)', () => {
+  it('defers while research jobs are outstanding and waits remain', () => {
+    expect(decideSynthesisGate({ outstandingResearch: 2, waits: 0, maxWaits: 90 })).toBe(SynthesisGate.Defer);
+  });
+  it('proceeds once all research has landed', () => {
+    expect(decideSynthesisGate({ outstandingResearch: 0, waits: 5, maxWaits: 90 })).toBe(SynthesisGate.Proceed);
+  });
+  it('proceeds at the wait deadline even with research still pending (never strands the report)', () => {
+    expect(decideSynthesisGate({ outstandingResearch: 1, waits: 90, maxWaits: 90 })).toBe(SynthesisGate.Proceed);
   });
 });

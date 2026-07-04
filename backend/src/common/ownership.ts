@@ -3,7 +3,7 @@ import { AuthRole } from '@inqi/shared';
 /** The authenticated principal, for ownership checks (mirrors edge AuthUser). */
 export interface OwnershipViewer { sub: string; email: string; role: string }
 
-/** The owner-identifying fields carried on an inquiry. */
+/** The owner-identifying fields carried on a report. */
 export interface OwnedResource { customerId?: string | null; customerEmail: string }
 
 /**

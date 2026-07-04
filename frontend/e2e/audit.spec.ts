@@ -3,8 +3,8 @@ import { test, expect, Route, Page } from '@playwright/test';
 // FE-14: audit trail — chip → types= query mapping, "All" clears it, rows render, empty state.
 
 const ADMIN = JSON.stringify({ token: 't', customer: { id: 'a1', email: 'ops@x.io', role: 'admin' } });
-const denialRows = JSON.stringify({ total: 1, entries: [{ type: 'denial', actor: 'system', at: '2026-06-29T08:00:00Z', inquiryId: 'i9' }] });
-const operatorRows = JSON.stringify({ total: 1, entries: [{ type: 'operator_action', actor: 'ops@x.io', at: '2026-06-29T10:00:00Z', refs: { targetId: 'i1', targetType: 'inquiry' }, data: { action: 'topup' } }] });
+const denialRows = JSON.stringify({ total: 1, entries: [{ type: 'denial', actor: 'system', at: '2026-06-29T08:00:00Z', reportId: 'i9' }] });
+const operatorRows = JSON.stringify({ total: 1, entries: [{ type: 'operator_action', actor: 'ops@x.io', at: '2026-06-29T10:00:00Z', refs: { targetId: 'i1', targetType: 'report' }, data: { action: 'topup' } }] });
 
 async function seed(page: Page) { await page.addInitScript((s) => localStorage.setItem('inqi.session', s), ADMIN); }
 

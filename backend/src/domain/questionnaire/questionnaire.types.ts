@@ -2,7 +2,8 @@
 export const QuestionType = {
   Confirm: 'confirm',
   Text: 'text',
-  Select: 'select',
+  Select: 'select',          // pick one option
+  MultiSelect: 'multiselect', // pick any number of options (wire value matches the FE FieldType)
 } as const;
 export type QuestionType = (typeof QuestionType)[keyof typeof QuestionType];
 

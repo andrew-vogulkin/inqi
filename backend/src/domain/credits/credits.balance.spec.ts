@@ -1,25 +1,31 @@
-import { CreditKind, InquiryState } from '@inqi/shared';
+import { CreditKind, ReportState } from '@inqi/shared';
 import { deriveBalance, settlementActionForState } from './credits.balance';
 
-const e = (kind: string, amount: number) => ({ kind, amount });
+const e = (kind: string, amount: number, reportId?: string) => ({ kind, amount, reportId });
 
-describe('deriveBalance', () => {
-  it('topup adds, reserve subtracts, refund adds, charge is neutral', () => {
+describe('deriveBalance (pay-on-delivery)', () => {
+  it('topup adds, a delivery charge subtracts, unlock subtracts', () => {
     expect(deriveBalance([e(CreditKind.Topup, 5)])).toBe(5);
-    expect(deriveBalance([e(CreditKind.Topup, 5), e(CreditKind.Reserve, 1)])).toBe(4);
-    // reserve then refund (denied) → back to full
-    expect(deriveBalance([e(CreditKind.Topup, 5), e(CreditKind.Reserve, 1), e(CreditKind.Refund, 1)])).toBe(5);
-    // reserve then charge (delivered) → stays spent (charge has no effect)
-    expect(deriveBalance([e(CreditKind.Topup, 5), e(CreditKind.Reserve, 1), e(CreditKind.Charge, 1)])).toBe(4);
+    // pay-on-delivery: the charge itself is the debit (no reserve ever existed)
+    expect(deriveBalance([e(CreditKind.Topup, 5), e(CreditKind.Charge, 1, 'r1')])).toBe(4);
+    expect(deriveBalance([e(CreditKind.Topup, 5), e(CreditKind.Unlock, 1, 'r1')])).toBe(4);
   });
 
-  it('a full lifecycle: topup 3, run+deliver, run+deny', () => {
+  it('legacy reserve lifecycle still derives correctly', () => {
+    // reserve holds; refund returns it
+    expect(deriveBalance([e(CreditKind.Topup, 5), e(CreditKind.Reserve, 1, 'r1'), e(CreditKind.Refund, 1, 'r1')])).toBe(5);
+    // reserve holds; the charge just finalizes it (no double-debit)
+    expect(deriveBalance([e(CreditKind.Topup, 5), e(CreditKind.Reserve, 1, 'r1'), e(CreditKind.Charge, 1, 'r1')])).toBe(4);
+  });
+
+  it('a full lifecycle: topup 3, deliver A (charged), fail B (costs nothing), legacy C', () => {
     const ledger = [
       e(CreditKind.Topup, 3),
-      e(CreditKind.Reserve, 1), e(CreditKind.Charge, 1),   // inquiry A delivered → -1
-      e(CreditKind.Reserve, 1), e(CreditKind.Refund, 1),   // inquiry B denied → net 0
+      e(CreditKind.Charge, 1, 'a'),                                // report A delivered → -1
+      /* report B failed → no ledger rows at all */
+      e(CreditKind.Reserve, 1, 'c'), e(CreditKind.Charge, 1, 'c'), // legacy report C → -1 (held at reserve)
     ];
-    expect(deriveBalance(ledger)).toBe(2);
+    expect(deriveBalance(ledger)).toBe(1);
   });
 
   it('empty ledger is zero', () => {
@@ -29,15 +35,15 @@ describe('deriveBalance', () => {
 
 describe('settlementActionForState', () => {
   it('charges on delivery', () => {
-    expect(settlementActionForState(InquiryState.REPORT_DELIVERED)).toBe('charge');
+    expect(settlementActionForState(ReportState.REPORT_DELIVERED)).toBe('charge');
   });
   it('refunds on every non-delivered terminal', () => {
-    for (const s of [InquiryState.DENIED, InquiryState.DROPPED, InquiryState.FAILED, InquiryState.CANCELLED]) {
+    for (const s of [ReportState.DENIED, ReportState.DROPPED, ReportState.FAILED, ReportState.CANCELLED]) {
       expect(settlementActionForState(s)).toBe('refund');
     }
   });
   it('does nothing for processing / non-terminal states', () => {
-    for (const s of [InquiryState.RECEIVED, InquiryState.OUTREACH, InquiryState.ON_HOLD, InquiryState.REPORT_GENERATION]) {
+    for (const s of [ReportState.RECEIVED, ReportState.OUTREACH, ReportState.ON_HOLD, ReportState.REPORT_GENERATION]) {
       expect(settlementActionForState(s)).toBeNull();
     }
   });

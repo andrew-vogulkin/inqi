@@ -1,10 +1,10 @@
 import { MessageDirection, EventType, InqiEvent } from '@inqi/shared';
 import { StatusTone } from './enums';
 import { ThreadMessageDto } from '../api/types';
-import { SubtaskRecord } from './subtask';
+import { InquiryRecord } from './inquiry';
 
 /**
- * FE-17 — operator outreach thread. The real `GET /comms/thread/:subtaskId` returns
+ * FE-17 — operator outreach thread. The real `GET /comms/thread/:inquiryId` returns
  * a flat MessageDto[] (no ThreadDTO header); the header is composed from the board
  * record + the messages' addresses. Ordering/append/normalization live here
  * (convention #2); the component is a pure view.
@@ -39,7 +39,7 @@ export function messageDtoFromEvent({ event }: { event: InqiEvent }): ThreadMess
   const direction = event.type === EventType.MessageSent ? MessageDirection.Outbound : MessageDirection.Inbound;
   return {
     id: d.id,
-    subtaskId: event.subtaskId ?? d.subtaskId ?? '',
+    inquiryId: event.inquiryId ?? d.inquiryId ?? '',
     direction: d.direction ?? direction,
     status: d.status ?? ('sent' as ThreadMessageDto['status']),
     fromAddr: d.fromAddr ?? null,
@@ -62,7 +62,7 @@ export function bubbleVM({ message }: { message: ThreadMessageDto }): BubbleVM {
 export interface ThreadHeaderVM { provider: string; persona: string; hub: string; route: string; status: string }
 
 /** Compose the header from the board record + the messages (route/hub from addresses). */
-export function threadHeaderVM({ record, messages }: { record?: SubtaskRecord | null; messages: ThreadMessageDto[] }): ThreadHeaderVM {
+export function threadHeaderVM({ record, messages }: { record?: InquiryRecord | null; messages: ThreadMessageDto[] }): ThreadHeaderVM {
   const firstOutbound = messages.find((m) => m.direction === MessageDirection.Outbound);
   const replyAddr = firstOutbound?.fromAddr ?? null; // the persona's inqi reply route
   const providerAddr = firstOutbound?.toAddr ?? messages[0]?.fromAddr ?? null;

@@ -11,19 +11,20 @@ const past = '2000-01-01T00:00:00Z';
 
 function dto(over: Record<string, unknown> = {}) {
   return {
-    id: 'q1', inquiryId: 'i1', token: TOKEN, confirmed: false, expiresAt: future, answers: null,
+    id: 'q1', reportId: 'i1', token: TOKEN, confirmed: false, expiresAt: future, answers: null,
     questions: [
       { id: 'confirm', type: 'confirm', prompt: 'Is this what you are looking for?' },
       { id: 'budget', type: 'text', prompt: 'Whats your budget range?' },
-      { id: 'days', type: 'multiselect', prompt: 'Which days work?', options: ['Mon', 'Tue', 'Wed'] },
+      { id: 'days', type: 'multiselect', prompt: 'Which days work?', options: ['Mon', 'Tue', 'Wed', 'Decide for me'] },
+      { id: 'band', type: 'select', prompt: 'Which price band?', options: ['<500', '500-1500', '1500+', 'Decide for me'] },
     ],
     ...over,
   };
 }
 
 async function stubReportLive(page: import('@playwright/test').Page) {
-  await page.route('**/api/inquiries/*/report-live', (r: Route) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ inquiryId: 'i1', state: 'PRE_RESEARCH', delivered: false, rawRequest: 'a used road bike, Amsterdam', reportToken: null, reusedFrom: null, summary: '', options: [] }) }));
+  await page.route('**/api/reports/*/live', (r: Route) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ reportId: 'i1', state: 'PRE_RESEARCH', delivered: false, rawRequest: 'a used road bike, Amsterdam', snapshotToken: null, reusedFrom: null, summary: '', options: [] }) }));
 }
 
 test('renders the form from the payload; confirm-gate blocks then enables; submit routes to Live report', async ({ page }) => {
@@ -46,7 +47,35 @@ test('renders the form from the payload; confirm-gate blocks then enables; submi
   await expect(submit).toBeEnabled();
 
   await submit.click();
-  await expect(page).toHaveURL(/#\/i\/i1/);
+  await expect(page).toHaveURL(/#\/r\/i1/);
+});
+
+test('multi-select toggles several chips; single-select is exclusive; "Decide for me" is offered on both', async ({ page }) => {
+  await stubReportLive(page);
+  let submitted: Record<string, string> | null = null;
+  await page.route('**/api/q/*', (r: Route) => {
+    if (r.request().method() === 'POST') {
+      submitted = (r.request().postDataJSON() as { answers: Record<string, string> }).answers;
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    }
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dto()) });
+  });
+
+  await page.goto(`/#/q/${TOKEN}`);
+  // both question kinds carry the fallback option
+  await expect(page.getByRole('button', { name: 'Decide for me' })).toHaveCount(2);
+
+  // multi: Mon + Wed stay selected together
+  await page.getByRole('button', { name: 'Mon' }).click();
+  await page.getByRole('button', { name: 'Wed' }).click();
+  // single: picking a second option replaces the first
+  await page.getByRole('button', { name: '<500' }).click();
+  await page.getByRole('button', { name: '1500+' }).click();
+
+  await page.getByTestId('confirm-gate').check();
+  await page.getByRole('button', { name: /Confirm & start research/ }).click();
+  await expect(page).toHaveURL(/#\/r\/i1/);
+  expect(submitted).toMatchObject({ days: 'Mon,Wed', band: '1500+' });
 });
 
 test('expired token shows the friendly recovery', async ({ page }) => {

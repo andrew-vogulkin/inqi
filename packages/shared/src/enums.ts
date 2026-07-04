@@ -7,20 +7,35 @@
  * in `backend/prisma/schema.prisma` exactly, so they double as the DB contract.
  */
 
-/** Subtask lifecycle (`Subtask.status`). */
-export const SubtaskStatus = {
+/** Inquiry lifecycle (`Inquiry.status`) — one candidate under investigation. */
+export const InquiryStatus = {
   Pending: 'pending',
   Researching: 'researching',
   Contacted: 'contacted',
   Replied: 'replied',
   Qualified: 'qualified',
+  /** Contacted but silent past the wait window: the funnel moved on WITHOUT failing it — the email thread stays open (long-poll) and a late reply re-evaluates the report. */
+  Unresponsive: 'unresponsive',
   Failed: 'failed',
   /** Released-never: the epic stopped early (target met), so this wave was never sent. Terminal, distinct from failed. */
   Skipped: 'skipped',
 } as const;
-export type SubtaskStatus = (typeof SubtaskStatus)[keyof typeof SubtaskStatus];
+export type InquiryStatus = (typeof InquiryStatus)[keyof typeof InquiryStatus];
 
-/** Conversation state of a subtask email thread (`Subtask.convState`). */
+/**
+ * Channel type of a source record (`Source.type`). An inquiry aggregates one
+ * source row per channel touchpoint: web pages found, rating/feedback digests,
+ * an email exchange, a whatsapp thread (future).
+ */
+export const SourceType = {
+  Email: 'email',
+  Websearch: 'websearch',
+  RatingFeedback: 'rating_feedback',
+  Whatsapp: 'whatsapp',
+} as const;
+export type SourceType = (typeof SourceType)[keyof typeof SourceType];
+
+/** Conversation state of a thread-channel source (`Source.convState`, email/whatsapp). */
 export const ConvState = {
   Idle: 'idle',
   AwaitingReply: 'awaiting_reply',
@@ -83,14 +98,14 @@ export const ComplianceFailMode = {
 } as const;
 export type ComplianceFailMode = (typeof ComplianceFailMode)[keyof typeof ComplianceFailMode];
 
-/** Direction of an email message (`InquiryMessage.direction`). */
+/** Direction of a thread message (`Message.direction`). */
 export const MessageDirection = {
   Outbound: 'outbound',
   Inbound: 'inbound',
 } as const;
 export type MessageDirection = (typeof MessageDirection)[keyof typeof MessageDirection];
 
-/** Delivery status of an email message (`InquiryMessage.status`). */
+/** Delivery status of a thread message (`Message.status`). */
 export const MessageStatus = {
   Draft: 'draft',
   Sent: 'sent',
@@ -99,12 +114,6 @@ export const MessageStatus = {
   Bounced: 'bounced',
 } as const;
 export type MessageStatus = (typeof MessageStatus)[keyof typeof MessageStatus];
-
-/** Message channel (`InquiryMessage.channel`). */
-export const MessageChannel = {
-  Email: 'email',
-} as const;
-export type MessageChannel = (typeof MessageChannel)[keyof typeof MessageChannel];
 
 /** Outbound mail transport selected via DI. */
 export const MailDriver = {
@@ -144,7 +153,10 @@ export type UsageKind = (typeof UsageKind)[keyof typeof UsageKind];
 
 /** Customer notification kinds (HP-13). */
 export const NotificationKind = {
+  ReportReceived: 'report_received',           // ack: we got the request, research is starting
+  QuestionnaireRequest: 'questionnaire_request', // needs-you: confirm the scope via the capability link
   ReportReady: 'report_ready',
+  ReportUpdated: 'report_updated', // delivered report re-evaluated (late reply/research changed the ranking)
   QuestionnaireReminder: 'questionnaire_reminder',
   Denial: 'denial',
 } as const;
@@ -167,13 +179,13 @@ export const AuditAction = {
   Resume: 'resume',
   PublishWorkflow: 'publish_workflow',
   Topup: 'topup', // admin manual credit top-up (HP-19)
-  UnlockReport: 'unlock_report', // freemium report unlock charge (HP-21)
+  UnlockReport: 'unlock_report', // freemium snapshot unlock charge (HP-21)
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 
 /** What an audit entry is about. */
 export const AuditTargetType = {
-  Inquiry: 'inquiry',
+  Report: 'report',
   Workflow: 'workflow',
   Customer: 'customer', // credit top-ups target a customer (HP-19)
 } as const;
@@ -187,26 +199,30 @@ export type AuditTargetType = (typeof AuditTargetType)[keyof typeof AuditTargetT
  */
 export const CreditKind = {
   Topup: 'topup',     // admin grants credits
-  Reserve: 'reserve', // held on inquiry submit (decrements available balance)
+  Reserve: 'reserve', // held on report submit (decrements available balance)
   Charge: 'charge',   // reservation finalized on REPORT_DELIVERED (no balance change)
   Refund: 'refund',   // reservation returned on denied/dropped/cancelled/failed
-  Unlock: 'unlock',   // HP-21: direct 1-credit debit to unlock a freemium report
+  Unlock: 'unlock',   // HP-21: direct 1-credit debit to unlock a freemium snapshot
 } as const;
 export type CreditKind = (typeof CreditKind)[keyof typeof CreditKind];
 
-/** Who a session belongs to. Admin is granted by the config allowlist (HP-10). */
+/** Who a session belongs to. Roles live in the DB (admins marked manually; HP-10). */
 export const AuthRole = {
   Customer: 'customer',
   Admin: 'admin',
 } as const;
 export type AuthRole = (typeof AuthRole)[keyof typeof AuthRole];
 
-/** Which identity verifier backs Sign in with Google (real Google, or a dev/e2e stub). */
-export const AuthVerifierDriver = {
-  Google: 'google',
-  Stub: 'stub',
+/**
+ * Customer's ranking priority for a report (`Report.focus`) — steers what depth
+ * research hunts for: `price` → the publicly announced price; `quality` →
+ * presence and number of mentions/reviews.
+ */
+export const SearchFocus = {
+  Price: 'price',
+  Quality: 'quality',
 } as const;
-export type AuthVerifierDriver = (typeof AuthVerifierDriver)[keyof typeof AuthVerifierDriver];
+export type SearchFocus = (typeof SearchFocus)[keyof typeof SearchFocus];
 
 /** Embeddings backend selected via DI (prior-report reuse vectors). */
 export const EmbeddingsDriver = {
@@ -237,7 +253,7 @@ export const AgentStage = {
   BroadResearch: 'broad_research',
   BuildFunnel: 'build_funnel',
   StartOutreach: 'start_outreach',
-  OutreachSubtask: 'outreach_subtask',
+  OutreachInquiry: 'outreach_inquiry',
   GenerateReport: 'generate_report',
 } as const;
 export type AgentStage = (typeof AgentStage)[keyof typeof AgentStage];
@@ -250,11 +266,12 @@ export const QueueJob = {
   BroadResearch: 'broad_research',
   BuildFunnel: 'build_funnel',
   StartOutreach: 'start_outreach',
-  OutreachSubtask: 'outreach_subtask',
+  OutreachInquiry: 'outreach_inquiry',
   ResearchBackground: 'research_background',
   GenerateReport: 'generate_report',
+  RefreshSnapshot: 'refresh_snapshot', // re-rank + re-synthesize a delivered snapshot after a late depth verdict
   ProcessReply: 'process_reply',
-  SubtaskSettled: 'subtask_settled',   // agentic reactor: react to a subtask qualifying/failing
+  InquirySettled: 'inquiry_settled',   // agentic reactor: react to an inquiry qualifying/failing
   SendNotification: 'send_notification', // customer notifications (report-ready / denial) — HP-13
 } as const;
 export type QueueJob = (typeof QueueJob)[keyof typeof QueueJob];
@@ -265,7 +282,7 @@ export const AgentRunStatus = {
   Done: 'done',
   Failed: 'failed',
   Stopped: 'stopped',
-  /** Run abandoned because the inquiry was cancelled in-flight. */
+  /** Run abandoned because the report was cancelled in-flight. */
   Cancelled: 'cancelled',
 } as const;
 export type AgentRunStatus = (typeof AgentRunStatus)[keyof typeof AgentRunStatus];
@@ -336,12 +353,12 @@ export const ReaperAction = {
 } as const;
 export type ReaperAction = (typeof ReaperAction)[keyof typeof ReaperAction];
 
-/** Origin of a discovered subject-provider candidate (`Subtask.source`). */
-export const DiscoverySourceKind = {
+/** Origin of a discovered inquiry candidate (`Inquiry.leadSource`). */
+export const LeadSource = {
   Ai: 'ai',
   Fallback: 'fallback',
 } as const;
-export type DiscoverySourceKind = (typeof DiscoverySourceKind)[keyof typeof DiscoverySourceKind];
+export type LeadSource = (typeof LeadSource)[keyof typeof LeadSource];
 
 /** Non-pipeline usage-attribution context labels (complements AgentStage in the usage ledger). */
 export const UsageStage = {

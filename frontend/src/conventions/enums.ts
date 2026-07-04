@@ -40,8 +40,8 @@ export const ReportLayout = {
 } as const;
 export type ReportLayout = (typeof ReportLayout)[keyof typeof ReportLayout];
 
-/** Subtask outreach variant (FE-11) — richer than the dossier's, incl. the 550 bounce. */
-export const SubtaskOutreachVariant = {
+/** Inquiry outreach variant (FE-11) — richer than the dossier's, incl. the 550 bounce. */
+export const InquiryOutreachVariant = {
   Replied: 'replied',
   Contacted: 'contacted',
   Queued: 'queued',
@@ -50,7 +50,7 @@ export const SubtaskOutreachVariant = {
   Canceled: 'canceled',
   Error: 'error',
 } as const;
-export type SubtaskOutreachVariant = (typeof SubtaskOutreachVariant)[keyof typeof SubtaskOutreachVariant];
+export type InquiryOutreachVariant = (typeof InquiryOutreachVariant)[keyof typeof InquiryOutreachVariant];
 
 /** Research dossier (FE-08): how deep inqi went on an option. */
 export const ResearchDepth = {
@@ -98,14 +98,15 @@ export type FreemiumState = (typeof FreemiumState)[keyof typeof FreemiumState];
  */
 export const ReportEventType = {
   FindingAdded: 'finding.added',
-  ReportUpdated: 'report.updated',
+  SnapshotUpdated: 'snapshot.updated',
 } as const;
 export type ReportEventType = (typeof ReportEventType)[keyof typeof ReportEventType];
 
-/** Sign-in flow state (FE-02). Drives the Continue-with-Google button. */
+/** Sign-in flow state (FE-02). Drives the two-step email → MFA-code form. */
 export const AuthState = {
-  SignedOut: 'signed_out', // resting
-  SigningIn: 'signing_in', // button busy
+  SignedOut: 'signed_out', // resting (email step)
+  SigningIn: 'signing_in', // a request is in flight (either step)
+  CodeSent: 'code_sent',   // step 1 accepted — the MFA-code step is showing
   Error: 'error',          // re-enable + message
 } as const;
 export type AuthState = (typeof AuthState)[keyof typeof AuthState];

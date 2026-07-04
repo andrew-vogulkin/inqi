@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { AiDriver, AuthVerifierDriver, ComplianceFailMode, EmbeddingsDriver, MailDriver, ModelTier, WebSearchDriver } from '@inqi/shared';
+import { AiDriver, ComplianceFailMode, EmbeddingsDriver, MailDriver, ModelTier, WebSearchDriver } from '@inqi/shared';
 
 /** A resolved connection profile for an OpenAI-compatible Qwen backend. */
 export interface QwenProfile {
   apiKey?: string;
   baseUrl?: string;
   models: Record<ModelTier, string>;
+  /** Max concurrent requests to this backend; beyond it requests queue FIFO (local provider: 1). */
+  maxConcurrency?: number;
 }
 
 const DASHSCOPE_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
@@ -88,6 +90,16 @@ export class ConfigService {
     return (process.env.SIMULATE_REPLIES ?? 'false') === 'true';
   }
 
+  /**
+   * Fraction of simulated providers who never reply at all (0..1) — real outreach
+   * is ignored sometimes, and this exercises the reply-timeout path end-to-end.
+   * A silent provider stays silent: follow-ups to it are ignored too.
+   */
+  get simulateReplyIgnoreRate(): number {
+    const rate = Number(process.env.SIMULATE_REPLY_IGNORE_RATE ?? 0);
+    return Number.isFinite(rate) ? Math.min(1, Math.max(0, rate)) : 0;
+  }
+
   /** What the compliance gate does when the scorer is unavailable/errors (default: open). */
   get complianceFailMode(): ComplianceFailMode {
     return process.env.COMPLIANCE_FAIL_MODE?.toLowerCase() === ComplianceFailMode.Closed
@@ -138,6 +150,8 @@ export class ConfigService {
         [ModelTier.Depth]: process.env.QWEN_LOCAL_MODEL_DEPTH ?? model,
         [ModelTier.Balanced]: model,
       },
+      // One GPU, one honest FIFO: requests beyond this queue in arrival order.
+      maxConcurrency: Number(process.env.LOCAL_AI_CONCURRENCY ?? 1),
     };
   }
 
@@ -178,31 +192,24 @@ export class ConfigService {
    * `leaseMs`; the reaper sweeps every `reaperIntervalMs` and retries a stuck
    * stage up to `maxAttempts` times before dead-lettering it to a failure state.
    */
-  get resilience(): { leaseMs: number; reaperIntervalMs: number; maxAttempts: number } {
+  get resilience(): { leaseMs: number; reaperIntervalMs: number; maxAttempts: number; replyTimeoutMinutes: number } {
     return {
       leaseMs: Number(process.env.STAGE_LEASE_MS ?? 30_000),
       reaperIntervalMs: Number(process.env.REAPER_INTERVAL_MS ?? 10_000),
       maxAttempts: Number(process.env.STAGE_MAX_ATTEMPTS ?? 3),
+      // A contacted inquiry silent this long is marked UNRESPONSIVE by the reaper (not
+      // failed — the thread stays open) so the report stops waiting on it.
+      replyTimeoutMinutes: Number(process.env.REPLY_TIMEOUT_MINUTES ?? 240),
     };
   }
 
   /**
-   * Auth (HP-10). Google OAuth/OIDC client + the admin allowlist + the session
-   * signing secret. All from env — never hard-coded.
+   * Two-step email sign-in. The MFA transport is MOCKED for now: every sign-in
+   * expects this fixed code (a real deployment swaps in a per-attempt code sent
+   * over email and this getter disappears with it).
    */
-  get google(): { clientId?: string; clientSecret?: string; redirectUri?: string } {
-    return {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: process.env.GOOGLE_REDIRECT_URI,
-    };
-  }
-
-  /** Which identity verifier to bind: real Google when a client id is set, else the dev/e2e stub. */
-  get authVerifier(): AuthVerifierDriver {
-    const explicit = process.env.AUTH_VERIFIER?.toLowerCase();
-    if (explicit === AuthVerifierDriver.Google || explicit === AuthVerifierDriver.Stub) return explicit;
-    return process.env.GOOGLE_CLIENT_ID ? AuthVerifierDriver.Google : AuthVerifierDriver.Stub;
+  get mfa(): { mockCode: string } {
+    return { mockCode: process.env.MFA_MOCK_CODE ?? '123456' };
   }
 
   /** Session JWT signing secret + lifetime. Dev default is clearly non-production. */
@@ -301,6 +308,38 @@ export class ConfigService {
       baseUrl: process.env.WEBSEARCH_BASE_URL ?? 'https://orange.tail035fe2.ts.net:8443',
       timeoutMs: Number(process.env.WEBSEARCH_TIMEOUT_MS ?? 10_000),
       maxResults: Number(process.env.WEBSEARCH_MAX_RESULTS ?? 8),
+    };
+  }
+
+  /**
+   * Breadth/depth research limits (the report × inquiry × source matrix).
+   * Breadth identifies at most `maxBreadthInquiries` candidates per report (funnel
+   * hard cap — widening never exceeds it). Depth gathers at most
+   * `maxSourcesPerInquiry` sources per inquiry, of which one slot is always
+   * reserved for the email thread (so flat websearch/rating sources are capped at
+   * `maxSourcesPerInquiry - 1`; email sources themselves are not capped).
+   */
+  get research(): { maxBreadthInquiries: number; maxSourcesPerInquiry: number; breadthMaxCycles: number; depthMaxToolCalls: number; depthCycles: number } {
+    return {
+      maxBreadthInquiries: Number(process.env.BREADTH_MAX_INQUIRIES ?? 8),
+      maxSourcesPerInquiry: Number(process.env.SOURCES_MAX_PER_INQUIRY ?? 5),
+      // Breadth-cycle HARD CAP: the discovery loop self-adjusts (cycles toward the
+      // full target, stops on dry rounds / unchanged queries) — this only bounds it.
+      breadthMaxCycles: Number(process.env.BREADTH_MAX_CYCLES ?? 50),
+      // How many web_search / open_url calls one depth-agent CYCLE may spend.
+      depthMaxToolCalls: Number(process.env.DEPTH_AGENT_MAX_TOOLCALLS ?? 6),
+      // Depth-cycle HARD CAP per candidate: the evaluation gate drives actual usage
+      // (sufficient evidence stops after cycle 1; repeated gaps stop as stalled) —
+      // this only bounds a genuinely productive refine loop.
+      depthCycles: Number(process.env.DEPTH_AGENT_CYCLES ?? 150),
+    };
+  }
+
+  /** Headless-browser page reader (the depth agent's open_url tool). */
+  get browser(): { pageTimeoutMs: number; pageMaxChars: number } {
+    return {
+      pageTimeoutMs: Number(process.env.BROWSER_PAGE_TIMEOUT_MS ?? 15_000),
+      pageMaxChars: Number(process.env.BROWSER_PAGE_MAX_CHARS ?? 6_000),
     };
   }
 }

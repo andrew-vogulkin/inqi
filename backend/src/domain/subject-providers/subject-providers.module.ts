@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SourcesModule } from '../source/sources.module';
 import { SubjectProvidersService } from './subject-providers.service';
 import { SubjectProvidersRepository } from './subject-providers.repository';
 import { BACKGROUND_RESEARCH_SOURCE } from './background.tokens';
@@ -8,6 +9,7 @@ import { AiDiscoverySource } from './ai-discovery.source';
 
 /** Domain: subject-provider discovery + background/quality research. */
 @Module({
+  imports: [SourcesModule],
   providers: [
     SubjectProvidersService,
     SubjectProvidersRepository,

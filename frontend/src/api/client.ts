@@ -71,7 +71,10 @@ async function attempt<T>({ method, path, query, body, auth = true, signal }: Re
   try { json = text ? JSON.parse(text) : null; } catch { json = null; }
 
   if (!res.ok) {
-    if (res.status === 401) onUnauthorized?.();
+    // App-wide 401 = a dead SESSION on an authenticated call. Unauthenticated calls
+    // (the sign-in endpoints themselves) surface their 401 normally — a wrong MFA
+    // code must show as an error, not bounce the flow back to the email step.
+    if (res.status === 401 && auth) onUnauthorized?.();
     const env = (json as { error?: { code?: string; message?: string; retryable?: boolean; details?: Record<string, unknown> } } | null)?.error;
     const code = env?.code ?? statusToCode(res.status);
     throw new ApiError({

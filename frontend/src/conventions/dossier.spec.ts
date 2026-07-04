@@ -82,13 +82,13 @@ describe('dossierReducer', () => {
     let s = dossierReducer(initialDossierState, { type: ActionType.DossierLoaded, option, rank: 1, origin: DossierOrigin.Customer });
     expect(s.dossier?.provider).toBe('Aurora');
     // a stray chain dispatch for a customer is ignored (defensive)
-    s = dossierReducer(s, { type: ActionType.DossierChainLoaded, messages: [{ id: 'm1', subtaskId: 's', direction: 'outbound', status: 'sent', body: 'hi', createdAt: 'now' }] });
+    s = dossierReducer(s, { type: ActionType.DossierChainLoaded, messages: [{ id: 'm1', inquiryId: 's', direction: 'outbound', status: 'sent', body: 'hi', createdAt: 'now' }] });
     expect(s.chain).toBeNull();
   });
 
   it('admin origin accepts the chain', () => {
     let s = dossierReducer(initialDossierState, { type: ActionType.DossierLoaded, option, rank: 1, origin: DossierOrigin.Admin });
-    s = dossierReducer(s, { type: ActionType.DossierChainLoaded, messages: [{ id: 'm1', subtaskId: 's', direction: 'outbound', status: 'sent', body: 'hi', createdAt: 'now' }] });
+    s = dossierReducer(s, { type: ActionType.DossierChainLoaded, messages: [{ id: 'm1', inquiryId: 's', direction: 'outbound', status: 'sent', body: 'hi', createdAt: 'now' }] });
     expect(s.chain).toHaveLength(1);
   });
 });

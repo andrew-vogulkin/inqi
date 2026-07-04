@@ -5,7 +5,7 @@ import {
   runActionEnabled, runStateTone, countInFlightJobs,
 } from '../conventions/run-controls';
 import { color, space, fontSize, fontWeight } from '../theme/tokens';
-import { inquiriesApi, adminApi } from '../api';
+import { reportsApi, adminApi } from '../api';
 import { Card, Button, StatusBadge, MonoRef, ConfirmDialog } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
@@ -23,45 +23,45 @@ export function RunControlsPanel({ board }: { board: AdminBoardState }) {
   const run = useSelector((s) => s.runControls);
   const [confirm, setConfirm] = useState<RunAction | null>(null);
   const [busy, setBusy] = useState(false);
-  const inquiryId = board.inquiryId;
+  const reportId = board.reportId;
 
-  // Seed the state machine from the board's current state (once per inquiry).
+  // Seed the state machine from the board's current state (once per report).
   useEffect(() => {
-    if (inquiryId) dispatch({ type: ActionType.RunControlsLoaded, inquiryId, inquiryState: board.inquiryState });
+    if (reportId) dispatch({ type: ActionType.RunControlsLoaded, reportId, reportState: board.reportState });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inquiryId]);
+  }, [reportId]);
 
   // Settlement preview: cost-so-far from /cost; the credit refunded is the reservation.
   useEffect(() => {
-    if (!inquiryId) return;
+    if (!reportId) return;
     dispatch({ type: ActionType.RunPreviewLoading });
-    adminApi.cost({ inquiryId })
+    adminApi.cost({ reportId })
       .then((cost) => dispatch({ type: ActionType.RunPreviewLoaded, preview: { costSoFarUsd: cost.grandTotalUsd, currency: cost.currency, creditOnCancel: DEFAULT_REPORT_COST_CREDITS } }))
       .catch(() => undefined);
-  }, [inquiryId, dispatch]);
+  }, [reportId, dispatch]);
 
   // Reflect a cancel refund live (credits.refunded event → success toast).
   useEffect(() => {
-    if (run.refundedCredits != null && inquiryId) {
-      dispatch({ type: ActionType.ToastPushed, toast: { id: `refund-${inquiryId}-${run.refundedCredits}`, kind: ToastKind.Success, message: `Refunded ${run.refundedCredits} credit${run.refundedCredits === 1 ? '' : 's'} on cancel.` } });
+    if (run.refundedCredits != null && reportId) {
+      dispatch({ type: ActionType.ToastPushed, toast: { id: `refund-${reportId}-${run.refundedCredits}`, kind: ToastKind.Success, message: `Refunded ${run.refundedCredits} credit${run.refundedCredits === 1 ? '' : 's'} on cancel.` } });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run.refundedCredits]);
 
-  if (!inquiryId) return null;
+  if (!reportId) return null;
 
-  const inFlightJobs = countInFlightJobs({ statuses: Object.values(board.subtasksById).map((s) => s.status) });
+  const inFlightJobs = countInFlightJobs({ statuses: Object.values(board.inquiriesById).map((s) => s.status) });
 
   async function apply(action: RunAction) {
-    if (!inquiryId) return;
+    if (!reportId) return;
     setBusy(true);
     try {
-      const resp = action === RunAction.Pause ? await inquiriesApi.pause({ id: inquiryId })
-        : action === RunAction.Resume ? await inquiriesApi.resume({ id: inquiryId })
-          : await inquiriesApi.cancel({ id: inquiryId });
-      dispatch({ type: ActionType.RunControlsLoaded, inquiryId, inquiryState: resp.state });
+      const resp = action === RunAction.Pause ? await reportsApi.pause({ id: reportId })
+        : action === RunAction.Resume ? await reportsApi.resume({ id: reportId })
+          : await reportsApi.cancel({ id: reportId });
+      dispatch({ type: ActionType.RunControlsLoaded, reportId, reportState: resp.state });
     } catch {
-      dispatch({ type: ActionType.ToastPushed, toast: { id: `run-err-${action}-${inquiryId}`, kind: ToastKind.Danger, message: `Couldn't ${action} the run — try again.` } });
+      dispatch({ type: ActionType.ToastPushed, toast: { id: `run-err-${action}-${reportId}`, kind: ToastKind.Danger, message: `Couldn't ${action} the run — try again.` } });
     } finally {
       setBusy(false);
       setConfirm(null);
@@ -114,7 +114,7 @@ function confirmMessage(action: RunAction | null): string {
   switch (action) {
     case RunAction.Pause: return 'Pause holds the run (ON_HOLD) — no new outreach waves release. No credits are settled.';
     case RunAction.Resume: return 'Resume continues the run from where it left off.';
-    case RunAction.Cancel: return 'Cancel ends the run now and refunds the reserved credit. In-flight outreach is abandoned.';
+    case RunAction.Cancel: return 'Cancel ends the run now — an undelivered report is never charged. In-flight outreach is abandoned.';
     default: return '';
   }
 }

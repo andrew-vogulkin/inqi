@@ -16,7 +16,7 @@ export interface SettleResult {
  * Transactional credit ledger access (HP-19). Every balance mutation appends a
  * ledger row **and** updates the maintained `Customer.credits` in the same DB
  * transaction. The balance can never go negative (conditional decrement) and
- * settlement is idempotent per inquiry (guarded read + the (inquiryId,kind) unique).
+ * settlement is idempotent per report (guarded read + the (reportId,kind) unique).
  */
 @Injectable()
 export class CreditsRepository {
@@ -78,14 +78,14 @@ export class CreditsRepository {
   }
 
   /**
-   * HP-21: charge 1 credit to unlock a freemium report. Idempotent per inquiry via the
-   * (inquiryId, kind=unlock) unique — a second unlock is a no-op (no double-charge).
+   * HP-21: charge 1 credit to unlock a freemium report. Idempotent per report via the
+   * (reportId, kind=unlock) unique — a second unlock is a no-op (no double-charge).
    * Conditional decrement keeps the balance non-negative; a short balance throws 402.
    */
-  async chargeUnlock({ customerId, inquiryId, actor, amount = 1, tx: outer }: { customerId: string; inquiryId: string; actor: string; amount?: number; tx?: DbTx }): Promise<{ charged: boolean; balance: number }> {
+  async chargeUnlock({ customerId, reportId, actor, amount = 1, tx: outer }: { customerId: string; reportId: string; actor: string; amount?: number; tx?: DbTx }): Promise<{ charged: boolean; balance: number }> {
     try {
       return await this.inTx(outer, async (tx) => {
-        const prior = await tx.creditLedger.findUnique({ where: { inquiryId_kind: { inquiryId, kind: CreditKind.Unlock } } });
+        const prior = await tx.creditLedger.findUnique({ where: { reportId_kind: { reportId, kind: CreditKind.Unlock } } });
         if (prior) {
           const c = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { credits: true } });
           return { charged: false, balance: c.credits }; // already unlocked — idempotent
@@ -96,7 +96,7 @@ export class CreditsRepository {
           if (!c) throw new NotFoundError({ code: ErrorCode.CustomerNotFound, message: 'customer not found' });
           throw new PaymentRequiredError({ message: `insufficient credits: need ${amount}, have ${c.credits}`, details: { required: amount, balance: c.credits } });
         }
-        await tx.creditLedger.create({ data: { customerId, kind: CreditKind.Unlock, amount, inquiryId, actor } });
+        await tx.creditLedger.create({ data: { customerId, kind: CreditKind.Unlock, amount, reportId, actor } });
         const after = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { credits: true } });
         return { charged: true, balance: after.credits };
       });
@@ -121,43 +121,64 @@ export class CreditsRepository {
   }
 
   /**
-   * Hold the report cost on submit. The conditional decrement (`credits >= cost`)
-   * is atomic, so concurrent submits can never overspend or drive the balance
-   * negative; a lost race throws 402 (the inquiry is then rolled back at the call site).
+   * Settle a report once on a reached terminal state (pay-on-delivery).
+   *
+   * `charge` on REPORT_DELIVERED debits the report cost now — no upfront hold
+   * exists anymore. Free reports and unowned reports are skipped. If a legacy
+   * reserve row is present (pre-pay-on-delivery run), the charge just finalizes
+   * it with no balance change, exactly as before.
+   *
+   * `refund` only ever returns a legacy hold — with nothing reserved there is
+   * nothing to give back, so non-delivered terminals cost nothing by construction.
+   *
+   * Idempotent: an existing charge/refund → no-op; a concurrent double-settle
+   * hits the (reportId, kind) unique (P2002) and is treated as already-settled.
    */
-  async reserve({ customerId, inquiryId, cost, actor, tx: outer }: { customerId: string; inquiryId: string; cost: number; actor: string; tx?: DbTx }): Promise<{ balance: number }> {
-    return this.inTx(outer, async (tx) => {
-      const dec = await tx.customer.updateMany({ where: { id: customerId, credits: { gte: cost } }, data: { credits: { decrement: cost } } });
-      if (dec.count === 0) {
-        const c = await tx.customer.findUnique({ where: { id: customerId }, select: { credits: true } });
-        if (!c) throw new NotFoundError({ code: ErrorCode.CustomerNotFound, message: 'customer not found' });
-        throw new PaymentRequiredError({ message: `insufficient credits: need ${cost}, have ${c.credits}`, details: { required: cost, balance: c.credits } });
-      }
-      await tx.creditLedger.create({ data: { customerId, kind: CreditKind.Reserve, amount: cost, inquiryId, actor } });
-      const after = await tx.customer.findUniqueOrThrow({ where: { id: customerId }, select: { credits: true } });
-      return { balance: after.credits };
-    });
-  }
-
-  /**
-   * Settle an inquiry's reservation once. `charge` finalizes (no balance change);
-   * `refund` returns the held credits. Idempotent: no reservation → no-op; an
-   * existing charge/refund → no-op; a concurrent double-settle hits the unique
-   * index (P2002) and is treated as already-settled.
-   */
-  async settle({ inquiryId, action, reason, tx: outer }: { inquiryId: string; action: SettlementAction; reason?: string; tx?: DbTx }): Promise<SettleResult> {
+  async settle({ reportId, action, cost, reason, tx: outer }: { reportId: string; action: SettlementAction; cost: number; reason?: string; tx?: DbTx }): Promise<SettleResult> {
     const kind = action === 'charge' ? CreditKind.Charge : CreditKind.Refund;
     try {
       return await this.inTx(outer, async (tx) => {
-        const reserve = await tx.creditLedger.findUnique({ where: { inquiryId_kind: { inquiryId, kind: CreditKind.Reserve } } });
-        if (!reserve) return { settled: false };
-        const prior = await tx.creditLedger.findFirst({ where: { inquiryId, kind: { in: [CreditKind.Charge, CreditKind.Refund] } } });
+        const prior = await tx.creditLedger.findFirst({ where: { reportId, kind: { in: [CreditKind.Charge, CreditKind.Refund] } } });
         if (prior) return { settled: false };
+        const reserve = await tx.creditLedger.findUnique({ where: { reportId_kind: { reportId, kind: CreditKind.Reserve } } });
+
         if (action === 'refund') {
+          if (!reserve) return { settled: false }; // nothing was held — a non-delivered run costs nothing
           await tx.customer.update({ where: { id: reserve.customerId }, data: { credits: { increment: reserve.amount } } });
+          await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind, amount: reserve.amount, reportId, actor: AuditActor.System, reason } });
+          return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId };
         }
-        await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind, amount: reserve.amount, inquiryId, actor: AuditActor.System, reason } });
-        return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId };
+
+        // A delivered report with ZERO options delivered no value — it is never charged.
+        // (The summary still explains why; unresponsive providers replying later refresh
+        // it, and the eventual charge... stays waived: this run already burned its shot.)
+        const snapshot = await tx.reportSnapshot.findUnique({ where: { reportId }, select: { options: true } });
+        const optionCount = Array.isArray(snapshot?.options) ? (snapshot.options as unknown[]).length : 0;
+        if (optionCount === 0) {
+          // Legacy hold on an empty report: give the credits back instead of finalizing.
+          if (reserve) {
+            await tx.customer.update({ where: { id: reserve.customerId }, data: { credits: { increment: reserve.amount } } });
+            await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind: CreditKind.Refund, amount: reserve.amount, reportId, actor: AuditActor.System, reason: 'empty report — not charged' } });
+            return { settled: true, kind: CreditKind.Refund, amount: reserve.amount, customerId: reserve.customerId };
+          }
+          return { settled: false };
+        }
+
+        // charge — legacy hold: finalize it (credits already deducted at reserve time).
+        if (reserve) {
+          await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind, amount: reserve.amount, reportId, actor: AuditActor.System, reason } });
+          return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId };
+        }
+
+        // charge — pay-on-delivery: debit the cost now. Free/unowned reports cost nothing.
+        if (cost <= 0) return { settled: false };
+        const report = await tx.report.findUnique({ where: { id: reportId }, select: { customerId: true, freeReport: true } });
+        if (!report?.customerId || report.freeReport) return { settled: false };
+        // Unconditional decrement: the balance was verified at submit; if it was spent
+        // in the meantime the delivered report is still owed for (may dip negative).
+        await tx.customer.update({ where: { id: report.customerId }, data: { credits: { decrement: cost } } });
+        await tx.creditLedger.create({ data: { customerId: report.customerId, kind, amount: cost, reportId, actor: AuditActor.System, reason } });
+        return { settled: true, kind, amount: cost, customerId: report.customerId };
       });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return { settled: false };

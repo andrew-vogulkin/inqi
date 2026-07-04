@@ -95,7 +95,7 @@ function LedgerRow({ entry }: { entry: CreditEntry }) {
           <span>{LEDGER_LABEL[entry.kind] ?? entry.kind}</span>{entry.reason ? <span style={{ color: color.subtle, fontWeight: fontWeight.regular }}> · {entry.reason}</span> : null}
         </div>
         <div style={{ fontSize: fontSize.xs, color: color.subtle }}>
-          {relativeTime({ iso: entry.createdAt, now: Date.now() })}{entry.inquiryId ? ` · #${entry.inquiryId.slice(0, 8)}` : ''}
+          {relativeTime({ iso: entry.createdAt, now: Date.now() })}{entry.reportId ? ` · #${entry.reportId.slice(0, 8)}` : ''}
         </div>
       </div>
       <span style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, fontFamily: font.mono, color: amtColor }}>{sign}{entry.amount}</span>

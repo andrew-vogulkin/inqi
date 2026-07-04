@@ -13,7 +13,7 @@ const past = '2000-01-01T00:00:00Z';
 const NOW = 1_700_000_000_000;
 
 const dto = (over: Partial<QuestionnaireDto> = {}): QuestionnaireDto => ({
-  id: 'q1', inquiryId: 'i1', token: 'tok', confirmed: false, expiresAt: future,
+  id: 'q1', reportId: 'i1', token: 'tok', confirmed: false, expiresAt: future,
   questions: [
     { id: 'confirm', type: 'confirm', prompt: 'Is this right?' },
     { id: 'budget', type: 'text', prompt: 'Budget?' },

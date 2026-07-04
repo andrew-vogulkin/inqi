@@ -1,33 +1,35 @@
-import { Paths } from '@inqi/shared';
+import { Paths, SearchFocus } from '@inqi/shared';
 import { request, HttpMethod } from './client';
 import {
-  SessionDto, InquiryDto, LiveReportDto, ReportDto, CreditsDto,
-  QuestionnaireDto, CostSummaryDto, WorkflowVersionDto, InquiryBoardDto, ThreadMessageDto,
+  SessionDto, ReportDto, LiveReportDto, ReportSnapshotDto, CreditsDto,
+  QuestionnaireDto, CostSummaryDto, WorkflowVersionDto, ReportBoardDto, ThreadMessageDto,
   AuditResultDto, WorkflowInspectDto, VersionDiffResultDto, PublishResultDto,
   CustomerDirectoryDto, ProvenanceDto, UnlockResultDto,
 } from './types';
 
-/** Auth (HP-10). `idToken` is a Google ID token, or `stub:<email>` in keyless dev. */
+/** Auth — two-step email sign-in: request a code, then verify it (mock transport: 123456). */
 export const authApi = {
-  signInWithGoogle: ({ idToken }: { idToken: string }) =>
-    request<SessionDto>({ method: HttpMethod.Post, path: Paths.authGoogle(), body: { idToken }, auth: false }),
+  startEmail: ({ email }: { email: string }) =>
+    request<{ sent: boolean }>({ method: HttpMethod.Post, path: Paths.authEmailStart(), body: { email }, auth: false }),
+  verifyEmail: ({ email, code }: { email: string; code: string }) =>
+    request<SessionDto>({ method: HttpMethod.Post, path: Paths.authEmailVerify(), body: { email, code }, auth: false }),
   me: () => request<{ sub: string; email: string; role: string }>({ method: HttpMethod.Get, path: Paths.authMe() }),
 };
 
-/** Inquiries (HP-08/10/19). Intake is authenticated + credit-gated; report-live is public. */
-export const inquiriesApi = {
-  create: ({ rawRequest, budgetMin, budgetMax, deadline }: { rawRequest: string; budgetMin?: number; budgetMax?: number; deadline?: string }) =>
-    request<InquiryDto>({ method: HttpMethod.Post, path: Paths.inquiries(), body: { rawRequest, budgetMin, budgetMax, deadline } }),
-  list: () => request<InquiryDto[]>({ method: HttpMethod.Get, path: Paths.inquiries() }),
-  get: ({ id }: { id: string }) => request<InquiryDto & Record<string, unknown>>({ method: HttpMethod.Get, path: Paths.inquiry(id) }),
-  // FE-10 admin board: the nested inquiry detail (epics → subtasks). Same endpoint, typed for the board.
-  detail: ({ id }: { id: string }) => request<InquiryBoardDto>({ method: HttpMethod.Get, path: Paths.inquiry(id) }),
-  reportLive: ({ id }: { id: string }) => request<LiveReportDto>({ method: HttpMethod.Get, path: Paths.inquiryReportLive(id) }),
-  cancel: ({ id, reason }: { id: string; reason?: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.inquiryCancel(id), body: { reason } }),
-  pause: ({ id, reason }: { id: string; reason?: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.inquiryPause(id), body: { reason } }),
-  resume: ({ id }: { id: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.inquiryResume(id) }),
+/** Reports (HP-08/10/19). Intake is authenticated + credit-gated; report-live is public. */
+export const reportsApi = {
+  create: ({ rawRequest, budgetMin, budgetMax, deadline, focus }: { rawRequest: string; budgetMin?: number; budgetMax?: number; deadline?: string; focus?: SearchFocus }) =>
+    request<ReportDto>({ method: HttpMethod.Post, path: Paths.reports(), body: { rawRequest, budgetMin, budgetMax, deadline, focus } }),
+  list: () => request<ReportDto[]>({ method: HttpMethod.Get, path: Paths.reports() }),
+  get: ({ id }: { id: string }) => request<ReportDto & Record<string, unknown>>({ method: HttpMethod.Get, path: Paths.report(id) }),
+  // FE-10 admin board: the nested report detail (epics → inquiries). Same endpoint, typed for the board.
+  detail: ({ id }: { id: string }) => request<ReportBoardDto>({ method: HttpMethod.Get, path: Paths.report(id) }),
+  reportLive: ({ id }: { id: string }) => request<LiveReportDto>({ method: HttpMethod.Get, path: Paths.reportLive(id) }),
+  cancel: ({ id, reason }: { id: string; reason?: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.reportCancel(id), body: { reason } }),
+  pause: ({ id, reason }: { id: string; reason?: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.reportPause(id), body: { reason } }),
+  resume: ({ id }: { id: string }) => request<{ id: string; state: string }>({ method: HttpMethod.Post, path: Paths.reportResume(id) }),
   // HP-20: customer-safe provenance for one option (owner/admin; redacted, no chain).
-  provenance: ({ inquiryId, ref }: { inquiryId: string; ref: string }) => request<ProvenanceDto>({ method: HttpMethod.Get, path: Paths.inquiryProvenance(inquiryId, ref) }),
+  provenance: ({ reportId, ref }: { reportId: string; ref: string }) => request<ProvenanceDto>({ method: HttpMethod.Get, path: Paths.reportProvenance(reportId, ref) }),
 };
 
 /** Questionnaire by token (HP-24: authenticated + owner-scoped). */
@@ -37,11 +39,11 @@ export const questionnaireApi = {
     request<{ ok: boolean }>({ method: HttpMethod.Post, path: Paths.q(token), body: { confirmedSubject, answers } }),
 };
 
-/** Report by token (HP-24: authenticated + owner-scoped) + the freemium unlock (HP-21). */
-export const reportsApi = {
-  getByToken: ({ token }: { token: string }) => request<ReportDto>({ method: HttpMethod.Get, path: Paths.report(token) }),
-  // FE-07 freemium unlock: charges 1 credit (HP-21), reveals the full report, emits report.updated.
-  unlock: ({ reportId }: { reportId: string }) => request<UnlockResultDto>({ method: HttpMethod.Post, path: Paths.reportUnlock(reportId) }),
+/** Snapshot by token (HP-24: authenticated + owner-scoped) + the freemium unlock (HP-21). */
+export const snapshotsApi = {
+  getByToken: ({ token }: { token: string }) => request<ReportSnapshotDto>({ method: HttpMethod.Get, path: Paths.snapshot(token) }),
+  // FE-07 freemium unlock: charges 1 credit (HP-21), reveals the full report, emits snapshot.updated.
+  unlock: ({ snapshotId }: { snapshotId: string }) => request<UnlockResultDto>({ method: HttpMethod.Post, path: Paths.snapshotUnlock(snapshotId) }),
 };
 
 /** Customer credits (HP-19). */
@@ -55,12 +57,12 @@ export const adminApi = {
     request<{ customerId: string; balance: number }>({ method: HttpMethod.Post, path: Paths.customerCredits(customerId), body: { amount, note } }),
   // HP-22: customer directory/search for the operator top-up (FE-16).
   searchCustomers: ({ q }: { q: string }) => request<CustomerDirectoryDto[]>({ method: HttpMethod.Get, path: Paths.adminCustomers(), query: { q } }),
-  cost: ({ inquiryId }: { inquiryId: string }) => request<CostSummaryDto>({ method: HttpMethod.Get, path: Paths.inquiryCost(inquiryId) }),
+  cost: ({ reportId }: { reportId: string }) => request<CostSummaryDto>({ method: HttpMethod.Get, path: Paths.reportCost(reportId) }),
   // FE-14 audit trail. `types` is a comma list of AuditEntryType buckets; omitted = All.
-  audit: ({ inquiryId, types }: { inquiryId?: string; types?: string } = {}) =>
-    request<AuditResultDto>({ method: HttpMethod.Get, path: Paths.audit(), query: { inquiryId, types } }),
-  // FE-08/FE-11 (admin only): the full outreach email chain for a subtask (array, oldest-first).
-  thread: ({ subtaskId }: { subtaskId: string }) => request<ThreadMessageDto[]>({ method: HttpMethod.Get, path: Paths.commsThread(subtaskId) }),
+  audit: ({ reportId, types }: { reportId?: string; types?: string } = {}) =>
+    request<AuditResultDto>({ method: HttpMethod.Get, path: Paths.audit(), query: { reportId, types } }),
+  // FE-08/FE-11 (admin only): the full outreach email chain for an inquiry (array, oldest-first).
+  thread: ({ inquiryId }: { inquiryId: string }) => request<ThreadMessageDto[]>({ method: HttpMethod.Get, path: Paths.commsThread(inquiryId) }),
   // FE-15 workflow versions (HP-12).
   listWorkflows: () => request<WorkflowVersionDto[]>({ method: HttpMethod.Get, path: Paths.workflows() }),
   inspectWorkflow: ({ id }: { id: string }) => request<WorkflowInspectDto>({ method: HttpMethod.Get, path: Paths.workflow(id) }),

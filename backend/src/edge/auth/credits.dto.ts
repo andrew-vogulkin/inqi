@@ -19,7 +19,7 @@ export class CreditEntryDto {
   @ApiProperty({ example: 1 }) amount!: number;
   @ApiPropertyOptional({ example: 'Onboarding grant' }) reason?: string | null;
   @ApiPropertyOptional({ example: 'system' }) actor?: string | null;
-  @ApiPropertyOptional({ example: 'clz...' }) inquiryId?: string | null;
+  @ApiPropertyOptional({ example: 'clz...' }) reportId?: string | null;
   @ApiProperty({ example: '2026-06-29T12:00:00.000Z' }) createdAt!: Date;
 }
 

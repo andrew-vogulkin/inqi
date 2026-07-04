@@ -1,67 +1,76 @@
+import { PERSONA_IDENTITIES, DEFAULT_PERSONA_ID, PersonaIdentity } from '@inqi/shared';
+
 /** Eight Inqi agent personas, each a "local" of a regional **proxy hub**. When we
  *  reach out to a subject provider, we route to the persona whose hub serves that
  *  region, so the contact reads as a plausible local (better trust + reply rates).
- *  Names are gender-neutral and locale-appropriate to the hub; writing voices are
- *  anchored to 21st-century literature of the region so emails don't read as
- *  templated. One persona owns an email thread end to end. */
-export interface Persona {
-  id: string;
-  name: string;
-  hub: string;     // proxy hub the persona operates from
+ *  Identity (id/name/hub) lives in `@inqi/shared` (the FE shows who ran the
+ *  research); the region routing + writing voice — anchored to 21st-century
+ *  literature of the region — stay here. One persona owns an email thread end to end. */
+export interface Persona extends PersonaIdentity {
   serves: string[]; // region/country tokens this hub is the local for (codes + names)
   style: string;   // writing voice injected into the system prompt
 }
 
-export const PERSONAS: Persona[] = [
-  { id: 'yuen', name: 'Yuen', hub: 'Hong Kong',
-    serves: ['hk', 'hong kong', 'cn', 'china', 'tw', 'taiwan', 'jp', 'japan', 'kr', 'korea', 'east asia', 'asia'],
+/** Voice + routing per persona id (composed with the shared identities below). */
+const VOICES: Record<string, { serves: string[]; style: string }> = {
+  yuen: {
+    serves: ['hk', 'hong kong', 'cn', 'china', 'tw', 'taiwan', 'jp', 'japan', 'kr', 'korea', 'east asia', 'tokyo', 'osaka', 'kyoto', 'seoul', 'taipei', 'shanghai', 'beijing', 'shenzhen'],
     style: 'Quiet East-Asian observational economy: understated, polite, precise, nothing wasted.' },
-  { id: 'ari', name: 'Ari', hub: 'Singapore',
-    serves: ['sg', 'singapore', 'in', 'india', 'my', 'malaysia', 'id', 'indonesia', 'th', 'thailand', 'vn', 'vietnam', 'ph', 'philippines', 'south asia', 'southeast asia'],
+  ari: {
+    serves: ['sg', 'singapore', 'in', 'india', 'my', 'malaysia', 'id', 'indonesia', 'th', 'thailand', 'vn', 'vietnam', 'ph', 'philippines', 'south asia', 'southeast asia', 'bangkok', 'chiang mai', 'phuket', 'mumbai', 'delhi', 'bangalore', 'jakarta', 'bali', 'kuala lumpur', 'manila', 'hanoi', 'ho chi minh'],
     style: 'Layered South/Southeast-Asian warmth: hospitable, detail-rich, courteous, gently expansive.' },
-  { id: 'ellis', name: 'Ellis', hub: 'London',
-    serves: ['uk', 'gb', 'united kingdom', 'england', 'london', 'ie', 'ireland', 'europe', 'western europe'],
+  ellis: {
+    serves: ['uk', 'gb', 'united kingdom', 'england', 'london', 'ie', 'ireland', 'western europe', 'manchester', 'edinburgh', 'glasgow', 'dublin', 'bristol'],
     style: 'Restrained European precision: formal clarity, measured tone, dry economy, impeccable courtesy.' },
-  { id: 'bo', name: 'Bo', hub: 'Amsterdam',
-    serves: ['nl', 'netherlands', 'amsterdam', 'de', 'germany', 'cz', 'czech', 'czechia', 'prague', 'pl', 'poland', 'be', 'belgium', 'central europe'],
+  bo: {
+    serves: ['nl', 'netherlands', 'amsterdam', 'de', 'germany', 'cz', 'czech', 'czechia', 'prague', 'pl', 'poland', 'be', 'belgium', 'central europe', 'berlin', 'munich', 'hamburg', 'rotterdam', 'warsaw', 'brussels', 'vienna', 'austria', 'zurich', 'switzerland'],
     style: 'Plain, well-organised Dutch / Central-European clarity: direct, friendly, exact.' },
-  { id: 'nour', name: 'Nour', hub: 'Dubai',
-    serves: ['ae', 'uae', 'united arab emirates', 'dubai', 'sa', 'saudi', 'qa', 'qatar', 'kw', 'kuwait', 'middle east', 'west asia', 'gulf'],
+  nour: {
+    serves: ['ae', 'uae', 'united arab emirates', 'dubai', 'sa', 'saudi', 'qa', 'qatar', 'kw', 'kuwait', 'middle east', 'west asia', 'gulf', 'abu dhabi', 'riyadh', 'jeddah', 'doha', 'eg', 'egypt', 'cairo', 'amman', 'beirut'],
     style: 'Measured West-Asian courtesy: dignified, allusive, respectful, unhurried.' },
-  { id: 'tumi', name: 'Tumi', hub: 'Johannesburg',
-    serves: ['za', 'south africa', 'johannesburg', 'ng', 'nigeria', 'ke', 'kenya', 'gh', 'ghana', 'africa', 'sub-saharan'],
+  tumi: {
+    serves: ['za', 'south africa', 'johannesburg', 'ng', 'nigeria', 'ke', 'kenya', 'gh', 'ghana', 'africa', 'sub-saharan', 'cape town', 'lagos', 'nairobi', 'accra', 'durban'],
     style: 'The cadence of contemporary African storytelling: rhythmic, communal warmth, the occasional well-placed proverb.' },
-  { id: 'marlowe', name: 'Marlowe', hub: 'New York',
-    serves: ['us', 'usa', 'united states', 'new york', 'ca', 'canada', 'north america'],
+  marlowe: {
+    serves: ['us', 'usa', 'united states', 'new york', 'ca', 'canada', 'north america', 'nyc', 'los angeles', 'chicago', 'san francisco', 'seattle', 'boston', 'austin', 'miami', 'denver', 'toronto', 'vancouver', 'montreal'],
     style: 'Spare, understated North-American realist prose: short declarative sentences, concrete nouns, no flourish.' },
-  { id: 'sol', name: 'Sol', hub: 'São Paulo',
-    serves: ['br', 'brazil', 'sao paulo', 'são paulo', 'ar', 'argentina', 'cl', 'chile', 'co', 'colombia', 'mx', 'mexico', 'latin america', 'south america'],
+  sol: {
+    serves: ['br', 'brazil', 'sao paulo', 'são paulo', 'ar', 'argentina', 'cl', 'chile', 'co', 'colombia', 'mx', 'mexico', 'latin america', 'south america', 'rio de janeiro', 'buenos aires', 'santiago', 'bogota', 'bogotá', 'lima', 'peru', 'mexico city', 'medellin', 'medellín'],
     style: 'Warm, lyrical Latin-American cadence: vivid but economical imagery, generous courtesy, a human touch.' },
-];
+};
 
-/** English-language hub used when the subject provider's region is unknown. */
-export const DEFAULT_PERSONA_ID = 'ellis';
+export const PERSONAS: Persona[] = PERSONA_IDENTITIES.map((p) => ({ ...p, ...VOICES[p.id] }));
+
+export { DEFAULT_PERSONA_ID };
 const byId = new Map(PERSONAS.map((p) => [p.id, p]));
 
 export const getPersona = ({ id }: { id?: string | null }): Persona => (id && byId.get(id)) || byId.get(DEFAULT_PERSONA_ID)!;
 
-function matches({ hint, serves }: { hint: string; serves: string[] }): boolean {
+function matches({ hint, serves, freeText }: { hint: string; serves: string[]; freeText?: boolean }): boolean {
   const h = hint.toLowerCase().trim();
   const tokens = h.split(/[^a-zà-ú]+/).filter(Boolean);
-  return serves.some((s) => (s.includes(' ') ? h.includes(s) : tokens.includes(s)));
+  // Free request text: skip the 2-letter country codes — 'in', 'my', 'us', 'ie'
+  // are ordinary English words there ("florist in Edinburgh" is not India).
+  const usable = freeText ? serves.filter((s) => s.length > 2) : serves;
+  return usable.some((s) => (s.includes(' ') ? h.includes(s) : tokens.includes(s)));
 }
 
 /** Region-aware routing: pick the proxy-hub persona local to the subject
- *  provider's region/country. Unknown region -> English hub (London/Ellis). */
-export function pickPersona({ regionHint }: { regionHint?: string | null }): Persona {
+ *  provider's region/country. Falls back to scanning the raw request text
+ *  (customers rarely set a geo label but usually name a place — "bars in
+ *  Bangkok"), and with no regional signal at all picks at random — the agent
+ *  fleet must not read as one person running every report. */
+export function pickPersona({ regionHint, requestText, rng }: { regionHint?: string | null; requestText?: string | null; rng?: () => number }): Persona {
   if (regionHint) for (const p of PERSONAS) if (matches({ hint: regionHint, serves: p.serves })) return p;
-  return byId.get(DEFAULT_PERSONA_ID)!;
+  if (requestText) for (const p of PERSONAS) if (matches({ hint: requestText, serves: p.serves, freeText: true })) return p;
+  const roll = (rng ?? Math.random)();
+  return PERSONAS[Math.min(PERSONAS.length - 1, Math.floor(roll * PERSONAS.length))];
 }
 
 /** System prompt: persona identity + hub + employer framing + writing voice. */
 export function personaSystem({ persona, task }: { persona: Persona; task: string }): string {
   return [
-    `You are ${persona.name}, an inquiry specialist at "Inqi Tech Service Provider", working from our ${persona.hub} hub.`,
+    `You are ${persona.name}, a report specialist at "Inqi Tech Service Provider", working from our ${persona.hub} hub.`,
     `You contact subject providers on behalf of a client to ask about availability, price, lead time and terms.`,
     `Be professional and honest; never misrepresent who you are or why you are writing.`,
     `You personally own this email thread — the same person (you, ${persona.name}) always replies.`,

@@ -8,7 +8,7 @@ import { BackgroundResearchSource, RawProviderSignals } from './background.token
  */
 @Injectable()
 export class StubBackgroundResearchSource implements BackgroundResearchSource {
-  async lookup(_args: { subjectProviderName: string; regionHint?: string | null }): Promise<RawProviderSignals> {
+  async lookup(_args: { name: string; regionHint?: string | null }): Promise<RawProviderSignals> {
     // TODO: call a real ratings/review/search API and map its response here.
     return { sources: [] };
   }

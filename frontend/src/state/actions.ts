@@ -1,9 +1,9 @@
 import { InqiEvent } from '@inqi/shared';
 import { ToastKind } from '../conventions/enums';
 import { StoredSession } from '../conventions/session-storage';
-import { InquiryDto, LiveReportDto, CreditEntry, QuestionnaireDto, ReportOption, InquiryBoardDto, ThreadMessageDto, AuditEntryDto, WorkflowVersionDto, WorkflowInspectDto, VersionDiffResultDto } from '../api/types';
+import { ReportDto, LiveReportDto, CreditEntry, QuestionnaireDto, ReportOption, ReportBoardDto, ThreadMessageDto, AuditEntryDto, WorkflowVersionDto, WorkflowInspectDto, VersionDiffResultDto } from '../api/types';
 import { DossierOrigin } from '../conventions/enums';
-import { SubtaskRecord } from '../conventions/subtask';
+import { InquiryRecord } from '../conventions/inquiry';
 import { SettlementPreview } from '../conventions/run-controls';
 import { AuditFilter } from '../conventions/audit';
 import { WorkflowPanel } from '../conventions/workflow';
@@ -13,6 +13,7 @@ import { ProvenanceDto } from '@inqi/shared';
 export const ActionType = {
   SessionRestored: 'session/restored',
   SignInStarted: 'session/signInStarted',
+  CodeSent: 'session/codeSent', // step 1 accepted — awaiting the MFA code for pendingEmail
   SignInFailed: 'session/signInFailed',
   SignedIn: 'session/signedIn',
   SignedOut: 'session/signedOut',
@@ -20,8 +21,8 @@ export const ActionType = {
   CreditsLoading: 'credits/loading',
   CreditsLoaded: 'credits/loaded',
 
-  InquiriesLoaded: 'inquiries/loaded',
-  InquiryUpserted: 'inquiries/upserted',
+  ReportsLoaded: 'reports/loaded',
+  ReportUpserted: 'reports/upserted',
 
   ReportSnapshotReceived: 'report/snapshot',
   ReportCleared: 'report/cleared',
@@ -39,8 +40,8 @@ export const ActionType = {
   SubmitSucceeded: 'questionnaire/submitSucceeded',
   SubmitFailed: 'questionnaire/submitFailed',
 
-  SubtaskLoaded: 'subtask/loaded',
-  SubtaskChainLoaded: 'subtask/chainLoaded',
+  InquiryLoaded: 'inquiry/loaded',
+  InquiryChainLoaded: 'inquiry/chainLoaded',
 
   ThreadLoaded: 'thread/loaded',
 
@@ -79,18 +80,19 @@ export interface ToastItem { id: string; kind: ToastKind; message: string }
 export type Action =
   | { type: typeof ActionType.SessionRestored; session: StoredSession | null }
   | { type: typeof ActionType.SignInStarted }
+  | { type: typeof ActionType.CodeSent; email: string }
   | { type: typeof ActionType.SignInFailed; message: string }
   | { type: typeof ActionType.SignedIn; session: StoredSession }
   | { type: typeof ActionType.SignedOut }
   | { type: typeof ActionType.CreditsLoading }
   | { type: typeof ActionType.CreditsLoaded; balance: number; history: CreditEntry[] }
-  | { type: typeof ActionType.InquiriesLoaded; inquiries: InquiryDto[] }
-  | { type: typeof ActionType.InquiryUpserted; inquiry: InquiryDto }
+  | { type: typeof ActionType.ReportsLoaded; reports: ReportDto[] }
+  | { type: typeof ActionType.ReportUpserted; report: ReportDto }
   | { type: typeof ActionType.ReportSnapshotReceived; live: LiveReportDto }
   | { type: typeof ActionType.ReportCleared }
   | { type: typeof ActionType.UnlockStarted }
   | { type: typeof ActionType.UnlockFailed; message: string }
-  | { type: typeof ActionType.AdminBoardLoaded; board: InquiryBoardDto }
+  | { type: typeof ActionType.AdminBoardLoaded; board: ReportBoardDto }
   | { type: typeof ActionType.QuestionnaireLoaded; data: QuestionnaireDto; now: number }
   | { type: typeof ActionType.QuestionnaireLoadFailed; code: string }
   | { type: typeof ActionType.AnswerChanged; id: string; value: string }
@@ -99,10 +101,10 @@ export type Action =
   | { type: typeof ActionType.SubmitStarted }
   | { type: typeof ActionType.SubmitSucceeded }
   | { type: typeof ActionType.SubmitFailed; message: string; expired?: boolean }
-  | { type: typeof ActionType.SubtaskLoaded; record: SubtaskRecord; at: string }
-  | { type: typeof ActionType.SubtaskChainLoaded; messages: ThreadMessageDto[] }
-  | { type: typeof ActionType.ThreadLoaded; subtaskId: string; messages: ThreadMessageDto[] }
-  | { type: typeof ActionType.RunControlsLoaded; inquiryId: string; inquiryState: string }
+  | { type: typeof ActionType.InquiryLoaded; record: InquiryRecord; at: string }
+  | { type: typeof ActionType.InquiryChainLoaded; messages: ThreadMessageDto[] }
+  | { type: typeof ActionType.ThreadLoaded; inquiryId: string; messages: ThreadMessageDto[] }
+  | { type: typeof ActionType.RunControlsLoaded; reportId: string; reportState: string }
   | { type: typeof ActionType.RunPreviewLoading }
   | { type: typeof ActionType.RunPreviewLoaded; preview: SettlementPreview }
   | { type: typeof ActionType.AuditFilterSelected; filter: AuditFilter }

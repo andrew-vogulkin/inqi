@@ -2,7 +2,7 @@ import { CSSProperties, useEffect } from 'react';
 import { AsyncStatus, FreemiumState, ToastKind } from '../conventions/enums';
 import { Route, navigate, hrefFor } from '../conventions/routes';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
-import { inquiriesApi, reportsApi, creditsApi, ApiError, ApiErrorCode } from '../api';
+import { reportsApi, snapshotsApi, creditsApi, ApiError, ApiErrorCode } from '../api';
 import { EmptyState, Skeleton } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
@@ -14,20 +14,20 @@ import { OptionCard } from './LiveReport';
 const PAGE: CSSProperties = { maxWidth: 660, margin: '0 auto' };
 
 /** FE-07 — the conversion surface: free taster revealed, better options locked, unlock with 1 credit. */
-export function FreemiumTeaser({ inquiryId }: { inquiryId: string }) {
+export function FreemiumTeaser({ reportId }: { reportId: string }) {
   const dispatch = useAppDispatch();
   const report = useSelector((s) => s.report);
   const balance = useSelector((s) => s.credits.balance);
   const creditsStatus = useSelector((s) => s.credits.status);
 
-  useEffect(() => { dispatch({ type: ActionType.ReportCleared }); }, [inquiryId, dispatch]);
-  useRealtime({ kind: 'inquiry', inquiryId });
+  useEffect(() => { dispatch({ type: ActionType.ReportCleared }); }, [reportId, dispatch]);
+  useRealtime({ kind: 'report', reportId });
 
   // Snapshot-then-stream (the redacted snapshot withholds the hidden options).
   useEffect(() => {
-    inquiriesApi.reportLive({ id: inquiryId }).then((live) => dispatch({ type: ActionType.ReportSnapshotReceived, live })).catch(() => undefined);
+    reportsApi.reportLive({ id: reportId }).then((live) => dispatch({ type: ActionType.ReportSnapshotReceived, live })).catch(() => undefined);
     creditsApi.mine().then((c) => dispatch({ type: ActionType.CreditsLoaded, balance: c.balance, history: c.history })).catch(() => undefined);
-  }, [inquiryId, report.cursor, dispatch]);
+  }, [reportId, report.cursor, dispatch]);
 
   async function unlock() {
     if (balance <= 0) {
@@ -35,18 +35,18 @@ export function FreemiumTeaser({ inquiryId }: { inquiryId: string }) {
       navigate({ route: Route.Credits });
       return;
     }
-    if (!report.reportId) {
+    if (!report.snapshotId) {
       dispatch({ type: ActionType.UnlockFailed, message: 'Report is still being prepared — try again in a moment.' });
       return;
     }
     dispatch({ type: ActionType.UnlockStarted });
     try {
-      await reportsApi.unlock({ reportId: report.reportId }); // HP-21: charges 1 credit (402 if none)
-      const live = await inquiriesApi.reportLive({ id: inquiryId }); // re-read → unlocked:true reveals all
+      await snapshotsApi.unlock({ snapshotId: report.snapshotId }); // HP-21: charges 1 credit (402 if none)
+      const live = await reportsApi.reportLive({ id: reportId }); // re-read → unlocked:true reveals all
       dispatch({ type: ActionType.ReportSnapshotReceived, live });
       const c = await creditsApi.mine();
       dispatch({ type: ActionType.CreditsLoaded, balance: c.balance, history: c.history });
-      dispatch({ type: ActionType.ToastPushed, toast: { id: `unlocked-${inquiryId}`, kind: ToastKind.Success, message: 'Unlocked — full report revealed.' } });
+      dispatch({ type: ActionType.ToastPushed, toast: { id: `unlocked-${reportId}`, kind: ToastKind.Success, message: 'Unlocked — full report revealed.' } });
     } catch (e) {
       const msg = e instanceof ApiError && e.code === ApiErrorCode.CreditsInsufficient ? 'Not enough credits — top up to unlock.' : 'Could not unlock. Please try again.';
       dispatch({ type: ActionType.UnlockFailed, message: msg });
@@ -60,9 +60,9 @@ export function FreemiumTeaser({ inquiryId }: { inquiryId: string }) {
   const { locked, revealed } = freemiumView(report);
   const unlocked = report.freemiumState === FreemiumState.Unlocked;
   const total = locked.length + revealed.length;
-  const ref = `#${(report.inquiryId ?? '').slice(0, 8)}`;
+  const ref = `#${(report.reportId ?? '').slice(0, 8)}`;
   // Revealed (qualified) options link to their research dossier; locked rows stay redacted.
-  const dossierFor = (o: RankedOption) => report.inquiryId ? hrefFor({ route: Route.Dossier, params: { id: report.inquiryId, ref: optionId(o) } }) : undefined;
+  const dossierFor = (o: RankedOption) => report.reportId ? hrefFor({ route: Route.Dossier, params: { id: report.reportId, ref: optionId(o) } }) : undefined;
 
   // Once unlocked (or never freemium) → the full FE-06 ranked list + the success banner.
   if (unlocked) {

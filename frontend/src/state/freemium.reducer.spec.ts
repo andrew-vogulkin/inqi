@@ -9,7 +9,7 @@ const locked = (id: string, rank: number): ReportOption => ({ id, locked: true, 
 const revealed = (name: string, rank: number, price: number, quality: number): ReportOption => ({ id: name, subjectProvider: name, locked: false, rank, price, currency: 'EUR', qualityScore: quality });
 
 const freemiumLive = (over: Partial<LiveReportDto> = {}): LiveReportDto => ({
-  inquiryId: 'i1', state: 'OUTREACH', delivered: false, rawRequest: 'a bike', reportToken: null, reusedFrom: null, summary: 'partial', freemium: true,
+  reportId: 'i1', state: 'OUTREACH', delivered: false, rawRequest: 'a bike', snapshotToken: null, reusedFrom: null, summary: 'partial', freemium: true,
   options: [locked('o1', 1), locked('o2', 2), locked('o3', 3), locked('o4', 4), revealed('Taster Co', 5, 360, 0.6)],
   ...over,
 });

@@ -11,17 +11,17 @@ import { Card, Button, ToastHost } from './ui';
 import { StyleGuide } from './screens/StyleGuide';
 import { SignIn } from './screens/SignIn';
 import { Dashboard } from './screens/Dashboard';
-import { NewInquiry } from './screens/NewInquiry';
+import { NewReport } from './screens/NewReport';
 import { Questionnaire } from './screens/Questionnaire';
 import { LiveReport } from './screens/LiveReport';
 import { FreemiumTeaser } from './screens/FreemiumTeaser';
 import { Dossier } from './screens/Dossier';
 import { Credits } from './screens/Credits';
 import { AdminBoard } from './screens/AdminBoard';
-import { AdminInquiryFrame } from './screens/AdminInquiryFrame';
+import { AdminReportFrame } from './screens/AdminReportFrame';
 import { RunControlsPanel } from './screens/RunControls';
 import { CreditTopup } from './screens/CreditTopup';
-import { SubtaskView } from './screens/SubtaskView';
+import { InquiryView } from './screens/InquiryView';
 import { CostReport } from './screens/CostReport';
 import { AuditTrail } from './screens/AuditTrail';
 import { WorkflowVersions } from './screens/WorkflowVersions';
@@ -83,7 +83,7 @@ function Home() {
         Describe what you're after — an item, service, rental, org, goods or a trade — and inqi researches, vets, and reaches out, then returns a live ranked report.
       </p>
       <div style={{ display: 'flex', gap: space[2] }}>
-        <a href={hrefFor({ route: Route.NewInquiry })}><Button>Start an inquiry</Button></a>
+        <a href={hrefFor({ route: Route.NewReport })}><Button>Start a report</Button></a>
         <a href={hrefFor({ route: Route.StyleGuide })}><Button variant={ButtonVariant.Secondary}>Styleguide</Button></a>
       </div>
     </Card>
@@ -96,24 +96,24 @@ function content(match: RouteMatch): ReactNode {
     case Route.StyleGuide: return <StyleGuide />;
     case Route.SignIn: return <SignIn />;
     case Route.Dashboard: return <Dashboard />;
-    case Route.NewInquiry: return <NewInquiry />;
+    case Route.NewReport: return <NewReport />;
     case Route.Questionnaire: return <Questionnaire token={match.params.token} />;
-    case Route.Inquiry: return <LiveReport inquiryId={match.params.id} />;
-    case Route.Freemium: return <FreemiumTeaser inquiryId={match.params.id} />;
-    case Route.Dossier: return <Dossier inquiryId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Customer} />;
-    case Route.AdminDossier: return <Dossier inquiryId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Admin} />;
-    case Route.Report: return <LiveReport token={match.params.token} />;
+    case Route.Report: return <LiveReport reportId={match.params.id} />;
+    case Route.Freemium: return <FreemiumTeaser reportId={match.params.id} />;
+    case Route.Dossier: return <Dossier reportId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Customer} />;
+    case Route.AdminDossier: return <Dossier reportId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Admin} />;
+    case Route.Snapshot: return <LiveReport token={match.params.token} />;
     case Route.Credits: return <Credits />;
     case Route.Admin: return <AdminBoard />;
-    case Route.AdminRun: return <AdminInquiryFrame title="Run controls" basePath="/admin/run">{({ board }) => <RunControlsPanel board={board} />}</AdminInquiryFrame>;
-    case Route.AdminCostOverview: return <AdminInquiryFrame title="Cost per report" basePath="/admin/cost">{({ inquiryId }) => <CostReport inquiryId={inquiryId} />}</AdminInquiryFrame>;
+    case Route.AdminRun: return <AdminReportFrame title="Run controls" basePath="/admin/run">{({ board }) => <RunControlsPanel board={board} />}</AdminReportFrame>;
+    case Route.AdminCostOverview: return <AdminReportFrame title="Cost per report" basePath="/admin/cost">{({ reportId }) => <CostReport reportId={reportId} />}</AdminReportFrame>;
     case Route.AdminCredits: return <CreditTopup />;
     case Route.AdminAudit: return <AuditTrail />;
     case Route.AdminWorkflows: return <WorkflowVersions />;
-    case Route.AdminInquiry: return <AdminBoard inquiryId={match.params.id} />;
-    case Route.AdminCost: return <CostReport inquiryId={match.params.id} />;
-    case Route.AdminSubtask: return <SubtaskView subtaskId={match.params.id} />;
-    case Route.AdminThread: return <OutreachThread subtaskId={match.params.id} />;
+    case Route.AdminReport: return <AdminBoard reportId={match.params.id} />;
+    case Route.AdminCost: return <CostReport reportId={match.params.id} />;
+    case Route.AdminInquiry: return <InquiryView inquiryId={match.params.id} />;
+    case Route.AdminThread: return <OutreachThread inquiryId={match.params.id} />;
     default: return <Placeholder title="inqi" story="FE-02+" />;
   }
 }

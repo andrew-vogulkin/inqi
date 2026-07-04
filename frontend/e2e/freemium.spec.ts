@@ -6,7 +6,7 @@ const SESSION = JSON.stringify({ token: 't', customer: { id: 'c1', email: 'c@x.i
 const HIDDEN = 'Secret Top Co'; // present only in the unlocked (full) snapshot — must NOT leak pre-unlock
 
 const freemiumBody = JSON.stringify({
-  inquiryId: 'i1', state: 'OUTREACH', delivered: false, rawRequest: 'a weekly tennis coach near Porto', reportId: 'rep1', reportToken: null, reusedFrom: null, summary: 'partial', freemium: true, lockedCount: 4,
+  reportId: 'i1', state: 'OUTREACH', delivered: false, rawRequest: 'a weekly tennis coach near Porto', snapshotId: 'rep1', snapshotToken: null, reusedFrom: null, summary: 'partial', freemium: true, lockedCount: 4,
   options: [
     { id: 'o1', locked: true, rank: 1, subjectProvider: '' },
     { id: 'o2', locked: true, rank: 2, subjectProvider: '' },
@@ -16,7 +16,7 @@ const freemiumBody = JSON.stringify({
   ],
 });
 const fullBody = JSON.stringify({
-  inquiryId: 'i1', state: 'REPORT_DELIVERED', delivered: true, rawRequest: 'a weekly tennis coach near Porto', reportId: 'rep1', reportToken: 'tok', reusedFrom: null, summary: 'Found 5 options', freemium: false, unlocked: true,
+  reportId: 'i1', state: 'REPORT_DELIVERED', delivered: true, rawRequest: 'a weekly tennis coach near Porto', snapshotId: 'rep1', snapshotToken: 'tok', reusedFrom: null, summary: 'Found 5 options', freemium: false, unlocked: true,
   options: [
     { subjectProvider: HIDDEN, price: 400, currency: 'EUR', qualityScore: 0.95 },
     { subjectProvider: 'Taster Co', price: 360, currency: 'EUR', qualityScore: 0.5 },
@@ -28,8 +28,8 @@ async function seed(page: Page) { await page.addInitScript((s) => localStorage.s
 test('locked teaser leaks no hidden data; unlocking with credits reveals the full report', async ({ page }) => {
   await seed(page);
   let unlocked = false;
-  await page.route('**/api/inquiries/*/report-live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: unlocked ? fullBody : freemiumBody }));
-  await page.route('**/api/reports/*/unlock', (r: Route) => { unlocked = true; return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rep1', unlocked: true, balance: 0 }) }); });
+  await page.route('**/api/reports/*/live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: unlocked ? fullBody : freemiumBody }));
+  await page.route('**/api/snapshots/*/unlock', (r: Route) => { unlocked = true; return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rep1', unlocked: true, balance: 0 }) }); });
   await page.route('**/api/me/credits', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ balance: unlocked ? 0 : 1, history: [] }) }));
 
   await page.goto('/#/f/i1');
@@ -48,7 +48,7 @@ test('locked teaser leaks no hidden data; unlocking with credits reveals the ful
 
 test('zero balance shows the not-enough-credits path and routes to Credits', async ({ page }) => {
   await seed(page);
-  await page.route('**/api/inquiries/*/report-live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: freemiumBody }));
+  await page.route('**/api/reports/*/live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: freemiumBody }));
   await page.route('**/api/me/credits', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ balance: 0, history: [] }) }));
 
   await page.goto('/#/f/i1');

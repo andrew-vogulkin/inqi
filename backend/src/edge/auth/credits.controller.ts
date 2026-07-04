@@ -1,16 +1,18 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CreditsService } from '../../domain/credits/credits.service';
 import { AuthGuard } from './auth.guard';
 import { AdminGuard } from './admin.guard';
 import { CurrentUser } from './current-user.decorator';
 import { AuthUser } from './auth.tokens';
 import { CreditBalanceDto, CustomerDirectoryDto, TopUpDto, TopUpResultDto } from './credits.dto';
+import { ApiStandardErrors } from '../../common/errors';
 
 /** Customer-facing credits (HP-19): the signed-in customer's balance + history. */
 @ApiTags('auth')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
+@ApiStandardErrors(401) // every endpoint here can return these (ErrorEnvelope)
 @Controller('me')
 export class MeCreditsController {
   constructor(private readonly credits: CreditsService) {}
@@ -31,6 +33,7 @@ export class MeCreditsController {
 @ApiTags('auth')
 @ApiBearerAuth()
 @UseGuards(AdminGuard)
+@ApiStandardErrors(400, 401, 403, 404) // every endpoint here can return these (ErrorEnvelope)
 @Controller('admin/customers')
 export class AdminCustomersController {
   constructor(private readonly credits: CreditsService) {}
@@ -47,6 +50,7 @@ export class AdminCustomersController {
   @Post(':id/credits')
   @ApiOperation({ summary: 'Grant credits to a customer (admin only; audited)' })
   @ApiParam({ name: 'id', description: 'Customer id', example: 'clz1cust0000xy' })
+  @ApiBody({ type: TopUpDto })
   @ApiOkResponse({ type: TopUpResultDto })
   topUp(@Param('id') id: string, @Body() dto: TopUpDto, @CurrentUser() user: AuthUser): Promise<TopUpResultDto> {
     return this.credits.topUp({ customerId: id, amount: dto.amount, note: dto.note, actor: user.email });

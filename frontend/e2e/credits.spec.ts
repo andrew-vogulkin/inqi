@@ -6,8 +6,8 @@ const SESSION = JSON.stringify({ token: 't', customer: { id: 'c1', email: 'c@x.i
 const now = new Date().toISOString();
 const history = [
   { id: 'l1', kind: 'topup', amount: 5, reason: 'Onboarding grant', createdAt: now },
-  { id: 'l2', kind: 'reserve', amount: 1, reason: 'Report run', inquiryId: 'inq11111aaaa', createdAt: now },
-  { id: 'l3', kind: 'charge', amount: 1, reason: 'Report delivered', inquiryId: 'inq11111aaaa', createdAt: now },
+  { id: 'l2', kind: 'reserve', amount: 1, reason: 'Report run', reportId: 'inq11111aaaa', createdAt: now },
+  { id: 'l3', kind: 'charge', amount: 1, reason: 'Report delivered', reportId: 'inq11111aaaa', createdAt: now },
 ];
 
 async function seed(page: Page) { await page.addInitScript((s) => localStorage.setItem('inqi.session', s), SESSION); }

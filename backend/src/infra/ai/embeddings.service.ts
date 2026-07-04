@@ -43,13 +43,13 @@ export class EmbeddingsService implements EmbeddingsProvider {
   }
 
   async embed({ text }: { text: string }): Promise<number[]> {
-    const inquiryId = this.usageCtx.inquiryId();
+    const reportId = this.usageCtx.reportId();
     if (this.driver === EmbeddingsDriver.OpenAI) {
       try {
         const r = await this.client.embeddings.create({ model: this.model, input: text });
         const vec = r.data[0]?.embedding;
         if (vec?.length) {
-          await this.usage.recordAi({ inquiryId, kind: UsageKind.Embedding, model: this.model, totalTokens: r.usage?.total_tokens ?? 0, estimated: !r.usage });
+          await this.usage.recordAi({ reportId, kind: UsageKind.Embedding, model: this.model, totalTokens: r.usage?.total_tokens ?? 0, estimated: !r.usage });
           return vec as number[];
         }
       } catch (e) {
@@ -57,7 +57,7 @@ export class EmbeddingsService implements EmbeddingsProvider {
       }
     }
     // Local deterministic fallback — still a counted embedding op (cost 0), tokens estimated.
-    await this.usage.recordAi({ inquiryId, kind: UsageKind.Embedding, model: 'local-feature-hash', totalTokens: 0, estimated: true });
+    await this.usage.recordAi({ reportId, kind: UsageKind.Embedding, model: 'local-feature-hash', totalTokens: 0, estimated: true });
     return this.localEmbedding(text);
   }
 

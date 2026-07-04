@@ -10,14 +10,15 @@ export interface TimelineItem { id: string; type: string; at: string; data: Reco
 
 export interface ReportState {
   status: AsyncStatus;
-  inquiryId: string | null;
-  inquiryState: string;
+  reportId: string | null;
+  personaId: string | null;
+  reportState: string;
   rawRequest: string;
   summary: string;
   delivered: boolean;
   reusedFrom: string | null;
-  reportToken: string | null;
-  reportId: string | null;  // HP-21: the snapshot id (for POST /reports/:id/unlock)
+  snapshotToken: string | null;
+  snapshotId: string | null;  // HP-21: the snapshot id (for POST /reports/:id/unlock)
   optionsById: Record<string, RankedOption>;
   order: string[];          // ranked option ids (best first)
   freemium: boolean;        // FE-07: report is gated (top options redacted)
@@ -30,14 +31,15 @@ export interface ReportState {
 
 export const initialReportState: ReportState = {
   status: AsyncStatus.Idle,
-  inquiryId: null,
-  inquiryState: '',
+  reportId: null,
+  personaId: null,
+  reportState: '',
   rawRequest: '',
   summary: '',
   delivered: false,
   reusedFrom: null,
-  reportToken: null,
-  reportId: null,
+  snapshotToken: null,
+  snapshotId: null,
   optionsById: {},
   order: [],
   freemium: false,
@@ -58,7 +60,7 @@ function reindex(optionsById: Record<string, RankedOption>): { optionsById: Reco
 }
 
 /** Upsert options (by id) and re-rank. Used by both snapshot merge and finding events. */
-export function upsertOptions(optionsById: Record<string, RankedOption>, incoming: ReportOption[]): { optionsById: Record<string, RankedOption>; order: string[] } {
+export function upsertOptions({ optionsById, incoming }: { optionsById: Record<string, RankedOption>; incoming: ReportOption[] }): { optionsById: Record<string, RankedOption>; order: string[] } {
   const merged: Record<string, RankedOption> = { ...optionsById };
   for (const o of incoming) merged[optionId(o)] = { ...(merged[optionId(o)] ?? {}), ...o } as RankedOption;
   return reindex(merged);
@@ -117,14 +119,15 @@ export function reportReducer(state: ReportState, action: Action): ReportState {
       return {
         ...state,
         status: AsyncStatus.Ready,
-        inquiryId: live.inquiryId,
-        inquiryState: live.state,
+        reportId: live.reportId,
+        personaId: live.personaId ?? null,
+        reportState: live.state,
         rawRequest: live.rawRequest,
         summary: live.summary,
         delivered: live.delivered,
         reusedFrom: live.reusedFrom,
-        reportToken: live.reportToken,
-        reportId: live.reportId ?? null,
+        snapshotToken: live.snapshotToken,
+        snapshotId: live.snapshotId ?? null,
         freemium,
         freemiumState,
         optionsById,
@@ -140,7 +143,7 @@ export function reportReducer(state: ReportState, action: Action): ReportState {
 
     case ActionType.EventReceived: {
       const e: InqiEvent = action.event;
-      if (!state.inquiryId || e.inquiryId !== state.inquiryId) return state;
+      if (!state.reportId || e.reportId !== state.reportId) return state;
       if (state.seen[e.id]) return state; // idempotent
 
       const seen = { ...state.seen, [e.id]: true as const };
@@ -151,16 +154,16 @@ export function reportReducer(state: ReportState, action: Action): ReportState {
       let next: ReportState = { ...state, seen, cursor, timeline };
 
       const type = e.type as string; // events may carry forward-looking types beyond the shared union
-      if (type === EventType.InquiryTransitioned) {
+      if (type === EventType.ReportTransitioned) {
         const to = (e.data as { to?: string })?.to;
-        if (to) next = { ...next, inquiryState: to };
-      } else if (type === EventType.ReportReady) {
-        const token = (e.data as { reportToken?: string })?.reportToken ?? next.reportToken;
-        next = { ...next, delivered: true, reportToken: token };
-      } else if (type === ReportEventType.FindingAdded || type === ReportEventType.ReportUpdated) {
+        if (to) next = { ...next, reportState: to };
+      } else if (type === EventType.SnapshotReady) {
+        const token = (e.data as { snapshotToken?: string })?.snapshotToken ?? next.snapshotToken;
+        next = { ...next, delivered: true, snapshotToken: token };
+      } else if (type === ReportEventType.FindingAdded || type === ReportEventType.SnapshotUpdated) {
         const data = e.data as { option?: ReportOption; options?: ReportOption[] };
         const incoming = data.options ?? (data.option ? [data.option] : []);
-        if (incoming.length) { const { optionsById, order } = upsertOptions(next.optionsById, incoming); next = { ...next, optionsById, order }; }
+        if (incoming.length) { const { optionsById, order } = upsertOptions({ optionsById: next.optionsById, incoming }); next = { ...next, optionsById, order }; }
       }
       return next;
     }

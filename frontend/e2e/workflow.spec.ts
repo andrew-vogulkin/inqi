@@ -4,10 +4,10 @@ import { test, expect, Route, Page } from '@playwright/test';
 
 const ADMIN = JSON.stringify({ token: 't', customer: { id: 'a1', email: 'ops@x.io', role: 'admin' } });
 const listV = (v2: string, v1: string) => JSON.stringify([
-  { id: 'v2', key: 'standard_inquiry', version: 2, status: v2, pinnedInquiries: 0 },
-  { id: 'v1', key: 'standard_inquiry', version: 1, status: v1, pinnedInquiries: 3 },
+  { id: 'v2', key: 'standard_report', version: 2, status: v2, pinnedReports: 0 },
+  { id: 'v1', key: 'standard_report', version: 1, status: v1, pinnedReports: 3 },
 ]);
-const inspectBody = JSON.stringify({ id: 'v2', key: 'standard_inquiry', version: 2, status: 'draft', states: [{ name: 'RECEIVED', isInitial: true, isTerminal: false }, { name: 'DONE', isInitial: false, isTerminal: true }], transitions: [{ fromState: 'RECEIVED', toState: 'DONE', event: 'FINISH' }], validation: { valid: true, errors: [] } });
+const inspectBody = JSON.stringify({ id: 'v2', key: 'standard_report', version: 2, status: 'draft', states: [{ name: 'RECEIVED', isInitial: true, isTerminal: false }, { name: 'DONE', isInitial: false, isTerminal: true }], transitions: [{ fromState: 'RECEIVED', toState: 'DONE', event: 'FINISH' }], validation: { valid: true, errors: [] } });
 const diffBody = JSON.stringify({ from: { id: 'v1', version: 1 }, to: { id: 'v2', version: 2 }, diff: { states: { added: ['NEWSTATE'], removed: [] }, transitions: { added: ['A --go--> C'], removed: ['A --go--> B'] } } });
 
 async function setup(page: Page, opts: { publishCounter?: { n: number } } = {}) {

@@ -24,9 +24,9 @@ export class WorkflowAdminRepository {
     return this.exec(tx).workflowDefinition.findFirst({ where: { key, status: WorkflowStatus.Active }, include: { states: true, transitions: true } });
   }
 
-  /** Inquiries pinned per workflow version (defId → count). */
+  /** Reports pinned per workflow version (defId → count). */
   async pinnedCounts({ tx }: { tx?: DbTx } = {}): Promise<Map<string, number>> {
-    const rows = await this.exec(tx).inquiry.groupBy({ by: ['workflowVersionId'], _count: { _all: true } });
+    const rows = await this.exec(tx).report.groupBy({ by: ['workflowVersionId'], _count: { _all: true } });
     return new Map(rows.map((r) => [r.workflowVersionId, r._count._all]));
   }
 

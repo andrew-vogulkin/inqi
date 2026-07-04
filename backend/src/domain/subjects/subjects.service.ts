@@ -43,22 +43,22 @@ export class SubjectsService {
    * first qualifying prior report, or null (gracefully) when reuse is disabled,
    * nothing qualifies, or pgvector/PostGIS aren't available.
    */
-  async reuseLookup({ inquiryId }: { inquiryId: string }): Promise<ReusableReport | null> {
+  async reuseLookup({ reportId }: { reportId: string }): Promise<ReusableReport | null> {
     if (!this.config.reuse.enabled) return null;
-    const subject = await this.subjects.findByInquiry({ inquiryId });
+    const subject = await this.subjects.findByReport({ reportId });
     if (!subject) return null;
     try {
-      const geo = await this.subjects.findInquiryGeo({ inquiryId });
+      const geo = await this.subjects.findReportGeo({ reportId });
       const embedding = await this.embeddings.embed({ text: `${subject.title}\n${subject.description}` });
-      await this.subjects.storeVector({ inquiryId, embedding, lat: geo?.geoLat ?? null, lng: geo?.geoLng ?? null });
+      await this.subjects.storeVector({ reportId, embedding, lat: geo?.geoLat ?? null, lng: geo?.geoLng ?? null });
       const candidates = await this.subjects.findReusableCandidates({
-        inquiryId, embedding, lat: geo?.geoLat ?? null, lng: geo?.geoLng ?? null, limit: REUSE_CANDIDATE_LIMIT,
+        reportId, embedding, lat: geo?.geoLat ?? null, lng: geo?.geoLng ?? null, limit: REUSE_CANDIDATE_LIMIT,
       });
       const { similarityThreshold, radiusMeters, freshnessDays } = this.config.reuse;
       const hit = candidates.find((c) => decideReuse({ candidate: c, thresholds: { similarityThreshold, radiusMeters, freshnessDays } }));
       if (!hit) return null;
-      this.logger.log(`reusable prior report ${hit.reportId} (cosine ${hit.distance.toFixed(3)}, ${hit.distanceMeters ?? 'n/a'}m, ${hit.ageDays.toFixed(1)}d)`);
-      return { reportId: hit.reportId, token: hit.token, distance: hit.distance };
+      this.logger.log(`reusable prior report ${hit.snapshotId} (cosine ${hit.distance.toFixed(3)}, ${hit.distanceMeters ?? 'n/a'}m, ${hit.ageDays.toFixed(1)}d)`);
+      return { snapshotId: hit.snapshotId, token: hit.token, distance: hit.distance };
     } catch (e) {
       this.logger.warn(`reuse lookup skipped (pgvector/PostGIS unavailable?): ${(e as Error).message}`);
       return null;
@@ -66,11 +66,11 @@ export class SubjectsService {
   }
 
   /** Pre-research: seed the Subject aggregate, using AI-enriched fields when available. */
-  createFromInquiry({ inquiryId, rawRequest, enriched }: { inquiryId: string; rawRequest: string; enriched?: EnrichedSubject }) {
+  createFromReport({ reportId, rawRequest, enriched }: { reportId: string; rawRequest: string; enriched?: EnrichedSubject }) {
     // TODO: check prior reports via this.embeddings.embed + PostGIS distance for reuse.
     return this.subjects.create({
       data: {
-        inquiryId,
+        reportId,
         title: enriched?.title ?? rawRequest.slice(0, 80),
         description: enriched?.summary || rawRequest,
         category: enriched?.category ?? SubjectCategory.Item,
@@ -79,12 +79,12 @@ export class SubjectsService {
   }
 
   /** Enrich the subject from confirmed questionnaire answers (DEPTH-adjacent: BALANCED tier). */
-  async enrich({ inquiryId }: { inquiryId: string }): Promise<void> {
+  async enrich({ reportId }: { reportId: string }): Promise<void> {
     if (!this.ai.isConfigured()) return; // fallback: leave the seeded subject as-is
     try {
-      const subject = await this.subjects.findByInquiry({ inquiryId });
+      const subject = await this.subjects.findByReport({ reportId });
       if (!subject) return;
-      const answers = await this.subjects.findQuestionnaireAnswers({ inquiryId });
+      const answers = await this.subjects.findQuestionnaireAnswers({ reportId });
       const result = await this.ai.structured({
         system: enrichmentSystem(),
         user: buildEnrichmentUser({ rawRequest: subject.description, answers }),
@@ -93,7 +93,7 @@ export class SubjectsService {
       });
       const attributes = { ...((subject.attributes as Record<string, unknown>) ?? {}), ...result.attributes, constraints: result.constraints };
       await this.subjects.update({
-        inquiryId,
+        reportId,
         data: {
           description: result.refinedDescription || subject.description,
           attributes: attributes as Prisma.InputJsonValue,
@@ -105,10 +105,10 @@ export class SubjectsService {
   }
 
   /** Broad research over the enriched subject (BREADTH tier); persisted onto attributes. */
-  async broadResearch({ inquiryId }: { inquiryId: string }): Promise<void> {
+  async broadResearch({ reportId }: { reportId: string }): Promise<void> {
     if (!this.ai.isConfigured()) return; // fallback: no-op, the demo proceeds on stub leads
     try {
-      const subject = await this.subjects.findByInquiry({ inquiryId });
+      const subject = await this.subjects.findByReport({ reportId });
       if (!subject) return;
       const result = await this.ai.structured({
         system: broadResearchSystem(),
@@ -117,7 +117,7 @@ export class SubjectsService {
         validate: (raw) => broadResearchSchema.parse(raw),
       });
       const attributes = { ...((subject.attributes as Record<string, unknown>) ?? {}), broadResearch: result };
-      await this.subjects.update({ inquiryId, data: { attributes: attributes as Prisma.InputJsonValue } });
+      await this.subjects.update({ reportId, data: { attributes: attributes as Prisma.InputJsonValue } });
     } catch (e) {
       this.logger.warn(`broad research failed; proceeding without it: ${(e as Error).message}`);
     }

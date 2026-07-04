@@ -10,22 +10,22 @@ export const Route = {
   StyleGuide: '/styleguide',
   SignIn: '/signin',
   Dashboard: '/dashboard',
-  NewInquiry: '/new',
+  NewReport: '/new',
   Credits: '/credits',
-  Inquiry: '/i/:id',
+  Report: '/r/:id',                       // live report view (the root aggregate)
   Freemium: '/f/:id',
   Dossier: '/d/:id/:ref',
-  Report: '/r/:token',
+  Snapshot: '/s/:token',                  // final snapshot deep link (capability token)
   Questionnaire: '/q/:token',
   Admin: '/admin',
-  AdminRun: '/admin/run',                 // FE-12 run controls (top-level; auto-selects an inquiry)
-  AdminCostOverview: '/admin/cost',       // FE-13 cost (top-level; auto-selects an inquiry)
+  AdminRun: '/admin/run',                 // FE-12 run controls (top-level; auto-selects a report)
+  AdminCostOverview: '/admin/cost',       // FE-13 cost (top-level; auto-selects a report)
   AdminCredits: '/admin/topup',           // FE-16 operator credit top-up
   AdminAudit: '/admin/audit',
   AdminWorkflows: '/admin/workflows',
-  AdminInquiry: '/admin/i/:id',
-  AdminCost: '/admin/i/:id/cost',
-  AdminSubtask: '/admin/s/:id',
+  AdminReport: '/admin/r/:id',
+  AdminCost: '/admin/r/:id/cost',
+  AdminInquiry: '/admin/i/:id',           // one candidate's system view
   AdminThread: '/admin/t/:id',
   AdminDossier: '/admin/d/:id/:ref',
 } as const;
@@ -43,12 +43,12 @@ export const ROUTE_META: Record<Route, RouteMeta> = {
   [Route.StyleGuide]: { layout: LayoutMode.Bare, requiresAuth: false, adminOnly: false },
   [Route.SignIn]: { layout: LayoutMode.Bare, requiresAuth: false, adminOnly: false },
   [Route.Dashboard]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
-  [Route.NewInquiry]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
+  [Route.NewReport]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Credits]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
-  [Route.Inquiry]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
+  [Route.Report]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Freemium]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Dossier]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },     // customer provenance (redacted outreach)
-  [Route.Report]: { layout: LayoutMode.Bare, requiresAuth: true, adminOnly: false },          // HP-24: report deep link now owner-gated
+  [Route.Snapshot]: { layout: LayoutMode.Bare, requiresAuth: true, adminOnly: false },        // HP-24: snapshot deep link owner-gated
   [Route.Questionnaire]: { layout: LayoutMode.Bare, requiresAuth: true, adminOnly: false },    // HP-24: questionnaire now owner-gated
   [Route.Admin]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },
   [Route.AdminRun]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },            // FE-12 run controls (top-level)
@@ -56,9 +56,9 @@ export const ROUTE_META: Record<Route, RouteMeta> = {
   [Route.AdminCredits]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },        // FE-16 credit top-up
   [Route.AdminAudit]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },          // FE-14 audit trail
   [Route.AdminWorkflows]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },      // FE-15 workflow versions
-  [Route.AdminInquiry]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },
+  [Route.AdminReport]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },
   [Route.AdminCost]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },          // FE-13 per-report cost rollup
-  [Route.AdminSubtask]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },      // FE-11 subtask system view
+  [Route.AdminInquiry]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },      // FE-11 inquiry system view
   [Route.AdminThread]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },        // FE-17 outreach thread
   [Route.AdminDossier]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },     // admin provenance (may show the chain)
 };

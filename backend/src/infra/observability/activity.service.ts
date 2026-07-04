@@ -29,28 +29,28 @@ export class ActivityService {
     return new Date(Date.now() + this.config.resilience.leaseMs);
   }
 
-  async runStage({ inquiryId, stage, fn }: { inquiryId: string; stage: AgentStage; fn: (log: StageLogger) => Promise<void> }): Promise<void> {
+  async runStage({ reportId, stage, fn }: { reportId: string; stage: AgentStage; fn: (log: StageLogger) => Promise<void> }): Promise<void> {
     const now = new Date();
-    const run = await this.db.agentRun.create({ data: { inquiryId, stage, leaseUntil: this.leaseFromNow(), heartbeatAt: now } });
+    const run = await this.db.agentRun.create({ data: { reportId, stage, leaseUntil: this.leaseFromNow(), heartbeatAt: now } });
     // Heartbeat on every progress log: persist the event, extend the lease, emit progress + heartbeat.
     const log: StageLogger = async ({ message, data }) => {
       await this.db.agentEvent.create({ data: { runId: run.id, kind: AgentEventKind.Progress, message, data: data as Prisma.InputJsonValue } });
       await this.db.agentRun.update({ where: { id: run.id }, data: { heartbeatAt: new Date(), leaseUntil: this.leaseFromNow() } });
-      await this.outbox.emit({ type: EventType.AgentProgress, inquiryId, data: { stage, message } });
-      await this.outbox.emit({ type: EventType.AgentHeartbeat, inquiryId, data: { stage } });
+      await this.outbox.emit({ type: EventType.AgentProgress, reportId, data: { stage, message } });
+      await this.outbox.emit({ type: EventType.AgentHeartbeat, reportId, data: { stage } });
     };
 
-    await this.outbox.emit({ type: EventType.AgentStarted, inquiryId, data: { stage } });
+    await this.outbox.emit({ type: EventType.AgentStarted, reportId, data: { stage } });
     try {
-      // Run inside the usage context so AI/embedding calls in this stage attribute to the inquiry (HP-15).
-      await this.usageCtx.run({ inquiryId, stage }, () => fn(log));
+      // Run inside the usage context so AI/embedding calls in this stage attribute to the report (HP-15).
+      await this.usageCtx.run({ reportId, stage }, () => fn(log));
       await this.db.agentRun.update({ where: { id: run.id }, data: { status: AgentRunStatus.Done, endedAt: new Date(), leaseUntil: null } });
-      await this.outbox.emit({ type: EventType.AgentStopped, inquiryId, data: { stage, status: AgentRunStatus.Done } });
+      await this.outbox.emit({ type: EventType.AgentStopped, reportId, data: { stage, status: AgentRunStatus.Done } });
     } catch (e) {
       const error = String((e as Error)?.message ?? e);
       // Clear the lease so the reaper doesn't also pick it up — this inline failure is handled by the worker's recoverStage.
       await this.db.agentRun.update({ where: { id: run.id }, data: { status: AgentRunStatus.Failed, error, endedAt: new Date(), leaseUntil: null } });
-      await this.outbox.emit({ type: EventType.AgentFailed, inquiryId, data: { stage, error } });
+      await this.outbox.emit({ type: EventType.AgentFailed, reportId, data: { stage, error } });
       throw e;
     }
   }

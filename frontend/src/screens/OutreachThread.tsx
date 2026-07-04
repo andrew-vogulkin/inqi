@@ -6,36 +6,36 @@ import { color, space, fontSize, fontWeight, radius } from '../theme/tokens';
 import { adminApi } from '../api';
 import { ThreadMessageDto } from '../api/types';
 import { Card, StatusBadge, Badge, MonoRef, EmptyState, Skeleton } from '../ui';
-import { toneColors, toneForSubtaskStatus } from '../ui/tone';
+import { toneColors, toneForInquiryStatus } from '../ui/tone';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
 
-/** FE-17 — operator outreach thread: one subtask's persona-owned email conversation, live. */
-export function OutreachThread({ subtaskId }: { subtaskId: string }) {
+/** FE-17 — operator outreach thread: one inquiry's persona-owned email conversation, live. */
+export function OutreachThread({ inquiryId }: { inquiryId: string }) {
   const dispatch = useAppDispatch();
   const thread = useSelector((s) => s.thread);
-  const record = useSelector((s) => s.adminBoard.subtasksById[subtaskId]);
-  const inquiryId = useSelector((s) => s.adminBoard.inquiryId);
+  const record = useSelector((s) => s.adminBoard.inquiriesById[inquiryId]);
+  const reportId = useSelector((s) => s.adminBoard.reportId);
   const seenCount = Object.keys(thread.seen).length;
 
   useRealtime({ kind: 'admin' });
 
-  // Load the thread for this subtask.
+  // Load the thread for this inquiry.
   useEffect(() => {
-    adminApi.thread({ subtaskId }).then((messages) => dispatch({ type: ActionType.ThreadLoaded, subtaskId, messages })).catch(() => undefined);
-  }, [subtaskId, dispatch]);
+    adminApi.thread({ inquiryId }).then((messages) => dispatch({ type: ActionType.ThreadLoaded, inquiryId, messages })).catch(() => undefined);
+  }, [inquiryId, dispatch]);
 
-  // A message.* event for this subtask bumps `seen` → refetch the authoritative thread
+  // A message.* event for this inquiry bumps `seen` → refetch the authoritative thread
   // (the live backend events are thin: no message id/body).
   useEffect(() => {
     if (!seenCount) return;
-    adminApi.thread({ subtaskId }).then((messages) => dispatch({ type: ActionType.ThreadLoaded, subtaskId, messages })).catch(() => undefined);
-  }, [seenCount, subtaskId, dispatch]);
+    adminApi.thread({ inquiryId }).then((messages) => dispatch({ type: ActionType.ThreadLoaded, inquiryId, messages })).catch(() => undefined);
+  }, [seenCount, inquiryId, dispatch]);
 
-  const backHref = inquiryId ? hrefFor({ route: Route.AdminInquiry, params: { id: inquiryId } }) : hrefFor({ route: Route.Admin });
+  const backHref = reportId ? hrefFor({ route: Route.AdminReport, params: { id: reportId } }) : hrefFor({ route: Route.Admin });
 
-  if (thread.subtaskId !== subtaskId || thread.status !== AsyncStatus.Ready) {
+  if (thread.inquiryId !== inquiryId || thread.status !== AsyncStatus.Ready) {
     return <Card><Skeleton width="40%" /></Card>;
   }
 
@@ -48,7 +48,7 @@ export function OutreachThread({ subtaskId }: { subtaskId: string }) {
       <Card testId="thread-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: space[2] }}>
           <h1 style={{ fontSize: fontSize.h2, flex: 1 }}>{header.provider}</h1>
-          <StatusBadge label={header.status} tone={toneForSubtaskStatus(header.status)} />
+          <StatusBadge label={header.status} tone={toneForInquiryStatus(header.status)} />
         </div>
         <div style={{ display: 'flex', gap: space[2], flexWrap: 'wrap', alignItems: 'center', marginTop: space[2] }}>
           <Badge>persona {header.persona}</Badge>
@@ -60,7 +60,7 @@ export function OutreachThread({ subtaskId }: { subtaskId: string }) {
       </Card>
 
       {thread.messages.length === 0
-        ? <EmptyState title="Not contacted yet" hint="This subtask is queued — no email has been sent." />
+        ? <EmptyState title="Not contacted yet" hint="This inquiry is queued — no email has been sent." />
         : (
           <div data-testid="thread-bubbles" style={{ display: 'grid', gap: space[3] }}>
             {thread.messages.map((m) => <Bubble key={m.id} message={m} />)}

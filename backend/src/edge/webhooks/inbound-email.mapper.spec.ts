@@ -6,7 +6,7 @@ describe('toInboundEmail', () => {
       From: 'sales@provider.example',
       To: 'Inqi <abc123@reply.inqi.example>',
       OriginalRecipient: 'abc123@reply.inqi.example',
-      Subject: 'Re: inquiry',
+      Subject: 'Re: report',
       TextBody: 'Yes, in stock. 290 EUR.',
       MessageID: 'pm-internal-id',
       Headers: [
@@ -18,7 +18,7 @@ describe('toInboundEmail', () => {
     // OriginalRecipient (bare address) is preferred for thread mapping over the display-name To.
     expect(r.toAddr).toBe('abc123@reply.inqi.example');
     expect(r.fromAddr).toBe('sales@provider.example');
-    expect(r.subject).toBe('Re: inquiry');
+    expect(r.subject).toBe('Re: report');
     expect(r.body).toBe('Yes, in stock. 290 EUR.');
     // The original Message-ID header is preferred over Postmark's internal MessageID.
     expect(r.externalId).toBe('<real-msg@provider.example>');

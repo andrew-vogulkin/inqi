@@ -16,8 +16,8 @@ function toGraph(def: { states: { name: string; isInitial: boolean; isTerminal: 
 /**
  * Workflow-version management (HP-12): list/inspect/diff and a safe, validated,
  * audited publish. The workflow stays DB-stored + versioned; active/archived
- * versions are immutable, new inquiries pick the active version, and in-flight
- * inquiries stay pinned to theirs.
+ * versions are immutable, new reports pick the active version, and in-flight
+ * reports stay pinned to theirs.
  */
 @Injectable()
 export class WorkflowAdminService {
@@ -25,7 +25,7 @@ export class WorkflowAdminService {
 
   async list() {
     const [defs, pinned] = await Promise.all([this.repo.listDefinitions(), this.repo.pinnedCounts()]);
-    return defs.map((d) => ({ id: d.id, key: d.key, version: d.version, status: d.status, createdAt: d.createdAt, pinnedInquiries: pinned.get(d.id) ?? 0 }));
+    return defs.map((d) => ({ id: d.id, key: d.key, version: d.version, status: d.status, createdAt: d.createdAt, pinnedReports: pinned.get(d.id) ?? 0 }));
   }
 
   async inspect({ id }: { id: string }) {

@@ -1,5 +1,5 @@
-/** Canonical inquiry states. The DB workflow definition mirrors these. */
-export const InquiryState = {
+/** Canonical report states. The DB workflow definition mirrors these. */
+export const ReportState = {
   RECEIVED: 'RECEIVED',
   PRE_RESEARCH: 'PRE_RESEARCH',
   DENIED: 'DENIED',
@@ -16,12 +16,12 @@ export const InquiryState = {
   CANCELLED: 'CANCELLED',   // operator/customer cancelled in-flight
   ON_HOLD: 'ON_HOLD',       // paused by operator (resumed by HP-11)
 } as const;
-export type InquiryState = (typeof InquiryState)[keyof typeof InquiryState];
+export type ReportState = (typeof ReportState)[keyof typeof ReportState];
 
 /** Processing states an agent stage actively works in (eligible for failure/stall recovery). */
-export const PROCESSING_STATES: InquiryState[] = [
-  InquiryState.PRE_RESEARCH, InquiryState.ENRICHMENT, InquiryState.BROAD_RESEARCH,
-  InquiryState.FUNNEL, InquiryState.OUTREACH, InquiryState.REPORT_GENERATION,
+export const PROCESSING_STATES: ReportState[] = [
+  ReportState.PRE_RESEARCH, ReportState.ENRICHMENT, ReportState.BROAD_RESEARCH,
+  ReportState.FUNNEL, ReportState.OUTREACH, ReportState.REPORT_GENERATION,
 ];
 
 /** Events that drive transitions (from humans/API or from agent jobs). */
@@ -51,18 +51,18 @@ export const WorkflowEvent = {
 export type WorkflowEvent = (typeof WorkflowEvent)[keyof typeof WorkflowEvent];
 
 /** The failure/stall event valid from each processing state (state-based, robust to stage renames). */
-export const FAILURE_EVENT_BY_STATE: Partial<Record<InquiryState, WorkflowEvent>> = {
-  [InquiryState.PRE_RESEARCH]: WorkflowEvent.PRE_RESEARCH_FAILED,
-  [InquiryState.ENRICHMENT]: WorkflowEvent.ENRICHMENT_FAILED,
-  [InquiryState.BROAD_RESEARCH]: WorkflowEvent.BROAD_RESEARCH_FAILED,
-  [InquiryState.FUNNEL]: WorkflowEvent.FUNNEL_FAILED,
-  [InquiryState.OUTREACH]: WorkflowEvent.OUTREACH_STALLED,
-  [InquiryState.REPORT_GENERATION]: WorkflowEvent.REPORT_FAILED,
+export const FAILURE_EVENT_BY_STATE: Partial<Record<ReportState, WorkflowEvent>> = {
+  [ReportState.PRE_RESEARCH]: WorkflowEvent.PRE_RESEARCH_FAILED,
+  [ReportState.ENRICHMENT]: WorkflowEvent.ENRICHMENT_FAILED,
+  [ReportState.BROAD_RESEARCH]: WorkflowEvent.BROAD_RESEARCH_FAILED,
+  [ReportState.FUNNEL]: WorkflowEvent.FUNNEL_FAILED,
+  [ReportState.OUTREACH]: WorkflowEvent.OUTREACH_STALLED,
+  [ReportState.REPORT_GENERATION]: WorkflowEvent.REPORT_FAILED,
 };
 
-/** Pure: the failure event to fire for a stuck inquiry in `state`, or null if none applies. */
+/** Pure: the failure event to fire for a stuck report in `state`, or null if none applies. */
 export function failureEventForState(state: string): WorkflowEvent | null {
-  return FAILURE_EVENT_BY_STATE[state as InquiryState] ?? null;
+  return FAILURE_EVENT_BY_STATE[state as ReportState] ?? null;
 }
 
 export const OutreachStrategy = {
@@ -72,7 +72,7 @@ export const OutreachStrategy = {
 } as const;
 export type OutreachStrategy = (typeof OutreachStrategy)[keyof typeof OutreachStrategy];
 
-export const TERMINAL_STATES: InquiryState[] = [
-  InquiryState.DENIED, InquiryState.DROPPED, InquiryState.REPORT_DELIVERED,
-  InquiryState.FAILED, InquiryState.CANCELLED,
+export const TERMINAL_STATES: ReportState[] = [
+  ReportState.DENIED, ReportState.DROPPED, ReportState.REPORT_DELIVERED,
+  ReportState.FAILED, ReportState.CANCELLED,
 ];

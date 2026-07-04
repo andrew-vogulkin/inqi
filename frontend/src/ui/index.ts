@@ -10,4 +10,4 @@ export { MonoRef } from './MonoRef';
 export { EmptyState, ErrorState } from './States';
 export { Modal, ConfirmDialog } from './Modal';
 export { ToastHost } from './Toast';
-export { toneColors, toneForInquiryState, toneForSubtaskStatus } from './tone';
+export { toneColors, toneForReportState, toneForInquiryStatus } from './tone';

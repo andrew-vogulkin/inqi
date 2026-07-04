@@ -6,7 +6,7 @@ import { ActionType } from '../state/actions';
 import { createIngestState, ingest } from './envelope';
 
 /** Which realtime room to join (convention #1: no bare room strings). */
-export type RealtimeRoom = { kind: typeof RoomKind.Inquiry; inquiryId: string } | { kind: typeof RoomKind.Admin };
+export type RealtimeRoom = { kind: typeof RoomKind.Report; reportId: string } | { kind: typeof RoomKind.Admin };
 
 /**
  * Realtime → reducers (API-02). One Socket.IO client subscribes to the room and
@@ -17,7 +17,7 @@ export type RealtimeRoom = { kind: typeof RoomKind.Inquiry; inquiryId: string } 
  */
 export function useRealtime(room: RealtimeRoom | null): void {
   const dispatch = useAppDispatch();
-  const roomKey = room ? (room.kind === RoomKind.Inquiry ? Room.inquiry(room.inquiryId) : Room.admin) : 'none';
+  const roomKey = room ? (room.kind === RoomKind.Report ? Room.report(room.reportId) : Room.admin) : 'none';
 
   useEffect(() => {
     if (!room) return;
@@ -31,9 +31,9 @@ export function useRealtime(room: RealtimeRoom | null): void {
     };
 
     const onConnect = () => {
-      socket.emit('subscribe', room.kind === RoomKind.Admin ? { admin: true } : { inquiryId: room.inquiryId });
-      if (room.kind === RoomKind.Inquiry) {
-        socket.emit('replay', { inquiryId: room.inquiryId, afterId: state.cursor }, (rows: unknown[]) => ingestBatch(rows));
+      socket.emit('subscribe', room.kind === RoomKind.Admin ? { admin: true } : { reportId: room.reportId });
+      if (room.kind === RoomKind.Report) {
+        socket.emit('replay', { reportId: room.reportId, afterId: state.cursor }, (rows: unknown[]) => ingestBatch(rows));
       }
       if (connectedBefore) dispatch({ type: ActionType.SocketReconnected });
       connectedBefore = true;
@@ -48,15 +48,15 @@ export function useRealtime(room: RealtimeRoom | null): void {
 }
 
 /**
- * Dashboard realtime (FE-03): one socket, joined to every owned inquiry room, so an
- * `inquiry.transitioned` on any of them updates its row live. Replays each by cursor.
+ * Dashboard realtime (FE-03): one socket, joined to every owned report room, so an
+ * `report.transitioned` on any of them updates its row live. Replays each by cursor.
  */
-export function useRealtimeInquiries({ inquiryIds }: { inquiryIds: string[] }): void {
+export function useRealtimeReports({ reportIds }: { reportIds: string[] }): void {
   const dispatch = useAppDispatch();
-  const key = inquiryIds.slice().sort().join(',');
+  const key = reportIds.slice().sort().join(',');
 
   useEffect(() => {
-    if (!inquiryIds.length) return;
+    if (!reportIds.length) return;
     const socket = io({ path: '/socket.io' });
     const state = createIngestState();
 
@@ -65,9 +65,9 @@ export function useRealtimeInquiries({ inquiryIds }: { inquiryIds: string[] }): 
       for (const e of fresh) dispatch({ type: ActionType.EventReceived, event: e });
     };
     const onConnect = () => {
-      for (const id of inquiryIds) {
-        socket.emit('subscribe', { inquiryId: id });
-        socket.emit('replay', { inquiryId: id, afterId: '0' }, (rows: unknown[]) => ingestBatch(rows));
+      for (const id of reportIds) {
+        socket.emit('subscribe', { reportId: id });
+        socket.emit('replay', { reportId: id, afterId: '0' }, (rows: unknown[]) => ingestBatch(rows));
       }
     };
     const onEvent = (e: unknown) => ingestBatch([e]);

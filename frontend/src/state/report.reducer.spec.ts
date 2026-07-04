@@ -7,9 +7,9 @@ import { reportReducer, initialReportState, bestMatch, ReportState } from './rep
 
 const opt = (name: string, price: number, quality: number): ReportOption => ({ subjectProvider: name, price, currency: 'EUR', qualityScore: quality });
 const live = (over: Partial<LiveReportDto> = {}): LiveReportDto => ({
-  inquiryId: 'i1', state: 'OUTREACH', delivered: false, rawRequest: 'a bike', reportToken: null, reusedFrom: null, summary: 'in progress', options: [], ...over,
+  reportId: 'i1', state: 'OUTREACH', delivered: false, rawRequest: 'a bike', snapshotToken: null, reusedFrom: null, summary: 'in progress', options: [], ...over,
 });
-const evt = (over: Partial<InqiEvent>): InqiEvent => ({ id: '1', type: EventType.AgentProgress, inquiryId: 'i1', at: 't', data: {}, ...over });
+const evt = (over: Partial<InqiEvent>): InqiEvent => ({ id: '1', type: EventType.AgentProgress, reportId: 'i1', at: 't', data: {}, ...over });
 const snap = (l: LiveReportDto): ReportState => reportReducer(initialReportState, { type: ActionType.ReportSnapshotReceived, live: l });
 
 describe('reportReducer — snapshot + ranking', () => {
@@ -26,10 +26,10 @@ describe('reportReducer — snapshot + ranking', () => {
 describe('reportReducer — streaming events', () => {
   it('applies a transition + report-ready (delivered + token)', () => {
     let s = snap(live());
-    s = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '5', type: EventType.InquiryTransitioned, data: { to: 'REPORT_DELIVERED' } }) });
-    expect(s.inquiryState).toBe('REPORT_DELIVERED');
-    s = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '6', type: EventType.ReportReady, data: { reportToken: 'tok' } }) });
-    expect(s).toMatchObject({ delivered: true, reportToken: 'tok' });
+    s = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '5', type: EventType.ReportTransitioned, data: { to: 'REPORT_DELIVERED' } }) });
+    expect(s.reportState).toBe('REPORT_DELIVERED');
+    s = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '6', type: EventType.SnapshotReady, data: { snapshotToken: 'tok' } }) });
+    expect(s).toMatchObject({ delivered: true, snapshotToken: 'tok' });
     expect(s.cursor).toBe('6');
     expect(s.timeline.map((t) => t.id)).toEqual(['5', '6']);
   });
@@ -44,9 +44,9 @@ describe('reportReducer — streaming events', () => {
     expect(s.cursor).toBe('10'); // max, not last-applied
   });
 
-  it('ignores events for a different inquiry', () => {
+  it('ignores events for a different report', () => {
     const s = snap(live());
-    const after = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '9', inquiryId: 'other', type: EventType.ReportReady, data: { reportToken: 'x' } }) });
+    const after = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '9', reportId: 'other', type: EventType.SnapshotReady, data: { snapshotToken: 'x' } }) });
     expect(after.delivered).toBe(false);
   });
 
@@ -57,7 +57,7 @@ describe('reportReducer — streaming events', () => {
     expect(s.order[0]).toBe('B'); // new top match
     expect(Object.keys(s.optionsById)).toHaveLength(2);
     // upsert (same id) updates in place + re-ranks; B's quality drops → A leads
-    s = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '4', type: ReportEventType.ReportUpdated as unknown as EventType, data: { option: opt('B', 200, 0.3) } }) });
+    s = reportReducer(s, { type: ActionType.EventReceived, event: evt({ id: '4', type: ReportEventType.SnapshotUpdated as unknown as EventType, data: { option: opt('B', 200, 0.3) } }) });
     expect(Object.keys(s.optionsById)).toHaveLength(2);
     expect(s.order[0]).toBe('A');
   });

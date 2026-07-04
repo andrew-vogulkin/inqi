@@ -12,7 +12,7 @@ async function main() {
   const c = await db.customer.upsert({
     where: { email: EMAIL },
     update: { name: 'Andrei', role: AuthRole.Customer },
-    create: { email: EMAIL, name: 'Andrei', role: AuthRole.Customer, credits: 3, freeReportUsed: false },
+    create: { email: EMAIL, name: 'Andrei', role: AuthRole.Customer, credits: 5, freeReportUsed: false },
   });
   console.log(`Seeded ${EMAIL} (id ${c.id}, role ${c.role}, credits ${c.credits}, freeReportUsed ${c.freeReportUsed})`);
 }

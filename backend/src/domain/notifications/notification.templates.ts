@@ -1,22 +1,60 @@
 import { NotificationKind } from '@inqi/shared';
 
+/** A ranked option as it appears in the email (freemium-locked reports pass none). */
+export interface TemplateOption { name: string; price?: number | null; currency?: string | null }
+
 /** Context for rendering a customer notification. Keep bodies minimal — no sensitive data. */
 export interface TemplateContext {
   reportUrl?: string;
   questionnaireUrl?: string;
   expiresAt?: Date;
   reason?: string;
+  /** The customer's own request wording (created ack). */
+  request?: string;
+  /** Report details (delivered/updated): the synthesized summary + the top-ranked options. */
+  summary?: string;
+  options?: TemplateOption[];
 }
 
 export interface RenderedTemplate { subject: string; body: string }
 
+/** The "1. Name — 5000 THB" ranking lines shared by the delivered/updated emails. */
+function rankingLines(options: TemplateOption[]): string {
+  return options
+    .map((o, i) => `${i + 1}. ${o.name}${o.price != null ? ` — ${o.price} ${o.currency ?? ''}`.trimEnd() : ''}`)
+    .join('\n');
+}
+
+/** The optional details block (summary + top ranking) — empty for locked freemium reports. */
+function detailsBlock(ctx: TemplateContext): string {
+  const parts: string[] = [];
+  if (ctx.options?.length) parts.push(`Top options:\n${rankingLines(ctx.options)}`);
+  if (ctx.summary) parts.push(ctx.summary);
+  return parts.length ? `\n\n${parts.join('\n\n')}` : '';
+}
+
 /** Pure: render the email subject+body for a notification kind. Links are capability-token (no login). */
 export function renderNotification({ kind, ctx }: { kind: NotificationKind; ctx: TemplateContext }): RenderedTemplate {
   switch (kind) {
+    case NotificationKind.ReportReceived:
+      return {
+        subject: 'We received your inqi request',
+        body: `Thanks — we've got your request${ctx.request ? `:\n\n"${ctx.request}"` : '.'}\n\nWe're pre-researching it now; you'll get a short questionnaire to confirm the scope before agents start reaching out.\n\nTrack progress here: ${ctx.reportUrl}\n\n— inqi`,
+      };
+    case NotificationKind.QuestionnaireRequest:
+      return {
+        subject: 'inqi needs you: confirm the scope of your request',
+        body: `We pre-researched your request — a few quick questions will make the research sharp.\n\nConfirm the scope here: ${ctx.questionnaireUrl}${ctx.expiresAt ? `\n\nThis link expires ${ctx.expiresAt.toISOString()}.` : ''}\n\nResearch starts as soon as you confirm.\n\n— inqi`,
+      };
     case NotificationKind.ReportReady:
       return {
         subject: 'Your inqi report is ready',
-        body: `Good news — your research report is ready.\n\nView it here: ${ctx.reportUrl}\n\n— inqi`,
+        body: `Good news — your research report is ready.${detailsBlock(ctx)}\n\nView it here: ${ctx.reportUrl}\n\n— inqi`,
+      };
+    case NotificationKind.ReportUpdated:
+      return {
+        subject: 'Your inqi report was updated',
+        body: `New information arrived after your report was delivered (a provider reply or late research), so we re-evaluated the ranking.${detailsBlock(ctx)}\n\nSee the updated report: ${ctx.reportUrl}\n\n— inqi`,
       };
     case NotificationKind.QuestionnaireReminder:
       return {

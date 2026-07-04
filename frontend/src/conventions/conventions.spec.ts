@@ -14,8 +14,8 @@ describe('matchRoute', () => {
     expect(matchRoute('#/admin')?.route).toBe(Route.Admin);
   });
   it('matches param routes + extracts params', () => {
-    const m = matchRoute('#/r/abc123');
-    expect(m?.route).toBe(Route.Report);
+    const m = matchRoute('#/s/abc123');
+    expect(m?.route).toBe(Route.Snapshot);
     expect(m?.params.token).toBe('abc123');
   });
   it('returns null for unknown paths (→ 404)', () => {
@@ -25,7 +25,7 @@ describe('matchRoute', () => {
 
 describe('hrefFor', () => {
   it('fills params', () => {
-    expect(hrefFor({ route: Route.AdminInquiry, params: { id: 'i9' } })).toBe('#/admin/i/i9');
+    expect(hrefFor({ route: Route.AdminReport, params: { id: 'i9' } })).toBe('#/admin/r/i9');
   });
 });
 

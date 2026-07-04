@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { MessageDirection, EventType, MessageStatus, InqiEvent } from '@inqi/shared';
 import { sortThread, appendThreadMessage, messageDtoFromEvent, bubbleVM, threadHeaderVM } from './thread';
 import { ThreadMessageDto } from '../api/types';
-import { SubtaskRecord } from './subtask';
+import { InquiryRecord } from './inquiry';
 
-const msg = (over: Partial<ThreadMessageDto>): ThreadMessageDto => ({ id: 'm', subtaskId: 's1', direction: MessageDirection.Outbound, status: MessageStatus.Sent, fromAddr: 'p@reply.inqi.io', toAddr: 'sales@acme.io', body: 'hi', createdAt: '2026-06-28T12:00:00Z', ...over });
+const msg = (over: Partial<ThreadMessageDto>): ThreadMessageDto => ({ id: 'm', inquiryId: 's1', direction: MessageDirection.Outbound, status: MessageStatus.Sent, fromAddr: 'p@reply.inqi.io', toAddr: 'sales@acme.io', body: 'hi', createdAt: '2026-06-28T12:00:00Z', ...over });
 
 describe('sortThread — chronological + deduped by id', () => {
   it('orders by createdAt and removes duplicate ids', () => {
@@ -28,14 +28,14 @@ describe('appendThreadMessage — idempotent by id', () => {
 });
 
 describe('messageDtoFromEvent', () => {
-  const ev = (over: Partial<InqiEvent>): InqiEvent => ({ id: '1', type: EventType.MessageReceived, inquiryId: 'i1', subtaskId: 's1', at: '2026-06-28T14:00:00Z', data: {}, ...over });
+  const ev = (over: Partial<InqiEvent>): InqiEvent => ({ id: '1', type: EventType.MessageReceived, reportId: 'i1', inquiryId: 's1', at: '2026-06-28T14:00:00Z', data: {}, ...over });
   it('builds an inbound message when the payload carries it', () => {
     const m = messageDtoFromEvent({ event: ev({ data: { id: 'r1', body: 'In stock', fromAddr: 'sales@acme.io' } }) });
     expect(m).toMatchObject({ id: 'r1', direction: MessageDirection.Inbound, body: 'In stock' });
   });
   it('returns null for a thin live event (no id/body) and non-message events', () => {
     expect(messageDtoFromEvent({ event: ev({ data: { from: 'sales@acme.io' } }) })).toBeNull();
-    expect(messageDtoFromEvent({ event: ev({ type: EventType.SubtaskUpdated, data: { id: 'x', body: 'y' } }) })).toBeNull();
+    expect(messageDtoFromEvent({ event: ev({ type: EventType.InquiryUpdated, data: { id: 'x', body: 'y' } }) })).toBeNull();
   });
 });
 
@@ -47,7 +47,7 @@ describe('bubbleVM — direction-aligned address', () => {
 });
 
 describe('threadHeaderVM — composed from record + addresses', () => {
-  const record: SubtaskRecord = { id: 's1', epicId: 'e1', provider: 'Acme Bikes', wave: 1, status: 'replied', qualityScore: null, personaId: 'persona_amsterdam' };
+  const record: InquiryRecord = { id: 's1', epicId: 'e1', provider: 'Acme Bikes', wave: 1, status: 'replied', qualityScore: null, personaId: 'persona_amsterdam' };
   it('uses the record for provider/persona/status and derives route + hub from the outbound message', () => {
     const h = threadHeaderVM({ record, messages: [msg({ direction: MessageDirection.Outbound })] });
     expect(h).toMatchObject({ provider: 'Acme Bikes', persona: 'persona_amsterdam', status: 'replied', hub: 'reply.inqi.io', route: 'p@reply.inqi.io → sales@acme.io' });

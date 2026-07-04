@@ -6,8 +6,8 @@ import { ActionType } from '../state/actions';
 
 /**
  * Admin console shell — in-product **left sidebar** (operator console), matching the
- * updated prototype. Three grouped sections; drill-in screens (subtask, thread,
- * dossier, per-inquiry board/cost) highlight their parent nav item. The prototype's
+ * updated prototype. Three grouped sections; drill-in screens (inquiry, thread,
+ * dossier, per-report board/cost) highlight their parent nav item. The prototype's
  * separate demo "navigator rail" is chrome and is intentionally NOT shipped (FE-01 §2).
  */
 type Item = { key: string; icon: string; label: string; route: Route; live?: boolean };
@@ -27,7 +27,7 @@ const GROUPS: { label: string; items: Item[] }[] = [
 ];
 // Which sidebar item is highlighted for a given route (drill-ins map to their parent).
 const ACTIVE_KEY: Partial<Record<Route, string>> = {
-  [Route.Admin]: 'board', [Route.AdminInquiry]: 'board', [Route.AdminSubtask]: 'board', [Route.AdminThread]: 'board', [Route.AdminDossier]: 'board',
+  [Route.Admin]: 'board', [Route.AdminReport]: 'board', [Route.AdminInquiry]: 'board', [Route.AdminThread]: 'board', [Route.AdminDossier]: 'board',
   [Route.AdminRun]: 'run',
   [Route.AdminCostOverview]: 'cost', [Route.AdminCost]: 'cost',
   [Route.AdminAudit]: 'audit',

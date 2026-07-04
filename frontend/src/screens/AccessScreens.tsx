@@ -22,6 +22,6 @@ export function AccessScreenView({ screen }: { screen: AccessScreen }) {
       return <Centered><ErrorState title="For operators" message="This area is limited to inqi operators." action={<a href={hrefFor({ route: Route.Home })}>Back to inqi →</a>} /></Centered>;
     case AccessScreen.NotFound:
     default:
-      return <Centered><ErrorState title="Can't find that inquiry" message="The page or inquiry you're looking for doesn't exist." action={<a href={hrefFor({ route: Route.Home })}>Back to inqi →</a>} /></Centered>;
+      return <Centered><ErrorState title="Can't find that report" message="The page or report you're looking for doesn't exist." action={<a href={hrefFor({ route: Route.Home })}>Back to inqi →</a>} /></Centered>;
   }
 }

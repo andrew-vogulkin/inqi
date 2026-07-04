@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 
-export interface UsageCtx { inquiryId?: string; stage?: string }
+export interface UsageCtx { reportId?: string; stage?: string }
 
 /**
- * Async-local context (HP-15) carrying the current inquiry/stage, so the AI
- * provider can attribute token usage to an inquiry without threading `inquiryId`
+ * Async-local context (HP-15) carrying the current report/stage, so the AI
+ * provider can attribute token usage to a report without threading `reportId`
  * through every call. Set by the stage wrapper + reactor; read at record time.
  */
 @Injectable()
@@ -20,7 +20,7 @@ export class UsageContextService {
     return this.als.getStore();
   }
 
-  inquiryId(): string | undefined {
-    return this.als.getStore()?.inquiryId;
+  reportId(): string | undefined {
+    return this.als.getStore()?.reportId;
   }
 }

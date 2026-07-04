@@ -46,12 +46,17 @@ export function AuditTrail() {
             {audit.entries.map((entry, i) => {
               const vm = auditRowVM({ entry });
               return (
-                <div key={i} data-testid="audit-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', gap: space[3], alignItems: 'center', padding: `${space[2]}px 0`, borderTop: i ? `1px solid ${color.line}` : undefined }}>
+                <div key={i} data-testid="audit-row" style={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', gap: space[3], alignItems: 'start', padding: `${space[2]}px 0`, borderTop: i ? `1px solid ${color.line}` : undefined }}>
                   <StatusBadge label={vm.badge} tone={vm.tone} />
-                  <div style={{ fontSize: fontSize.sm }}>
-                    <span style={{ color: toneColors[vm.tone].fg, fontWeight: fontWeight.medium }}>{vm.actor}</span>
-                    <span style={{ color: color.muted }}> · </span>
-                    <MonoRef muted>{vm.target}</MonoRef>
+                  <div style={{ fontSize: fontSize.sm, display: 'grid', gap: 2 }}>
+                    <div>
+                      <span style={{ color: toneColors[vm.tone].fg, fontWeight: fontWeight.medium }}>{vm.actor}</span>
+                      <span style={{ color: color.muted }}> · </span>
+                      <MonoRef muted>{vm.target}</MonoRef>
+                    </div>
+                    {vm.description && (
+                      <div data-testid="audit-description" style={{ color: color.muted, fontSize: fontSize.sm }}>{vm.description}</div>
+                    )}
                   </div>
                   <span style={{ fontSize: fontSize.xs, color: color.subtle, whiteSpace: 'nowrap' }}>{relativeTime({ iso: vm.at, now })}</span>
                 </div>

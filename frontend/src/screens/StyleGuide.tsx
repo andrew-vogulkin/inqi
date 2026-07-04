@@ -99,11 +99,11 @@ export function StyleGuide() {
           <Button variant={ButtonVariant.Secondary} onClick={() => setConfirm(true)}>Open confirm dialog</Button>
           <Button variant={ButtonVariant.Secondary} onClick={() => dispatch({ type: ActionType.ToastPushed, toast: { id: `demo-${Date.now()}`, kind: ToastKind.Success, message: 'Saved — toast demo.' } })}>Push toast</Button>
         </div>
-        <ConfirmDialog open={confirm} title="Cancel this inquiry?" message="This stops the run and refunds the credit." confirmLabel="Cancel run" danger onConfirm={() => setConfirm(false)} onCancel={() => setConfirm(false)} />
+        <ConfirmDialog open={confirm} title="Cancel this report?" message="This stops the run and refunds the credit." confirmLabel="Cancel run" danger onConfirm={() => setConfirm(false)} onCancel={() => setConfirm(false)} />
       </Section>
 
       <Section title="Empty / error states">
-        <Card><EmptyState title="No inquiries yet" hint="Start your first research run." action={<Button>New inquiry</Button>} /></Card>
+        <Card><EmptyState title="No reports yet" hint="Start your first research run." action={<Button>New report</Button>} /></Card>
         <div style={{ height: space[2] }} />
         <Card><ErrorState title="Couldn't load" message="Check your connection and retry." action={<Button variant={ButtonVariant.Secondary}>Retry</Button>} /></Card>
       </Section>

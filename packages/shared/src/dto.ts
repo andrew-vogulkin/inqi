@@ -1,7 +1,7 @@
 import type { OutreachStrategy } from './workflow.js';
-import type { AuthRole, MessageDirection, MessageStatus } from './enums.js';
+import type { AuthRole, MessageDirection, MessageStatus, SearchFocus, SourceType } from './enums.js';
 
-export interface CreateInquiryDto {
+export interface CreateReportDto {
   /**
    * @deprecated HP-19: intake is authenticated; the owner is the signed-in customer
    * (from the session), so the server ignores this and uses the verified email.
@@ -13,6 +13,8 @@ export interface CreateInquiryDto {
   budgetMin?: number;
   budgetMax?: number;
   deadline?: string; // ISO
+  /** Ranking priority: what depth research should hunt hardest for (default: quality). */
+  focus?: SearchFocus;
 }
 
 export interface QuestionnaireAnswersDto {
@@ -30,19 +32,21 @@ export interface EpicConfig {
 // so dates are ISO strings. Naming keeps the codebase's `...Dto` suffix.
 // ---------------------------------------------------------------------------
 
-/** Auth (POST /auth/google → session; GET /auth/me). */
+/** Auth (POST /auth/email + /auth/email/verify → session; GET /auth/me). */
 export interface SessionDto {
   token: string;
   customer: { id: string; email: string; name?: string | null; role: AuthRole };
 }
 
-/** A single inquiry row (GET /inquiries, owner-scoped). */
-export interface InquiryDto {
+/** A single report row (GET /reports, owner-scoped) — the root customer request. */
+export interface ReportDto {
   id: string;
   rawRequest: string;
   state: string;
-  stage?: string;            // HP-23: derived InquiryStage (from state + qualifiedCount)
-  qualifiedCount?: number;   // HP-23: subtasks qualified so far (drives the stage)
+  stage?: string;            // HP-23: derived ReportStage (from state + qualifiedCount)
+  qualifiedCount?: number;   // HP-23: inquiries qualified so far (drives the stage)
+  personaId?: string | null; // the persona carrying all interaction for this report
+  focus?: SearchFocus | null; // ranking priority (price | quality)
   customerEmail: string;
   customerId?: string | null;
   createdAt: string;
@@ -61,21 +65,22 @@ export interface ReportOption {
   id?: string;
   locked?: boolean;
   rank?: number;
-  subtaskId?: string; // admin-side report: lets the dossier fetch the chain
+  inquiryId?: string; // admin-side report: lets the dossier fetch the chain
 }
 
-/** Live-assembled report while the pipeline runs (GET /inquiries/:id/report-live, public). */
+/** Live-assembled report while the pipeline runs (GET /reports/:id/live). */
 export interface LiveReportDto {
-  inquiryId: string;
+  reportId: string;
+  personaId?: string | null; // the persona who ran/runs this research (1:1 per report)
   state: string;
-  stage?: string;            // HP-23: derived InquiryStage
-  qualifiedCount?: number;   // HP-23: subtasks qualified so far
+  stage?: string;            // HP-23: derived ReportStage
+  qualifiedCount?: number;   // HP-23: inquiries qualified so far
   questionnaireToken?: string | null; // capability token while in the Questionnaire stage
   questionnaire?: { questions: QuestionnaireQuestion[]; answers: Record<string, string> | null; confirmed: boolean } | null; // read-only scope shown on the report
   delivered: boolean;
   rawRequest: string;
-  reportId?: string | null;  // HP-21: the snapshot id (for POST /reports/:id/unlock)
-  reportToken: string | null;
+  snapshotId?: string | null;  // HP-21: the snapshot id (for POST /snapshots/:id/unlock)
+  snapshotToken: string | null;
   reusedFrom: string | null;
   summary: string;
   options: ReportOption[];
@@ -84,10 +89,10 @@ export interface LiveReportDto {
   lockedCount?: number;      // HP-21: how many options are withheld (locked stubs)
 }
 
-/** Final report by capability token (GET /reports/:token, public deep link). */
-export interface ReportDto {
+/** Final report snapshot by capability token (GET /snapshots/:token, public deep link). */
+export interface ReportSnapshotDto {
   id: string;
-  inquiryId: string;
+  reportId: string;
   token: string;
   summary: string;
   options: ReportOption[];
@@ -99,7 +104,7 @@ export interface ReportDto {
   createdAt: string;
 }
 
-/** Result of a freemium unlock (POST /reports/:id/unlock; HP-21). */
+/** Result of a freemium unlock (POST /snapshots/:id/unlock; HP-21). */
 export interface UnlockResultDto { id: string; unlocked: boolean; balance: number }
 
 /** Customer credits (GET /me/credits). */
@@ -109,7 +114,7 @@ export interface CreditEntry {
   amount: number;
   reason?: string | null;
   actor?: string | null;
-  inquiryId?: string | null;
+  reportId?: string | null;
   createdAt: string;
 }
 export interface CreditsDto { balance: number; history: CreditEntry[] }
@@ -118,7 +123,7 @@ export interface CreditsDto { balance: number; history: CreditEntry[] }
 export interface QuestionnaireQuestion { id: string; type: string; prompt: string; options?: string[] }
 export interface QuestionnaireDto {
   id: string;
-  inquiryId: string;
+  reportId: string;
   token: string;
   questions: QuestionnaireQuestion[];
   answers?: Record<string, string> | null;
@@ -126,7 +131,7 @@ export interface QuestionnaireDto {
   expiresAt: string;
 }
 
-/** Per-inquiry cost rollup (GET /inquiries/:id/cost, admin; HP-15). */
+/** Per-report cost rollup (GET /reports/:id/cost, admin; HP-15). */
 export interface CostSummaryDto {
   currency: string;
   perModel: { model: string; promptTokens: number; completionTokens: number; estUsd: number }[];
@@ -135,10 +140,22 @@ export interface CostSummaryDto {
   grandTotalUsd: number;
 }
 
-/** One email message in a subtask thread (GET /comms/thread/:subtaskId → array; admin). */
+/** One channel source record under an inquiry (Source rows). */
+export interface SourceDto {
+  id: string;
+  inquiryId: string;
+  type: SourceType;
+  url?: string | null;
+  title?: string | null;
+  snippet?: string | null;
+  createdAt: string;
+}
+
+/** One message in an inquiry thread (GET /comms/thread/:inquiryId → array; admin). */
 export interface ThreadMessageDto {
   id: string;
-  subtaskId: string;
+  inquiryId: string;
+  sourceId?: string | null; // the thread-channel source (email/whatsapp) carrying this message
   direction: MessageDirection;
   status: MessageStatus;
   fromAddr?: string | null;
@@ -148,16 +165,19 @@ export interface ThreadMessageDto {
   createdAt: string;
 }
 
-/** Admin board — nested inquiry detail (GET /inquiries/:id, admin scope). */
-export interface BoardSubtaskDto {
+/** Admin board — nested report detail (GET /reports/:id, admin scope). */
+export interface BoardInquiryDto {
   id: string;
   epicId: string;
-  subjectProviderName: string;
+  name: string;
   wave: number;
   status: string;
   qualityScore?: number | null;
-  personaId?: string | null;
   result?: unknown;
+  /** True while a depth-research job is still queued/running for this inquiry (background/sources incomplete). */
+  researchPending?: boolean;
+  /** The inquiry's channel-source matrix (websearch / rating_feedback / email rows). */
+  sources?: SourceDto[];
 }
 export interface BoardEpicDto {
   id: string;
@@ -165,12 +185,13 @@ export interface BoardEpicDto {
   status: string;
   targetQualifiedOptions: number;
   releasedWaves?: number[];
-  subtasks: BoardSubtaskDto[];
+  inquiries: BoardInquiryDto[];
 }
-export interface InquiryBoardDto {
+export interface ReportBoardDto {
   id: string;
   rawRequest: string;
   state: string;
+  personaId?: string | null;
   customerEmail: string;
   subject?: { title?: string; description?: string } | null;
   questionnaire?: { confirmed: boolean; answers?: Record<string, string> | null } | null;
@@ -183,7 +204,7 @@ export interface AuditEntryDto {
   at: string;
   actor: string;
   reason?: string;
-  inquiryId?: string;
+  reportId?: string;
   refs?: Record<string, unknown>;
   data?: Record<string, unknown>;
 }
@@ -195,7 +216,7 @@ export interface WorkflowVersionDto {
   key: string;
   version: number;
   status: string;
-  pinnedInquiries: number;
+  pinnedReports: number;
   createdAt?: string;
 }
 export interface GraphStateDto { name: string; isInitial: boolean; isTerminal: boolean }
@@ -240,17 +261,23 @@ export const OutreachOutcome = {
 } as const;
 export type OutreachOutcome = (typeof OutreachOutcome)[keyof typeof OutreachOutcome];
 
+/** One message of the outreach conversation, as shown to the customer (no addresses/ids). */
+export interface ProvenanceChainMessage { direction: string; body: string; at: string }
+
 /**
- * Customer-safe provenance for one option (HP-20). Sourced from findings + the
- * subject-provider background; the outreach block is **redacted** (no email chain,
- * addresses, bodies, or message ids — those stay on the admin `/comms/thread`).
+ * Customer provenance for one option (HP-20). Sourced from findings + the
+ * inquiry's sources/background. The outreach block carries the **full email
+ * chain** (direction + body + timestamp) — the customer sees the conversation
+ * as it happened; only relay addresses/message ids stay internal.
  */
 export interface ProvenanceDto {
   web: { source: string; url: string; snippet: string }[];
   feedback: { rating: number; sentiment: number; themes: string[]; quotes: string[] };
   scoring: { feedbackScore: number; priceScore: number; blendedScore: number; rank: number };
-  outreach: { persona: string; route: string; outcome: OutreachOutcome };
+  outreach: { persona: string; route: string; outcome: OutreachOutcome; chain: ProvenanceChainMessage[] };
   depth: ProvenanceDepth;
+  /** True while the inquiry's depth research is still queued/running — sections below may still fill in. */
+  researchPending?: boolean;
   /** AI transparency summaries — how inqi evaluated this option, per section + an overall ranking rationale. */
   summaries?: ProvenanceSummaries;
 }

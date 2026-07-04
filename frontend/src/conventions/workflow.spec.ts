@@ -4,7 +4,7 @@ import { buildTree, diffViewModel, applyPublished, versionStatusTone } from './w
 import { StatusTone } from './enums';
 import { WorkflowVersionDto, VersionDiffDto } from '../api/types';
 
-const v = (over: Partial<WorkflowVersionDto>): WorkflowVersionDto => ({ id: 'x', key: 'standard_inquiry', version: 1, status: WorkflowStatus.Draft, pinnedInquiries: 0, ...over });
+const v = (over: Partial<WorkflowVersionDto>): WorkflowVersionDto => ({ id: 'x', key: 'standard_report', version: 1, status: WorkflowStatus.Draft, pinnedReports: 0, ...over });
 
 describe('buildTree', () => {
   it('groups by key (keys sorted) and versions newest-first', () => {

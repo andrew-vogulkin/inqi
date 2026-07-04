@@ -25,7 +25,7 @@ async function bootstrap() {
   // Swagger — every endpoint + DTO renders at /api/docs.
   const swaggerConfig = new DocumentBuilder()
     .setTitle('inqi API')
-    .setDescription('AI-driven inquiry & research workflow')
+    .setDescription('AI-driven report & research workflow')
     .setVersion('0.1.0')
     .addTag('public').addTag('auth').addTag('capability-token').addTag('webhooks').addTag('observability')
     .build();

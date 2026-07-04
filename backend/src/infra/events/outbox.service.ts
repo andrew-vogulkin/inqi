@@ -5,9 +5,9 @@ import { DbTx, PrismaService } from '../persistence/prisma.service';
 
 export interface EmitArgs {
   type: EventType;
-  inquiryId: string;
+  reportId: string;
   epicId?: string;
-  subtaskId?: string;
+  inquiryId?: string;
   data?: Record<string, unknown>;
   /** When a service opens a transaction, pass its executor so the event commits atomically with the writes that produced it. */
   tx?: DbTx;
@@ -24,9 +24,9 @@ export interface EmitArgs {
 export class OutboxService {
   constructor(private readonly db: PrismaService) {}
 
-  emit({ type, inquiryId, epicId, subtaskId, data, tx }: EmitArgs) {
+  emit({ type, reportId, epicId, inquiryId, data, tx }: EmitArgs) {
     return (tx ?? this.db).eventOutbox.create({
-      data: { type, inquiryId, epicId, subtaskId, data: (data ?? {}) as Prisma.InputJsonValue },
+      data: { type, reportId, epicId, inquiryId, data: (data ?? {}) as Prisma.InputJsonValue },
     });
   }
 }

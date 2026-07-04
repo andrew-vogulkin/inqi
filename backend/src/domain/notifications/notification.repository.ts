@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InquiryState } from '@inqi/shared';
+import { ReportState } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for notifications (reads + the exactly-once reminder claim). */
@@ -12,12 +12,21 @@ export class NotificationRepository {
     return tx ?? this.db;
   }
 
-  findInquiry({ id, tx }: { id: string; tx?: DbTx }) {
-    return this.exec(tx).inquiry.findUnique({ where: { id }, select: { id: true, customerEmail: true, state: true, denyReason: true } });
+  findReport({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, customerEmail: true, state: true, denyReason: true, rawRequest: true } });
   }
 
-  findReportByInquiry({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
-    return this.exec(tx).report.findUnique({ where: { inquiryId }, select: { token: true } });
+  /** The questionnaire's capability token + expiry (for the needs-you email). */
+  findQuestionnaireByReport({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.findUnique({ where: { reportId }, select: { token: true, expiresAt: true, confirmed: true } });
+  }
+
+  /** The snapshot's email-facing content: summary + ranked options + the freemium lock state. */
+  findSnapshotByReport({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).reportSnapshot.findUnique({
+      where: { reportId },
+      select: { token: true, summary: true, options: true, freemium: true, unlocked: true },
+    });
   }
 
   findCustomerByEmail({ email, tx }: { email: string; tx?: DbTx }) {
@@ -26,16 +35,16 @@ export class NotificationRepository {
 
   /**
    * Unfilled, un-reminded questionnaires whose expiry falls inside the lead window
-   * AND whose inquiry is still awaiting the customer (QUESTIONNAIRE_SENT) — so we
-   * never remind on a denied/blocked or already-progressed inquiry.
+   * AND whose report is still awaiting the customer (QUESTIONNAIRE_SENT) — so we
+   * never remind on a denied/blocked or already-progressed report.
    */
   findDueReminders({ now, windowEnd, tx }: { now: Date; windowEnd: Date; tx?: DbTx }) {
     return this.exec(tx).questionnaire.findMany({
       where: {
         filledAt: null, reminderSentAt: null, expiresAt: { gt: now, lte: windowEnd },
-        inquiry: { state: InquiryState.QUESTIONNAIRE_SENT },
+        report: { state: ReportState.QUESTIONNAIRE_SENT },
       },
-      select: { id: true, token: true, inquiryId: true, expiresAt: true, inquiry: { select: { customerEmail: true } } },
+      select: { id: true, token: true, reportId: true, expiresAt: true, report: { select: { customerEmail: true } } },
       take: 200,
     });
   }

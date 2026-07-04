@@ -6,3 +6,4 @@ export * from './dto.js';
 export * from './errors.js';
 export * from './paths.js';
 export * from './rooms.js';
+export * from './personas.js';

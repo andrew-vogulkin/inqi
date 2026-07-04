@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { InquiryState, SubtaskStatus } from '@inqi/shared';
+import { ReportState, InquiryStatus } from '@inqi/shared';
 import {
-  RunState, RunAction, runStateFromInquiry, runActionEnabled, isTerminalRunState, countInFlightJobs,
+  RunState, RunAction, runStateFromReport, runActionEnabled, isTerminalRunState, countInFlightJobs,
 } from './run-controls';
 
-describe('runStateFromInquiry — projection', () => {
-  it('maps granular inquiry states onto the coarse run state', () => {
-    expect(runStateFromInquiry({ state: InquiryState.ON_HOLD })).toBe(RunState.Paused);
-    expect(runStateFromInquiry({ state: InquiryState.CANCELLED })).toBe(RunState.Cancelled);
-    expect(runStateFromInquiry({ state: InquiryState.REPORT_DELIVERED })).toBe(RunState.Delivered);
-    expect(runStateFromInquiry({ state: InquiryState.FAILED })).toBe(RunState.Failed);
-    expect(runStateFromInquiry({ state: InquiryState.OUTREACH })).toBe(RunState.Running);
-    expect(runStateFromInquiry({ state: InquiryState.PRE_RESEARCH })).toBe(RunState.Running);
+describe('runStateFromReport — projection', () => {
+  it('maps granular report states onto the coarse run state', () => {
+    expect(runStateFromReport({ state: ReportState.ON_HOLD })).toBe(RunState.Paused);
+    expect(runStateFromReport({ state: ReportState.CANCELLED })).toBe(RunState.Cancelled);
+    expect(runStateFromReport({ state: ReportState.REPORT_DELIVERED })).toBe(RunState.Delivered);
+    expect(runStateFromReport({ state: ReportState.FAILED })).toBe(RunState.Failed);
+    expect(runStateFromReport({ state: ReportState.OUTREACH })).toBe(RunState.Running);
+    expect(runStateFromReport({ state: ReportState.PRE_RESEARCH })).toBe(RunState.Running);
   });
 });
 
@@ -40,8 +40,8 @@ describe('isTerminalRunState / countInFlightJobs', () => {
     expect(isTerminalRunState(RunState.Running)).toBe(false);
     expect(isTerminalRunState(RunState.Paused)).toBe(false);
   });
-  it('counts only actively researching/contacted subtasks as in-flight', () => {
-    const statuses = [SubtaskStatus.Researching, SubtaskStatus.Contacted, SubtaskStatus.Qualified, SubtaskStatus.Pending, SubtaskStatus.Failed];
+  it('counts only actively researching/contacted inquiries as in-flight', () => {
+    const statuses = [InquiryStatus.Researching, InquiryStatus.Contacted, InquiryStatus.Qualified, InquiryStatus.Pending, InquiryStatus.Failed];
     expect(countInFlightJobs({ statuses })).toBe(2);
     expect(countInFlightJobs({ statuses: [] })).toBe(0);
   });

@@ -1,26 +1,26 @@
 import { CSSProperties, useEffect, useState } from 'react';
-import { EventType, InquiryStage } from '@inqi/shared';
+import { EventType, InquiryStatus, ReportStage, SourceType, personaIdentity } from '@inqi/shared';
 import { AsyncStatus, ReportLayout, StatusTone } from '../conventions/enums';
 import { statusBadge } from '../conventions/stages';
 import { Route, hrefFor, navigate } from '../conventions/routes';
 import { RankedOption, optionId } from '../conventions/ranking';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
-import { inquiriesApi, reportsApi, ApiError } from '../api';
+import { reportsApi, snapshotsApi, ApiError } from '../api';
 import { EmptyState, ErrorState, Skeleton } from '../ui';
 import { toneColors } from '../ui/tone';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
-import { ReportState, TimelineItem } from '../state/report.reducer';
+import { ReportState, TimelineItem, freemiumView } from '../state/report.reducer';
 
 const PAGE: CSSProperties = { maxWidth: 900, margin: '0 auto' };
 const META_CHIP: CSSProperties = { fontSize: fontSize.sm, color: color.inkSoft, background: color.surfaceSunken, padding: '4px 9px', borderRadius: radius.sm };
 
 /** FE-06 — the centerpiece. Drives /i/:id (owner) and /r/:token (public deep link). */
-export function LiveReport({ inquiryId, token }: { inquiryId?: string; token?: string }) {
+export function LiveReport({ reportId, token }: { reportId?: string; token?: string }) {
   const dispatch = useAppDispatch();
   const report = useSelector((s) => s.report);
-  const [resolvedId, setResolvedId] = useState<string | null>(inquiryId ?? null);
+  const [resolvedId, setResolvedId] = useState<string | null>(reportId ?? null);
   const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState<ReportLayout>(ReportLayout.List);
   const [activityOpen, setActivityOpen] = useState(false);
@@ -31,21 +31,21 @@ export function LiveReport({ inquiryId, token }: { inquiryId?: string; token?: s
     dispatch({ type: ActionType.ReportCleared });
     (async () => {
       try {
-        if (inquiryId) { if (!cancelled) setResolvedId(inquiryId); return; }
-        if (token) { const rep = await reportsApi.getByToken({ token }); if (!cancelled) setResolvedId(rep.inquiryId); }
+        if (reportId) { if (!cancelled) setResolvedId(reportId); return; }
+        if (token) { const rep = await snapshotsApi.getByToken({ token }); if (!cancelled) setResolvedId(rep.reportId); }
       } catch (e) { if (!cancelled) setError(e instanceof ApiError ? e.message : 'This report link is invalid or has expired.'); }
     })();
     return () => { cancelled = true; };
-  }, [inquiryId, token, dispatch]);
+  }, [reportId, token, dispatch]);
 
-  useRealtime(resolvedId ? { kind: 'inquiry', inquiryId: resolvedId } : null);
+  useRealtime(resolvedId ? { kind: 'report', reportId: resolvedId } : null);
 
   useEffect(() => {
     if (!resolvedId) return;
-    inquiriesApi.reportLive({ id: resolvedId })
+    reportsApi.reportLive({ id: resolvedId })
       .then((live) => {
         // Questionnaire stage → there's no report yet; send the owner to the questions + confirm form.
-        if (live.stage === InquiryStage.Questionnaire && live.questionnaireToken) {
+        if (live.stage === ReportStage.Questionnaire && live.questionnaireToken) {
           navigate({ route: Route.Questionnaire, params: { token: live.questionnaireToken } });
           return;
         }
@@ -58,13 +58,17 @@ export function LiveReport({ inquiryId, token }: { inquiryId?: string; token?: s
   if (error) return <ErrorState title="Can't open this report" message={error} />;
   if (report.status !== AsyncStatus.Ready) return <div style={{ ...PAGE, padding: '26px 28px' }}><Skeleton width="40%" /><div style={{ height: 12 }} /><Skeleton /><div style={{ height: 8 }} /><Skeleton width="70%" /></div>;
 
-  const options = report.order.map((id) => report.optionsById[id]);
+  // Freemium-locked stubs carry no name/price — never render them as cards; they
+  // collapse into the unlock banner instead (only named options make the list).
+  const { locked, revealed } = freemiumView(report);
+  const options = revealed.filter((o) => o.subjectProvider);
+  const lockedCount = locked.length;
   const streaming = !report.delivered;
-  const badge = statusBadge(report.inquiryState);
+  const badge = statusBadge(report.reportState);
   const pillLabel = streaming ? 'Researching' : badge.label;
   const pillTone = streaming ? StatusTone.Info : badge.tone;
-  const dossierFor = (o: RankedOption) => report.inquiryId ? hrefFor({ route: Route.Dossier, params: { id: report.inquiryId, ref: optionId(o) } }) : undefined;
-  const countLabel = `${options.length} ${options.length === 1 ? 'option' : 'options'}${streaming ? ' so far' : ''}`;
+  const dossierFor = (o: RankedOption) => report.reportId ? hrefFor({ route: Route.Dossier, params: { id: report.reportId, ref: optionId(o) } }) : undefined;
+  const countLabel = `${options.length} ${options.length === 1 ? 'option' : 'options'}${streaming ? ' so far' : ''}${lockedCount ? ` · ${lockedCount} locked` : ''}`;
 
   return (
     <div style={{ ...PAGE, padding: '26px 28px 90px' }}>
@@ -74,7 +78,7 @@ export function LiveReport({ inquiryId, token }: { inquiryId?: string; token?: s
         <div style={{ display: 'flex', alignItems: 'center', gap: space[3], background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '12px 16px', marginBottom: space[4] }}>
           <span style={{ width: 28, height: 28, borderRadius: radius.md, flex: 'none', background: color.infoTint, color: color.info, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>↺</span>
           <div style={{ flex: 1, fontSize: fontSize.base, color: color.muted, lineHeight: 1.45 }}><span style={{ color: color.ink, fontWeight: fontWeight.medium }}>Reused from a similar recent report.</span> Gathered for a nearby request — no credit spent.</div>
-          <button onClick={() => resolvedId && inquiriesApi.reportLive({ id: resolvedId }).then((live) => dispatch({ type: ActionType.ReportSnapshotReceived, live })).catch(() => undefined)}
+          <button onClick={() => resolvedId && reportsApi.reportLive({ id: resolvedId }).then((live) => dispatch({ type: ActionType.ReportSnapshotReceived, live })).catch(() => undefined)}
             style={{ height: 32, padding: '0 13px', borderRadius: radius.md, background: color.ink, color: color.onSolid, border: 'none', fontSize: fontSize.sm, fontWeight: fontWeight.medium, cursor: 'pointer', flex: 'none' }}>Refresh</button>
         </div>
       )}
@@ -82,7 +86,10 @@ export function LiveReport({ inquiryId, token }: { inquiryId?: string; token?: s
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: space[4], marginBottom: space[5] }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: fontSize.h1, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: '0 0 7px' }}>{report.rawRequest}</h1>
-          <div style={{ fontSize: fontSize.sm, color: color.subtle, fontFamily: font.mono }}>#{(report.inquiryId ?? '').slice(0, 8)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: fontSize.sm, color: color.subtle, fontFamily: font.mono }}>#{(report.reportId ?? '').slice(0, 8)}</span>
+            {report.personaId && <PersonaChip personaId={report.personaId} streaming={streaming} />}
+          </div>
         </div>
         <span data-testid="report-status" style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: radius.pill, fontSize: fontSize.base, fontWeight: fontWeight.medium, flex: 'none', background: toneColors[pillTone].bg, color: toneColors[pillTone].fg }}>
           {streaming && <span style={{ width: 7, height: 7, borderRadius: '50%', background: toneColors[pillTone].fg, animation: 'inqi-pulse 1.3s ease-in-out infinite' }} />}
@@ -107,12 +114,16 @@ export function LiveReport({ inquiryId, token }: { inquiryId?: string; token?: s
         </div>
       </div>
 
+      {lockedCount > 0 && report.reportId && <UnlockBanner lockedCount={lockedCount} reportId={report.reportId} />}
+
       {layout === ReportLayout.List ? (
         // List always shows the agent activity — it's the whole story while options are still 0.
         <>
           <AgentActivity report={report} open={activityOpen} onToggle={() => setActivityOpen((v) => !v)} />
-          {options.length === 0 && streaming
-            ? <div style={{ marginTop: 14 }}><EmptyState title="No options yet" hint="inqi is reaching out — qualified providers appear here live." /></div>
+          {options.length === 0 && !locked.length
+            ? <div style={{ marginTop: 14 }}>{streaming
+              ? <EmptyState title="No options yet" hint="inqi is reaching out — qualified providers appear here live." />
+              : <EmptyState title="No providers qualified this run" hint="The summary above explains why. Unresponsive providers may still reply — this report updates itself (and emails you) when they do. This run was not charged." />}</div>
             : (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 2px 12px' }}>
@@ -120,16 +131,68 @@ export function LiveReport({ inquiryId, token }: { inquiryId?: string; token?: s
                   <div style={{ fontSize: fontSize.sm, color: color.subtle }}>Ranked by public feedback + price</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-                  {options.map((o, i) => <OptionCard key={optionId(o)} option={o} rank={i} best={i === 0} dossierHref={dossierFor(o)} />)}
+                  {/* Locked rows render ABOVE the revealed taster — the user sees better-ranked options exist. */}
+                  {locked.map((o, i) => <LockedRow key={optionId(o)} rank={(o.rank ?? i + 1)} reportId={report.reportId} />)}
+                  {options.map((o, i) => <OptionCard key={optionId(o)} option={o} rank={(o.rank ?? i + 1) - 1} best={lockedCount === 0 && i === 0} dossierHref={dossierFor(o)} />)}
                   {streaming && <StreamingCard />}
                 </div>
               </>
             )}
         </>
-      ) : options.length === 0 && streaming
-        ? <EmptyState title="No options yet" hint="inqi is still reaching out — results appear here live." />
+      ) : options.length === 0
+        ? (streaming
+          ? <EmptyState title="No options yet" hint="inqi is still reaching out — results appear here live." />
+          : <EmptyState title="No providers qualified this run" hint="The summary above explains why. This run was not charged." />)
         : layout === ReportLayout.Split ? <SplitView report={report} options={options} countLabel={countLabel} streaming={streaming} />
           : <TableView options={options} streaming={streaming} />}
+    </div>
+  );
+}
+
+/** A locked (freemium-redacted) rank slot — renders above the revealed taster so the
+ *  user sees better-ranked options exist without leaking any of their data. */
+function LockedRow({ rank, reportId }: { rank: number; reportId: string | null }) {
+  return (
+    <div data-testid="locked-row" style={{ display: 'flex', alignItems: 'center', gap: 14, background: color.surfaceSunken, border: `1px dashed ${color.line}`, borderRadius: radius.lg, padding: '13px 20px' }}>
+      <div style={{ width: 30, height: 30, borderRadius: radius.md, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.md, fontWeight: fontWeight.semibold, fontFamily: font.mono, background: color.surfaceAlt, color: color.subtle }}>{rank}</div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ width: '38%', height: 10, borderRadius: 5, background: color.surfaceAlt }} />
+        <span style={{ width: '22%', height: 8, borderRadius: 4, background: color.surfaceAlt }} />
+      </div>
+      {reportId
+        ? <a href={hrefFor({ route: Route.Freemium, params: { id: reportId } })} style={{ fontSize: fontSize.sm, color: color.muted, textDecoration: 'none', flex: 'none' }}>🔒 locked</a>
+        : <span style={{ fontSize: fontSize.sm, color: color.muted, flex: 'none' }}>🔒 locked</span>}
+    </div>
+  );
+}
+
+/** The persona who runs this report's research (Report 1:1 persona). */
+function PersonaChip({ personaId, streaming }: { personaId: string; streaming: boolean }) {
+  const p = personaIdentity(personaId);
+  return (
+    <span data-testid="persona-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: fontSize.sm, color: color.muted, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.pill, padding: '3px 11px 3px 4px' }}>
+      <span aria-hidden style={{ width: 20, height: 20, borderRadius: '50%', background: color.brandTint, color: color.brand, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: fontWeight.semibold }}>{p.name[0]}</span>
+      {streaming ? 'Being researched by' : 'Researched by'} <b style={{ color: color.ink, fontWeight: fontWeight.medium }}>{p.name}</b> · {p.hub} hub
+    </span>
+  );
+}
+
+/**
+ * FE-07/HP-21 — freemium gate on the live report. Locked options never render as
+ * (empty) cards; they collapse into this banner, which routes to the unlock flow.
+ */
+function UnlockBanner({ lockedCount, reportId }: { lockedCount: number; reportId: string }) {
+  return (
+    <div data-testid="unlock-banner" style={{ display: 'flex', alignItems: 'center', gap: space[3], background: color.surface, border: `1px dashed ${color.lineStrong}`, borderRadius: radius.lg, padding: '14px 16px', marginBottom: space[4] }}>
+      <span style={{ width: 28, height: 28, borderRadius: radius.md, flex: 'none', background: color.warnTint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.base }}>🔒</span>
+      <div style={{ flex: 1, fontSize: fontSize.base, color: color.muted, lineHeight: 1.45 }}>
+        <span style={{ color: color.ink, fontWeight: fontWeight.medium }}>{lockedCount} better-ranked option{lockedCount === 1 ? '' : 's'} locked.</span>{' '}
+        Your free report shows one option — unlock the full ranking for 1 credit.
+      </div>
+      <a href={hrefFor({ route: Route.Freemium, params: { id: reportId } })} data-testid="unlock-link"
+        style={{ height: 32, padding: '0 13px', display: 'inline-flex', alignItems: 'center', borderRadius: radius.md, background: color.ink, color: color.onSolid, fontSize: fontSize.sm, fontWeight: fontWeight.medium, flex: 'none', textDecoration: 'none' }}>
+        Unlock full report
+      </a>
     </div>
   );
 }
@@ -291,15 +354,44 @@ function StreamingCard() {
   );
 }
 
+/** "Zen Yoga Studio" (or "provider" when the event carries no name). */
+const who = (d: Record<string, unknown>) => (typeof d.name === 'string' && d.name ? d.name : 'provider');
+const brief = (s: unknown, max = 80) => { const t = String(s ?? ''); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
+
+/** The first added source, human-readable: `web page "Tichuca FAQs" (+2 more)`. */
+function sourceLabel(d: Record<string, unknown>): string {
+  const rows = Array.isArray(d.sources) ? (d.sources as { type?: string; title?: string; url?: string }[]) : [];
+  const first = rows[0];
+  if (!first) return `found ${d.count ?? ''} source${Number(d.count) === 1 ? '' : 's'}`;
+  const kind = first.type === SourceType.RatingFeedback ? 'ratings digest' : first.type === SourceType.Email ? 'email thread' : 'web page';
+  const name = first.title || first.url || '';
+  const more = rows.length > 1 ? ` (+${rows.length - 1} more)` : '';
+  return `found ${kind}${name ? ` "${brief(name, 60)}"` : ''}${more}`;
+}
+
 const LABEL: Record<string, (d: Record<string, unknown>) => string> = {
-  [EventType.InquiryTransitioned]: (d) => `→ ${d.to}`,
+  [EventType.ReportTransitioned]: (d) => `→ ${d.to}`,
   [EventType.AgentProgress]: (d) => String(d.message ?? d.stage ?? 'working…'),
   [EventType.WaveReleased]: (d) => `released wave ${d.wave} (${d.count} providers)`,
   [EventType.FunnelWidened]: (d) => `widened the search (+${d.added})`,
+  [EventType.EpicCreated]: () => 'planned the outreach campaign',
+  [EventType.InquiryCreated]: (d) => `discovered ${who(d)}`,
+  [EventType.SourceAdded]: sourceLabel,
   [EventType.MessageSent]: () => 'emailed a provider',
   [EventType.MessageReceived]: () => 'reply received',
-  [EventType.SubtaskUpdated]: (d) => `provider ${d.status}`,
-  [EventType.ReportReady]: (d) => `report ready — ${d.options ?? ''} options`,
+  [EventType.InquiryUpdated]: (d) => {
+    if (d.status === InquiryStatus.Failed) return `${who(d)} failed${d.reason ? ` — ${brief(d.reason)}` : ''}`;
+    if (d.status === InquiryStatus.Unresponsive) return `${who(d)} — no reply yet (thread stays open)`;
+    if (d.status === InquiryStatus.Qualified) return `${who(d)} qualified ✓`;
+    if (d.status) return `${who(d)} ${d.status}`;
+    // depth-verdict update: no status change, just the research result landing
+    if (d.researchPending === false) return typeof d.qualityScore === 'number' ? `deep research done — quality ${Math.round(Number(d.qualityScore) * 100)}` : 'deep research done';
+    if (typeof d.qualityScore === 'number') return `provider scored ${Math.round(Number(d.qualityScore) * 100)}`;
+    return 'provider updated';
+  },
+  [EventType.SnapshotReady]: (d) => `report ready — ${d.options ?? ''} options`,
+  [EventType.SnapshotUpdated]: (d) => (d.refreshed ? 'report re-evaluated (new information arrived)' : 'report updated'),
+  [EventType.NotificationSent]: (d) => `emailed you (${String(d.kind ?? '').replace(/_/g, ' ')})`,
 };
 const eventLabel = (t: TimelineItem) => (LABEL[t.type] ?? (() => t.type))(t.data);
 const visibleEvents = (report: ReportState) => report.timeline.filter((t) => t.type !== EventType.AgentHeartbeat).slice(-40).reverse();

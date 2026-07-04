@@ -17,13 +17,13 @@ export const WorkflowAction = {
 export type WorkflowAction = (typeof WorkflowAction)[keyof typeof WorkflowAction];
 
 export interface ActionCtx {
-  inquiryId: string;
+  reportId: string;
   boss: BossService;
   payload?: unknown;
 }
 
-const enqueue = (job: QueueJob) => async ({ inquiryId, boss }: ActionCtx): Promise<void> => {
-  await boss.enqueue({ job, data: { inquiryId } });
+const enqueue = (job: QueueJob) => async ({ reportId, boss }: ActionCtx): Promise<void> => {
+  await boss.enqueue({ job, data: { reportId } });
 };
 
 export const Actions: Record<string, (ctx: ActionCtx) => Promise<void>> = {

@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { QuestionnaireModule } from '../../domain/questionnaire/questionnaire.module';
-import { ReportsModule } from '../../domain/reports/reports.module';
+import { SnapshotsModule } from '../../domain/snapshot/snapshots.module';
 import { AuthModule } from '../auth/auth.module';
 import { QuestionnaireController } from './questionnaire.controller';
-import { ReportController } from './report.controller';
+import { SnapshotController } from './snapshot.controller';
 
 /**
  * Edge: the report/questionnaire token surfaces. HP-24 retired the login-free tier —
@@ -11,7 +11,7 @@ import { ReportController } from './report.controller';
  * resolved within the owner's scope.
  */
 @Module({
-  imports: [QuestionnaireModule, ReportsModule, AuthModule],
-  controllers: [QuestionnaireController, ReportController],
+  imports: [QuestionnaireModule, SnapshotsModule, AuthModule],
+  controllers: [QuestionnaireController, SnapshotController],
 })
 export class CapabilityTokenModule {}

@@ -41,7 +41,7 @@ describe('request — Bearer injection', () => {
 
   it('serializes the query into the URL', async () => {
     fetchMock.mockResolvedValue(resp(200, {}));
-    await request({ method: HttpMethod.Get, path: '/audit', query: { types: 'denial', inquiryId: undefined } });
+    await request({ method: HttpMethod.Get, path: '/audit', query: { types: 'denial', reportId: undefined } });
     expect(fetchMock.mock.calls[0][0]).toBe('/api/audit?types=denial');
   });
 });
@@ -49,14 +49,14 @@ describe('request — Bearer injection', () => {
 describe('request — envelope → ApiError', () => {
   it('parses the typed envelope (code/message/retryable/httpStatus)', async () => {
     fetchMock.mockResolvedValue(resp(402, { error: { code: 'CREDITS_INSUFFICIENT', message: 'no credits', retryable: false } }));
-    await expect(request({ method: HttpMethod.Post, path: '/inquiries' })).rejects.toMatchObject({
+    await expect(request({ method: HttpMethod.Post, path: '/reports' })).rejects.toMatchObject({
       code: ApiErrorCode.CreditsInsufficient, httpStatus: 402, retryable: false,
     });
   });
 
   it('falls back to a status-derived code when there is no envelope', async () => {
     fetchMock.mockResolvedValue(resp(403, undefined));
-    await expect(request({ method: HttpMethod.Get, path: '/inquiries/i1/cost' })).rejects.toMatchObject({ code: ApiErrorCode.AuthForbidden, httpStatus: 403 });
+    await expect(request({ method: HttpMethod.Get, path: '/reports/i1/cost' })).rejects.toMatchObject({ code: ApiErrorCode.AuthForbidden, httpStatus: 403 });
   });
 });
 
@@ -65,7 +65,7 @@ describe('request — global 401', () => {
     const handler = vi.fn();
     setUnauthorizedHandler(handler);
     fetchMock.mockResolvedValue(resp(401, { error: { code: 'AUTH_REQUIRED' } }));
-    await expect(request({ method: HttpMethod.Get, path: '/inquiries' })).rejects.toBeInstanceOf(ApiError);
+    await expect(request({ method: HttpMethod.Get, path: '/reports' })).rejects.toBeInstanceOf(ApiError);
     expect(handler).toHaveBeenCalledOnce();
   });
 });
@@ -82,7 +82,7 @@ describe('request — retry only when retryable', () => {
 
   it('does NOT retry a non-retryable error (no blind mutation retry)', async () => {
     fetchMock.mockResolvedValue(resp(400, { error: { code: 'VALIDATION_FAILED', retryable: false } }));
-    await expect(request({ method: HttpMethod.Post, path: '/inquiries', retry: { baseDelayMs: 0 } })).rejects.toMatchObject({ code: ApiErrorCode.ValidationFailed });
+    await expect(request({ method: HttpMethod.Post, path: '/reports', retry: { baseDelayMs: 0 } })).rejects.toMatchObject({ code: ApiErrorCode.ValidationFailed });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -94,7 +94,7 @@ describe('request — retry only when retryable', () => {
 
   it('does NOT retry a POST network failure', async () => {
     fetchMock.mockRejectedValue(new TypeError('network down'));
-    await expect(request({ method: HttpMethod.Post, path: '/inquiries', retry: { baseDelayMs: 0 } })).rejects.toMatchObject({ code: ApiErrorCode.Network });
+    await expect(request({ method: HttpMethod.Post, path: '/reports', retry: { baseDelayMs: 0 } })).rejects.toMatchObject({ code: ApiErrorCode.Network });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

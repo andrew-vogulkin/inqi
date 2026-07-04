@@ -16,7 +16,7 @@ export class OutreachCostDto {
   @ApiProperty({ example: 0.0 }) estUsd!: number;
 }
 
-/** Operator-only per-inquiry cost summary (HP-15) — never part of the customer report. */
+/** Operator-only per-report cost summary (HP-15) — never part of the customer report. */
 export class CostSummaryDto {
   @ApiProperty({ example: 'USD' }) currency!: string;
   @ApiProperty({ type: [PerModelCostDto] }) perModel!: PerModelCostDto[];

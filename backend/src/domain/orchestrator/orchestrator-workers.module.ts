@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { SubjectsModule } from '../subjects/subjects.module';
 import { SubjectProvidersModule } from '../subject-providers/subject-providers.module';
 import { QuestionnaireModule } from '../questionnaire/questionnaire.module';
-import { ReportsModule } from '../reports/reports.module';
+import { SnapshotsModule } from '../snapshot/snapshots.module';
+import { SourcesModule } from '../source/sources.module';
 import { OrchestratorModule } from './orchestrator.module';
 import { OrchestratorService } from './orchestrator.service';
 import { OrchestratorRepository } from './orchestrator.repository';
@@ -16,7 +17,7 @@ import { WorkflowAdminRepository } from './workflow-admin.repository';
  * the operator controls (HP-11) + workflow-version admin (HP-12) for the edge.
  */
 @Module({
-  imports: [OrchestratorModule, SubjectsModule, SubjectProvidersModule, QuestionnaireModule, ReportsModule],
+  imports: [OrchestratorModule, SubjectsModule, SubjectProvidersModule, QuestionnaireModule, SnapshotsModule, SourcesModule],
   providers: [OrchestratorService, OrchestratorRepository, WorkflowAdminService, WorkflowAdminRepository],
   exports: [OrchestratorService, WorkflowAdminService],
 })

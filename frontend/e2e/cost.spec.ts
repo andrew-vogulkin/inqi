@@ -22,8 +22,8 @@ async function seed(page: Page, session: string) {
 
 test('admin sees tiles + a table that reconciles to the grand total', async ({ page }) => {
   await seed(page, ADMIN);
-  await page.route('**/api/inquiries/*/cost', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: costBody }));
-  await page.goto('/#/admin/i/i1/cost');
+  await page.route('**/api/reports/*/cost', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: costBody }));
+  await page.goto('/#/admin/r/i1/cost');
 
   await expect(page.getByTestId('cost-report')).toBeVisible();
   await expect(page.getByTestId('cost-total')).toContainText('$0.5000');
@@ -38,8 +38,8 @@ test('a 403 from /cost renders the Forbidden screen with ZERO cost figures', asy
   // Admin session passes the route guard so the screen renders; the API itself
   // returns 403 → the component must show Forbidden and leak no figure.
   await seed(page, ADMIN);
-  await page.route('**/api/inquiries/*/cost', (r: Route) => r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'AUTH_FORBIDDEN', message: 'admin only' } }) }));
-  await page.goto('/#/admin/i/i1/cost');
+  await page.route('**/api/reports/*/cost', (r: Route) => r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'AUTH_FORBIDDEN', message: 'admin only' } }) }));
+  await page.goto('/#/admin/r/i1/cost');
 
   await expect(page.getByText('For operators')).toBeVisible();
   await expect(page.getByTestId('cost-report')).toHaveCount(0);
@@ -50,8 +50,8 @@ test('a 403 from /cost renders the Forbidden screen with ZERO cost figures', asy
 test('a non-admin is blocked by the route guard (no cost call, no figures)', async ({ page }) => {
   let costCalls = 0;
   await seed(page, CUSTOMER);
-  await page.route('**/api/inquiries/*/cost', (r: Route) => { costCalls += 1; return r.fulfill({ status: 200, contentType: 'application/json', body: costBody }); });
-  await page.goto('/#/admin/i/i1/cost');
+  await page.route('**/api/reports/*/cost', (r: Route) => { costCalls += 1; return r.fulfill({ status: 200, contentType: 'application/json', body: costBody }); });
+  await page.goto('/#/admin/r/i1/cost');
 
   await expect(page.getByText('For operators')).toBeVisible();
   await expect(page.getByTestId('cost-total')).toHaveCount(0);

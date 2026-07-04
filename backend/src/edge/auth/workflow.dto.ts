@@ -3,10 +3,10 @@ import { WorkflowStatus } from '@inqi/shared';
 
 export class WorkflowVersionDto {
   @ApiProperty({ example: 'clz1wf0001' }) id!: string;
-  @ApiProperty({ example: 'inquiry' }) key!: string;
+  @ApiProperty({ example: 'report' }) key!: string;
   @ApiProperty({ example: 2 }) version!: number;
   @ApiProperty({ enum: Object.values(WorkflowStatus), example: WorkflowStatus.Active }) status!: string;
-  @ApiProperty({ description: 'inquiries pinned to this version', example: 14 }) pinnedInquiries!: number;
+  @ApiProperty({ description: 'reports pinned to this version', example: 14 }) pinnedReports!: number;
   @ApiProperty({ example: '2026-06-29T12:00:00.000Z' }) createdAt!: Date;
 }
 
@@ -17,13 +17,26 @@ export class WorkflowTransitionDto {
   @ApiProperty({ required: false, nullable: true, example: 'send:questionnaire' }) action?: string | null;
 }
 
+/** One node of the workflow graph. */
+export class WorkflowStateDto {
+  @ApiProperty({ example: 'PRE_RESEARCH' }) name!: string;
+  @ApiProperty({ example: true }) isInitial!: boolean;
+  @ApiProperty({ example: false }) isTerminal!: boolean;
+}
+
+/** Graph-validation verdict for a workflow version. */
+export class WorkflowValidationDto {
+  @ApiProperty({ example: true }) valid!: boolean;
+  @ApiProperty({ type: [String], example: [], description: 'Human-readable graph problems (unreachable states, dead ends)' }) errors!: string[];
+}
+
 export class WorkflowInspectDto {
   @ApiProperty({ example: 'clz1wf0001' }) id!: string;
   @ApiProperty({ example: 2 }) version!: number;
   @ApiProperty({ enum: Object.values(WorkflowStatus), example: WorkflowStatus.Draft }) status!: string;
-  @ApiProperty({ type: Object, isArray: true, example: [{ name: 'PRE_RESEARCH', isInitial: true, isTerminal: false }] }) states!: unknown[];
+  @ApiProperty({ type: [WorkflowStateDto] }) states!: unknown[];
   @ApiProperty({ type: [WorkflowTransitionDto] }) transitions!: WorkflowTransitionDto[];
-  @ApiProperty({ type: Object, description: '{ valid, errors[] }', example: { valid: true, errors: [] } }) validation!: unknown;
+  @ApiProperty({ type: WorkflowValidationDto }) validation!: unknown;
 }
 
 /** Result of activating a workflow version (POST /workflows/:id/publish). */

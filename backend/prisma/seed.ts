@@ -1,76 +1,81 @@
 import { randomBytes } from 'crypto';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { AuthRole, FindingKind, InquiryState, SubtaskStatus, WorkflowEvent, WorkflowStatus } from '@inqi/shared';
+import {
+  AuthRole, EpicStatus, FindingKind, InquiryStatus, LeadSource, OutreachStrategy,
+  ReportState, SourceType, WorkflowEvent, WorkflowStatus,
+} from '@inqi/shared';
 import { WorkflowAction } from '../src/domain/orchestrator/workflow-registry';
-import { rankOptions, RankableOption } from '../src/domain/reports/ranking';
+import { rankOptions, RankableOption } from '../src/domain/snapshot/ranking';
 
 const db = new PrismaClient();
 
 // inqi workflow — stored in DB so it can be versioned. A shipped version is
 // immutable; new behaviour folds into the current working version (v2) while v1
-// stays byte-identical for any inquiry still pinned to it.
+// stays byte-identical for any report still pinned to it.
 type State = { name: string; isInitial?: boolean; isTerminal?: boolean };
 
+const WORKFLOW_KEY = 'report';
+
 const STATES_V1: State[] = [
-  { name: InquiryState.RECEIVED, isInitial: true },
-  { name: InquiryState.PRE_RESEARCH },
-  { name: InquiryState.DENIED, isTerminal: true },
-  { name: InquiryState.QUESTIONNAIRE_SENT },
-  { name: InquiryState.DROPPED, isTerminal: true },
-  { name: InquiryState.ENRICHMENT },
-  { name: InquiryState.BROAD_RESEARCH },
-  { name: InquiryState.FUNNEL },
-  { name: InquiryState.OUTREACH },
-  { name: InquiryState.REPORT_GENERATION },
-  { name: InquiryState.REPORT_DELIVERED, isTerminal: true },
+  { name: ReportState.RECEIVED, isInitial: true },
+  { name: ReportState.PRE_RESEARCH },
+  { name: ReportState.DENIED, isTerminal: true },
+  { name: ReportState.QUESTIONNAIRE_SENT },
+  { name: ReportState.DROPPED, isTerminal: true },
+  { name: ReportState.ENRICHMENT },
+  { name: ReportState.BROAD_RESEARCH },
+  { name: ReportState.FUNNEL },
+  { name: ReportState.OUTREACH },
+  { name: ReportState.REPORT_GENERATION },
+  { name: ReportState.REPORT_DELIVERED, isTerminal: true },
 ];
 
 // v2 adds the HP-09 resilience/operator states.
 const STATES_V2: State[] = [
   ...STATES_V1,
-  { name: InquiryState.FAILED, isTerminal: true },
-  { name: InquiryState.CANCELLED, isTerminal: true },
-  { name: InquiryState.ON_HOLD },
+  { name: ReportState.FAILED, isTerminal: true },
+  { name: ReportState.CANCELLED, isTerminal: true },
+  { name: ReportState.ON_HOLD },
 ];
 
 const TRANSITIONS_V1 = [
-  { from: InquiryState.RECEIVED,           event: WorkflowEvent.START_PRE_RESEARCH,    to: InquiryState.PRE_RESEARCH,      action: WorkflowAction.EnqueuePreResearch },
-  { from: InquiryState.PRE_RESEARCH,       event: WorkflowEvent.PRE_RESEARCH_DENIED,   to: InquiryState.DENIED },
-  { from: InquiryState.PRE_RESEARCH,       event: WorkflowEvent.PRE_RESEARCH_PASSED,   to: InquiryState.QUESTIONNAIRE_SENT, action: WorkflowAction.SendQuestionnaire },
-  { from: InquiryState.QUESTIONNAIRE_SENT, event: WorkflowEvent.QUESTIONNAIRE_EXPIRED, to: InquiryState.DROPPED },
-  { from: InquiryState.QUESTIONNAIRE_SENT, event: WorkflowEvent.QUESTIONNAIRE_FILLED,  to: InquiryState.ENRICHMENT,         action: WorkflowAction.EnqueueEnrichSubject },
-  { from: InquiryState.ENRICHMENT,         event: WorkflowEvent.ENRICHMENT_DONE,       to: InquiryState.BROAD_RESEARCH,     action: WorkflowAction.EnqueueBroadResearch },
-  { from: InquiryState.BROAD_RESEARCH,     event: WorkflowEvent.BROAD_RESEARCH_DONE,   to: InquiryState.FUNNEL,             action: WorkflowAction.EnqueueBuildFunnel },
-  { from: InquiryState.FUNNEL,             event: WorkflowEvent.FUNNEL_BUILT,          to: InquiryState.OUTREACH,           action: WorkflowAction.EnqueueStartOutreach },
-  { from: InquiryState.OUTREACH,           event: WorkflowEvent.OUTREACH_DONE,         to: InquiryState.REPORT_GENERATION,  action: WorkflowAction.EnqueueGenerateReport },
-  { from: InquiryState.REPORT_GENERATION,  event: WorkflowEvent.REPORT_READY,          to: InquiryState.REPORT_DELIVERED },
+  { from: ReportState.RECEIVED,           event: WorkflowEvent.START_PRE_RESEARCH,    to: ReportState.PRE_RESEARCH,      action: WorkflowAction.EnqueuePreResearch },
+  { from: ReportState.PRE_RESEARCH,       event: WorkflowEvent.PRE_RESEARCH_DENIED,   to: ReportState.DENIED },
+  { from: ReportState.PRE_RESEARCH,       event: WorkflowEvent.PRE_RESEARCH_PASSED,   to: ReportState.QUESTIONNAIRE_SENT, action: WorkflowAction.SendQuestionnaire },
+  { from: ReportState.QUESTIONNAIRE_SENT, event: WorkflowEvent.QUESTIONNAIRE_EXPIRED, to: ReportState.DROPPED },
+  { from: ReportState.QUESTIONNAIRE_SENT, event: WorkflowEvent.QUESTIONNAIRE_FILLED,  to: ReportState.ENRICHMENT,         action: WorkflowAction.EnqueueEnrichSubject },
+  { from: ReportState.ENRICHMENT,         event: WorkflowEvent.ENRICHMENT_DONE,       to: ReportState.BROAD_RESEARCH,     action: WorkflowAction.EnqueueBroadResearch },
+  { from: ReportState.BROAD_RESEARCH,     event: WorkflowEvent.BROAD_RESEARCH_DONE,   to: ReportState.FUNNEL,             action: WorkflowAction.EnqueueBuildFunnel },
+  { from: ReportState.FUNNEL,             event: WorkflowEvent.FUNNEL_BUILT,          to: ReportState.OUTREACH,           action: WorkflowAction.EnqueueStartOutreach },
+  { from: ReportState.OUTREACH,           event: WorkflowEvent.OUTREACH_DONE,         to: ReportState.REPORT_GENERATION,  action: WorkflowAction.EnqueueGenerateReport },
+  { from: ReportState.REPORT_GENERATION,  event: WorkflowEvent.REPORT_READY,          to: ReportState.REPORT_DELIVERED },
 ];
 
 // Per-stage failure/stall → FAILED (HP-09), from each processing state.
 const FAILURE_TRANSITIONS = [
-  { from: InquiryState.PRE_RESEARCH,      event: WorkflowEvent.PRE_RESEARCH_FAILED,   to: InquiryState.FAILED },
-  { from: InquiryState.ENRICHMENT,        event: WorkflowEvent.ENRICHMENT_FAILED,     to: InquiryState.FAILED },
-  { from: InquiryState.BROAD_RESEARCH,    event: WorkflowEvent.BROAD_RESEARCH_FAILED, to: InquiryState.FAILED },
-  { from: InquiryState.FUNNEL,            event: WorkflowEvent.FUNNEL_FAILED,         to: InquiryState.FAILED },
-  { from: InquiryState.OUTREACH,          event: WorkflowEvent.OUTREACH_STALLED,      to: InquiryState.FAILED },
-  { from: InquiryState.REPORT_GENERATION, event: WorkflowEvent.REPORT_FAILED,         to: InquiryState.FAILED },
+  { from: ReportState.PRE_RESEARCH,      event: WorkflowEvent.PRE_RESEARCH_FAILED,   to: ReportState.FAILED },
+  { from: ReportState.ENRICHMENT,        event: WorkflowEvent.ENRICHMENT_FAILED,     to: ReportState.FAILED },
+  { from: ReportState.BROAD_RESEARCH,    event: WorkflowEvent.BROAD_RESEARCH_FAILED, to: ReportState.FAILED },
+  { from: ReportState.FUNNEL,            event: WorkflowEvent.FUNNEL_FAILED,         to: ReportState.FAILED },
+  { from: ReportState.OUTREACH,          event: WorkflowEvent.OUTREACH_STALLED,      to: ReportState.FAILED },
+  { from: ReportState.REPORT_GENERATION, event: WorkflowEvent.REPORT_FAILED,         to: ReportState.FAILED },
 ];
 
 // Operator/cancel transitions (HP-09; HP-11 expands resume semantics).
 const CANCELLABLE_FROM = [
-  InquiryState.RECEIVED, InquiryState.PRE_RESEARCH, InquiryState.QUESTIONNAIRE_SENT, InquiryState.ENRICHMENT,
-  InquiryState.BROAD_RESEARCH, InquiryState.FUNNEL, InquiryState.OUTREACH, InquiryState.REPORT_GENERATION, InquiryState.ON_HOLD,
+  ReportState.RECEIVED, ReportState.PRE_RESEARCH, ReportState.QUESTIONNAIRE_SENT, ReportState.ENRICHMENT,
+  ReportState.BROAD_RESEARCH, ReportState.FUNNEL, ReportState.OUTREACH, ReportState.REPORT_GENERATION, ReportState.ON_HOLD,
 ];
 const CONTROL_TRANSITIONS = [
-  ...CANCELLABLE_FROM.map((from) => ({ from, event: WorkflowEvent.CANCEL, to: InquiryState.CANCELLED })),
-  { from: InquiryState.OUTREACH, event: WorkflowEvent.HOLD,   to: InquiryState.ON_HOLD },
-  { from: InquiryState.ON_HOLD,  event: WorkflowEvent.RESUME, to: InquiryState.OUTREACH },
+  ...CANCELLABLE_FROM.map((from) => ({ from, event: WorkflowEvent.CANCEL, to: ReportState.CANCELLED })),
+  { from: ReportState.OUTREACH, event: WorkflowEvent.HOLD,   to: ReportState.ON_HOLD },
+  { from: ReportState.ON_HOLD,  event: WorkflowEvent.RESUME, to: ReportState.OUTREACH },
 ];
 
 // v2 = v1 + prior-report reuse (HP-06) + full state machine (HP-09). v1 is untouched.
 const TRANSITIONS_V2 = [
   ...TRANSITIONS_V1,
-  { from: InquiryState.BROAD_RESEARCH, event: WorkflowEvent.REUSE_FOUND, to: InquiryState.REPORT_DELIVERED },
+  { from: ReportState.BROAD_RESEARCH, event: WorkflowEvent.REUSE_FOUND, to: ReportState.REPORT_DELIVERED },
   ...FAILURE_TRANSITIONS,
   ...CONTROL_TRANSITIONS,
 ];
@@ -78,19 +83,19 @@ const TRANSITIONS_V2 = [
 type Transition = { from: string; event: string; to: string; action?: string };
 
 async function installVersion({ version, status, states, transitions }: { version: number; status: string; states: State[]; transitions: Transition[] }) {
-  const existing = await db.workflowDefinition.findUnique({ where: { key_version: { key: 'inquiry', version } } });
+  const existing = await db.workflowDefinition.findUnique({ where: { key_version: { key: WORKFLOW_KEY, version } } });
   if (existing) {
     console.log(`workflow v${version} already present`);
     return;
   }
   const def = await db.workflowDefinition.create({
     data: {
-      key: 'inquiry', version, status,
+      key: WORKFLOW_KEY, version, status,
       states: { create: states.map((s) => ({ name: s.name, isInitial: !!s.isInitial, isTerminal: !!s.isTerminal })) },
       transitions: { create: transitions.map((t) => ({ fromState: t.from, toState: t.to, event: t.event, action: t.action ?? null })) },
     },
   });
-  console.log(`Installed inquiry workflow v${version} (${def.id}, ${status}) — ${states.length} states, ${transitions.length} transitions`);
+  console.log(`Installed ${WORKFLOW_KEY} workflow v${version} (${def.id}, ${status}) — ${states.length} states, ${transitions.length} transitions`);
 }
 
 // ---------------------------------------------------------------------------
@@ -127,37 +132,58 @@ const FREEMIUM_PROVIDERS = [
   { name: 'Foz Coaching Co', quality: 0.55, price: 240, rating: 3.7, themes: ['budget', 'beginner-friendly'] }, // the #5 taster
 ];
 
-/** A delivered, free + locked (freemium) report for `owner`: 5 ranked options with
- *  findings (so FE-08 provenance has web/feedback) and a redacted snapshot (FE-07). */
+/** A delivered, free + locked (freemium) report for `owner`: 5 qualified inquiries
+ *  with websearch + rating_feedback sources, findings (so FE-08 provenance has
+ *  web/feedback) and a redacted snapshot (FE-07). */
 async function seedFreemiumReport({ owner, workflowVersionId }: { owner: { id: string; email: string }; workflowVersionId: string }) {
-  if (await db.inquiry.findFirst({ where: { customerId: owner.id }, select: { id: true } })) {
+  if (await db.report.findFirst({ where: { customerId: owner.id }, select: { id: true } })) {
     console.log('freemium fixture already present — skipping');
     return;
   }
-  const inq = await db.inquiry.create({
-    data: { customerEmail: owner.email, customerId: owner.id, rawRequest: 'a weekly tennis coach near Porto', state: InquiryState.REPORT_DELIVERED, workflowVersionId, freeReport: true },
+  const report = await db.report.create({
+    data: {
+      customerEmail: owner.email, customerId: owner.id, rawRequest: 'a weekly tennis coach near Porto',
+      state: ReportState.REPORT_DELIVERED, workflowVersionId, freeReport: true,
+      personaId: 'ellis', // London hub — serves western Europe (Porto)
+    },
   });
-  const epic = await db.epic.create({ data: { inquiryId: inq.id, definition: {}, strategy: 'escalating', targetQualifiedOptions: 3, status: 'done' } });
+  const epic = await db.epic.create({ data: { reportId: report.id, definition: {}, strategy: OutreachStrategy.ESCALATING, targetQualifiedOptions: 3, status: EpicStatus.Done } });
 
   const rankable: RankableOption[] = [];
   for (const p of FREEMIUM_PROVIDERS) {
-    const subtask = await db.subtask.create({
-      data: { epicId: epic.id, subjectProviderName: p.name, wave: 1, status: SubtaskStatus.Qualified, personaId: 'persona_porto', qualityScore: p.quality },
+    const inquiry = await db.inquiry.create({
+      data: { reportId: report.id, epicId: epic.id, name: p.name, leadSource: LeadSource.Fallback, wave: 1, status: InquiryStatus.Qualified, qualityScore: p.quality, researchPending: false },
+    });
+    // channel sources: what the funnel/background research would have recorded
+    await db.source.create({
+      data: {
+        inquiryId: inquiry.id, type: SourceType.Websearch,
+        url: `https://directory.example/${encodeURIComponent(p.name)}`, title: p.name,
+        snippet: `${p.name} — coaching listings and contact details`,
+      },
+    });
+    await db.source.create({
+      data: {
+        inquiryId: inquiry.id, type: SourceType.RatingFeedback,
+        url: `https://reviews.example/${encodeURIComponent(p.name)}`, title: 'TrustReviews',
+        snippet: `${p.rating}★ across 40 reviews`,
+        data: { rating: p.rating, reviewsCount: 40, themes: p.themes } as Prisma.InputJsonValue,
+      },
     });
     const background = {
       qualityScore: p.quality, rating: p.rating, reviewsCount: 40, sentiment: p.quality,
       themes: p.themes, quotes: [`"${p.themes[0]}" — a recent client`], eligibility: 'open to new clients',
       sources: [{ source: 'TrustReviews', url: `https://reviews.example/${encodeURIComponent(p.name)}`, snippet: `${p.rating}★ across 40 reviews` }],
     };
-    await db.finding.create({ data: { inquiryId: inq.id, epicId: epic.id, subtaskId: subtask.id, kind: FindingKind.SubjectProviderBackground, data: background as Prisma.InputJsonValue, qualityScore: p.quality } });
-    await db.finding.create({ data: { inquiryId: inq.id, epicId: epic.id, subtaskId: subtask.id, kind: FindingKind.Option, data: { subjectProvider: p.name, price: p.price, currency: 'EUR', availability: 'weekly slots', leadTime: '1 week' } as Prisma.InputJsonValue } });
+    await db.finding.create({ data: { reportId: report.id, epicId: epic.id, inquiryId: inquiry.id, kind: FindingKind.SubjectProviderBackground, data: background as Prisma.InputJsonValue, qualityScore: p.quality } });
+    await db.finding.create({ data: { reportId: report.id, epicId: epic.id, inquiryId: inquiry.id, kind: FindingKind.Option, data: { subjectProvider: p.name, price: p.price, currency: 'EUR', availability: 'weekly slots', leadTime: '1 week' } as Prisma.InputJsonValue } });
     rankable.push({ subjectProvider: p.name, price: p.price, currency: 'EUR', availability: 'weekly slots', leadTime: '1 week', qualityScore: p.quality, background });
   }
 
   const ranked = rankOptions(rankable);
-  await db.report.create({
+  await db.reportSnapshot.create({
     data: {
-      inquiryId: inq.id, token: randomBytes(20).toString('hex'),
+      reportId: report.id, token: randomBytes(20).toString('hex'),
       summary: 'Found 5 coaches near Porto, ranked by quality + price.',
       options: ranked as unknown as Prisma.InputJsonValue,
       timeline: { generatedAt: new Date().toISOString() },
@@ -172,7 +198,7 @@ async function main() {
   await installVersion({ version: 2, status: WorkflowStatus.Active, states: STATES_V2, transitions: TRANSITIONS_V2 });
 
   const customers = await seedCustomers();
-  const active = await db.workflowDefinition.findFirst({ where: { key: 'inquiry', status: WorkflowStatus.Active }, select: { id: true } });
+  const active = await db.workflowDefinition.findFirst({ where: { key: WORKFLOW_KEY, status: WorkflowStatus.Active }, select: { id: true } });
   if (active) await seedFreemiumReport({ owner: customers[3], workflowVersionId: active.id }); // Lukas (1 credit → can unlock)
 }
 

@@ -1,13 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { MessageDirection, MessageStatus } from '@inqi/shared';
 
-/** An email message in a subtask thread. */
+/** An email message in an inquiry thread. */
 export class MessageDto {
   @ApiProperty({ example: 'clz2msg0001' })
   id!: string;
 
   @ApiProperty({ example: 'clz2sub0001' })
-  subtaskId!: string;
+  inquiryId!: string;
 
   @ApiProperty({ enum: Object.values(MessageDirection), example: MessageDirection.Outbound })
   direction!: MessageDirection;
@@ -21,7 +21,7 @@ export class MessageDto {
   @ApiPropertyOptional({ example: 'sales@provider.example', nullable: true })
   toAddr?: string | null;
 
-  @ApiPropertyOptional({ example: 'Inquiry: road bike', nullable: true })
+  @ApiPropertyOptional({ example: 'Report: road bike', nullable: true })
   subject?: string | null;
 
   @ApiProperty({ example: 'Hello, could you share price and availability?' })

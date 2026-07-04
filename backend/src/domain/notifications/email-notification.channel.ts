@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '../../infra/config/config.service';
-import { MAIL_PROVIDER, MailProvider } from '../outreach/mail.provider';
+import { MAIL_PROVIDER, MailProvider } from '../source/mail.provider';
 import { NotificationChannel, NotificationMessage } from './notification.tokens';
 
 /** Email delivery via the existing {@link MAIL_PROVIDER} (HP-04) — captured by the local driver in dev. */

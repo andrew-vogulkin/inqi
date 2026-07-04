@@ -6,9 +6,9 @@ import { ActionType } from './actions';
 import { workflowReducer, initialWorkflowState } from './workflow.reducer';
 import { WorkflowVersionDto } from '../api/types';
 
-const v = (over: Partial<WorkflowVersionDto>): WorkflowVersionDto => ({ id: 'x', key: 'k', version: 1, status: WorkflowStatus.Draft, pinnedInquiries: 0, ...over });
+const v = (over: Partial<WorkflowVersionDto>): WorkflowVersionDto => ({ id: 'x', key: 'k', version: 1, status: WorkflowStatus.Draft, pinnedReports: 0, ...over });
 const versions = [v({ id: 'd', version: 2, status: WorkflowStatus.Draft }), v({ id: 'a', version: 1, status: WorkflowStatus.Active })];
-const evt = (over: Partial<InqiEvent>): InqiEvent => ({ id: '1', type: EventType.WorkflowPublished, inquiryId: '', at: 't', data: {}, ...over });
+const evt = (over: Partial<InqiEvent>): InqiEvent => ({ id: '1', type: EventType.WorkflowPublished, reportId: '', at: 't', data: {}, ...over });
 
 describe('workflowReducer', () => {
   it('loaded defaults selection to the active version', () => {
@@ -35,7 +35,7 @@ describe('workflowReducer', () => {
     const before = s;
     const dup = workflowReducer(s, { type: ActionType.EventReceived, event: evt({ id: '5', data: { id: 'd' } }) });
     expect(dup).toBe(before); // idempotent by event id
-    const other = workflowReducer(s, { type: ActionType.EventReceived, event: evt({ id: '6', type: EventType.InquiryTransitioned, data: { to: 'X' } }) });
+    const other = workflowReducer(s, { type: ActionType.EventReceived, event: evt({ id: '6', type: EventType.ReportTransitioned, data: { to: 'X' } }) });
     expect(other).toBe(before); // non-publish event ignored
   });
 });

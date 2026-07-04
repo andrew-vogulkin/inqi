@@ -24,11 +24,19 @@ export class ProvenanceScoringDto {
   @ApiProperty({ example: 1 }) rank!: number;
 }
 
-/** Redacted outreach summary (persona + generic relay + outcome — never addresses/bodies). */
+/** One message of the outreach conversation (no addresses/message ids). */
+export class ProvenanceChainMessageDto {
+  @ApiProperty({ example: 'outbound' }) direction!: string;
+  @ApiProperty({ example: 'Hello — could you share price and availability?' }) body!: string;
+  @ApiProperty({ example: '2026-07-02T16:36:39.000Z' }) at!: string;
+}
+
+/** Outreach summary + the full email chain as it happened (relay addresses/ids stay internal). */
 export class ProvenanceOutreachDto {
   @ApiProperty({ example: 'persona_ams' }) persona!: string;
   @ApiProperty({ example: 'via inqi' }) route!: string;
   @ApiProperty({ enum: Object.values(OutreachOutcome), example: OutreachOutcome.Replied }) outcome!: OutreachOutcome;
+  @ApiProperty({ type: [ProvenanceChainMessageDto] }) chain!: ProvenanceChainMessageDto[];
 }
 
 /** AI transparency summaries — how inqi evaluated this option, per section. */
@@ -46,5 +54,6 @@ export class OptionProvenanceDto {
   @ApiProperty({ type: ProvenanceScoringDto }) scoring!: ProvenanceScoringDto;
   @ApiProperty({ type: ProvenanceOutreachDto }) outreach!: ProvenanceOutreachDto;
   @ApiProperty({ enum: Object.values(ProvenanceDepth), example: ProvenanceDepth.WebOutreachFeedback }) depth!: ProvenanceDepth;
+  @ApiPropertyOptional({ example: false, description: 'True while the inquiry’s depth research is still queued/running — sections may still fill in' }) researchPending?: boolean;
   @ApiPropertyOptional({ type: ProvenanceSummariesDto }) summaries?: ProvenanceSummariesDto;
 }
