@@ -41,6 +41,15 @@ h1, h2, h3 { color: var(--color-ink-soft); margin: 0; font-weight: 600; }
 @keyframes inqi-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes inqi-spin { to { transform: rotate(360deg); } }
 @keyframes inqi-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+/* Sonar brand loader (design "Variant B"): one ping per heartbeat — a slow lub-dub
+   pulse of the mark sends a wavefront out; echo targets light as it reaches them. */
+@keyframes inqi-sonar-wave { 0% { transform: translate(-50%,-50%) scale(.6); opacity:.6; } 55% { opacity:.16; } 73% { transform: translate(-50%,-50%) scale(2.4); opacity:0; } 100% { transform: translate(-50%,-50%) scale(2.4); opacity:0; } }
+@keyframes inqi-sonar-wave-dub { 0%,12% { transform: translate(-50%,-50%) scale(.6); opacity:0; } 14% { opacity:.4; } 46% { transform: translate(-50%,-50%) scale(1.5); opacity:0; } 100% { transform: translate(-50%,-50%) scale(1.5); opacity:0; } }
+@keyframes inqi-sonar-echo { 0% { opacity:0; transform:scale(.2); } 4% { opacity:1; transform:scale(1.35); } 9% { opacity:.95; transform:scale(1); } 46% { opacity:0; transform:scale(.85); } 100% { opacity:0; transform:scale(.85); } }
+@keyframes inqi-sonar-heart { 0% { transform: translate(-50%,-50%) scale(1); } 5% { transform: translate(-50%,-50%) scale(1.09); } 11% { transform: translate(-50%,-50%) scale(1); } 17% { transform: translate(-50%,-50%) scale(1.05); } 24% { transform: translate(-50%,-50%) scale(1); } 100% { transform: translate(-50%,-50%) scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  [data-sonar] * { animation: none !important; }
+}
 `;
 }
 

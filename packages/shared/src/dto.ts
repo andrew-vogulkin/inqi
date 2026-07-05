@@ -79,6 +79,7 @@ export interface LiveReportDto {
   questionnaire?: { questions: QuestionnaireQuestion[]; answers: Record<string, string> | null; confirmed: boolean } | null; // read-only scope shown on the report
   delivered: boolean;
   rawRequest: string;
+  focus?: SearchFocus | null; // ranking priority the customer picked (price | quality)
   snapshotId?: string | null;  // HP-21: the snapshot id (for POST /snapshots/:id/unlock)
   snapshotToken: string | null;
   reusedFrom: string | null;
@@ -262,7 +263,14 @@ export const OutreachOutcome = {
 export type OutreachOutcome = (typeof OutreachOutcome)[keyof typeof OutreachOutcome];
 
 /** One message of the outreach conversation, as shown to the customer (no addresses/ids). */
-export interface ProvenanceChainMessage { direction: string; body: string; at: string }
+export interface ProvenanceChainMessage {
+  direction: string;
+  subject: string | null;
+  body: string;
+  at: string;
+  /** Thread channel label when the provider has several contacts (sales, booking, …). */
+  channel?: string | null;
+}
 
 /**
  * Customer provenance for one option (HP-20). Sourced from findings + the

@@ -11,3 +11,4 @@ export { EmptyState, ErrorState } from './States';
 export { Modal, ConfirmDialog } from './Modal';
 export { ToastHost } from './Toast';
 export { toneColors, toneForReportState, toneForInquiryStatus } from './tone';
+export { SonarMark } from './SonarMark';

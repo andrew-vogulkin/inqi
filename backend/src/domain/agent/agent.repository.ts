@@ -38,4 +38,12 @@ export class AgentRepository {
   findReportState({ id, tx }: { id: string; tx?: DbTx }) {
     return this.exec(tx).report.findUnique({ where: { id }, select: { state: true } });
   }
+
+  /** The customer scope the reply loop answers from: the raw prompt (priority 1) + questionnaire (priority 2). */
+  findReportScope({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).report.findUniqueOrThrow({
+      where: { id },
+      select: { rawRequest: true, questionnaire: { select: { questions: true, answers: true, confirmed: true } } },
+    });
+  }
 }

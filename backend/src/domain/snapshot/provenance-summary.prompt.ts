@@ -20,7 +20,7 @@ export interface ProvenanceSummaryInput {
   feedback: { rating: number; sentiment: number; themes: string[]; quotes: string[] };
   scoring: { feedbackScore: number; priceScore: number; blendedScore: number };
   price: { amount: number | null; currency: string | null };
-  outreach: { outcome: string; responseMinutes: number | null; reply: string | null };
+  outreach: { outcome: string; responseMinutes: number | null; rounds: number; reply: string | null };
 }
 
 /** The evaluation data the model summarizes (compact JSON). */
@@ -36,7 +36,9 @@ export function buildProvenanceSummaryUser(input: ProvenanceSummaryInput): strin
     outreach: {
       outcome: input.outreach.outcome,
       responseTime: input.outreach.responseMinutes != null ? `${input.outreach.responseMinutes} minutes` : 'unknown',
-      reply: input.outreach.reply ?? 'no reply captured',
+      emailRounds: input.outreach.rounds,
+      // The LATEST reply — after a multi-round chain this is the settled quote, not the opening question.
+      latestReply: input.outreach.reply ?? 'no reply captured',
     },
   });
 }

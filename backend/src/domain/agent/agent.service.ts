@@ -13,7 +13,21 @@ import { ReportContextService } from '../report/report-context.service';
 import { getPersona } from './personas';
 import { AgentRepository } from './agent.repository';
 import { ReplyDecision, ReplyIntent } from './agent.types';
-import { replyParseSystem, replyParseSchema } from './reply.prompt';
+import { replyEvaluateSystem, replyEvaluateSchema, replyAnswerSystem, replyAnswerSchema, replyDraftCheckSystem, replyDraftCheckSchema } from './reply.prompt';
+
+/**
+ * Safety cap for the reply loop: after this many outbound emails on one thread
+ * without a sufficient answer, settle with whatever was extracted instead of
+ * pestering the provider forever.
+ */
+const MAX_OUTBOUND_PER_THREAD = 4;
+
+/**
+ * Draft attempts in the ANSWER element: each draft is audited (forward progress
+ * + topic correlation) before sending; a failing draft is redrafted once with
+ * the issues fed back, then the safe canned follow-up ships instead.
+ */
+const MAX_DRAFT_ATTEMPTS = 2;
 
 /**
  * The agent: researches an individual subject provider, opens its email thread
@@ -47,9 +61,18 @@ export class AgentService implements OnModuleInit {
   /** Ingest an inbound email and kick the reply loop (idempotent on Message-ID). */
   async receiveInbound(email: Parameters<EmailChannelService['ingestInbound']>[0]): Promise<IngestResult> {
     const r = await this.outreach.ingestInbound(email);
-    if (!r.duplicate) {
-      await this.boss.enqueue({ job: QueueJob.ProcessReply, data: { reportId: r.reportId, inquiryId: r.inquiryId } });
+    if (r.duplicate) return r;
+    if (r.blocked) {
+      // The reply failed the ethical/legal gate: quarantine THE SOURCE only — the
+      // message stays hidden and this channel goes silent (no follow-ups, no reply
+      // loop). Verdicts the inquiry already earned (a clean earlier reply, research)
+      // are untouched: one bad late reply must not kill a qualified option.
+      await this.sources.blockThread({ sourceId: r.sourceId, reason: 'inbound reply blocked by the compliance review' });
+      return r;
     }
+    // sourceId pins the reply loop to the thread that received the email (an
+    // inquiry can hold several channels — sales, booking, …).
+    await this.boss.enqueue({ job: QueueJob.ProcessReply, data: { reportId: r.reportId, inquiryId: r.inquiryId, sourceId: r.sourceId } });
     return r;
   }
 
@@ -61,7 +84,7 @@ export class AgentService implements OnModuleInit {
     });
 
     // The reply loop: read the chain + epic memory, DEPTH-decide the next action.
-    await this.boss.work<{ reportId: string; inquiryId: string }>({
+    await this.boss.work<{ reportId: string; inquiryId: string; sourceId?: string }>({
       job: QueueJob.ProcessReply,
       handler: (job) => this.processReply(job.data),
     });
@@ -76,13 +99,17 @@ export class AgentService implements OnModuleInit {
 
         // DEPTH research + draft, then open the subject-provider email thread.
         const result = await this.outreach.composeAndSend({ reportId, inquiryId });
+        // A settled inquiry can still be emailed (e.g. confirmation outreach to a
+        // research-qualified provider) — never downgrade its terminal status.
+        const SETTLED: string[] = [InquiryStatus.Qualified, InquiryStatus.Failed, InquiryStatus.Skipped];
+        const settled = SETTLED.includes(st.status);
         if (result.blocked) {
-          await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Failed } });
+          if (!settled) await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Failed } });
           await this.setThreadState({ inquiryId, convState: ConvState.Closed });
           await this.boss.enqueue({ job: QueueJob.InquirySettled, data: { reportId, epicId: st.epicId } });
           return;
         }
-        await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Contacted } });
+        if (!settled) await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Contacted } });
         await this.setThreadState({ inquiryId, convState: ConvState.AwaitingReply });
         // Depth/background research is enqueued by the orchestrator per created inquiry
         // (funnel build / widen) — not here, so it isn't gated behind outreach waves.
@@ -91,21 +118,28 @@ export class AgentService implements OnModuleInit {
     });
   }
 
-  private async processReply({ reportId, inquiryId }: { reportId: string; inquiryId: string }): Promise<void> {
+  private async processReply({ reportId, inquiryId, sourceId }: { reportId: string; inquiryId: string; sourceId?: string }): Promise<void> {
     void this.usage.recordAction({ reportId, kind: UsageKind.ReplyProcessed }); // cost accounting (HP-15)
     const st = await this.agents.findInquiry({ id: inquiryId });
-    // Reflect the inbound on the inquiry + its thread source, then decide.
-    await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Replied } });
-    await this.setThreadState({ inquiryId, convState: ConvState.NeedsAction });
+    // Reflect the inbound on the inquiry + the thread that received it, then decide.
+    // A settled inquiry keeps its terminal status (a late confirmation must not
+    // downgrade qualified → replied while the decision runs).
+    const SETTLED: string[] = [InquiryStatus.Qualified, InquiryStatus.Failed, InquiryStatus.Skipped];
+    const settled = SETTLED.includes(st.status);
+    if (!settled) await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Replied } });
+    if (sourceId) await this.sources.updateThreadState({ sourceId, convState: ConvState.NeedsAction });
+    else await this.setThreadState({ inquiryId, convState: ConvState.NeedsAction });
 
     const chain = await this.outreach.buildChain({ inquiryId });
     const decision = await this.decideReply({ reportId, inquiryId, chain });
 
     if (decision.intent === ReplyIntent.Continue) {
-      // Still negotiating — not a settlement; no reactor signal.
-      await this.outreach.sendFollowup({ reportId, inquiryId, body: decision.draft });
-      await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Contacted } });
-      await this.setThreadState({ inquiryId, convState: ConvState.AwaitingReply });
+      // Still negotiating — not a settlement; no reactor signal. The follow-up goes
+      // to the thread that received the reply (sales vs booking).
+      await this.outreach.sendFollowup({ reportId, inquiryId, sourceId, body: decision.draft });
+      if (!settled) await this.agents.updateInquiry({ id: inquiryId, data: { status: InquiryStatus.Contacted } });
+      if (sourceId) await this.sources.updateThreadState({ sourceId, convState: ConvState.AwaitingReply });
+      else await this.setThreadState({ inquiryId, convState: ConvState.AwaitingReply });
       return;
     }
 
@@ -127,9 +161,12 @@ export class AgentService implements OnModuleInit {
         // the better evidence, so it OVERWRITES the web-derived price/availability.
         const existing = await this.agents.findFinding({ inquiryId, kind: FindingKind.Option, tx });
         if (existing) {
+          // Merge only what the reply actually evidenced — a null extraction (vague reply,
+          // thread-cap settle) must never erase previously confirmed price/availability.
+          const evidenced = Object.fromEntries(Object.entries(decision.result ?? {}).filter(([, v]) => v != null));
           await this.agents.updateFinding({
             id: existing.id,
-            data: { ...(existing.data as Record<string, unknown>), ...decision.result, notes: 'confirmed by provider reply' } as Prisma.InputJsonValue,
+            data: { ...(existing.data as Record<string, unknown>), ...evidenced, notes: 'confirmed by provider reply' } as Prisma.InputJsonValue,
             tx,
           });
         } else {
@@ -157,10 +194,16 @@ export class AgentService implements OnModuleInit {
   }
 
   /**
-   * DEPTH model: read the email chain and decide continue | qualify | disqualify,
-   * extracting the provider's offer (price + their local currency + availability)
-   * straight from the reply text. Falls back to a qualify if the model is
-   * unavailable/invalid, so the pipeline still settles.
+   * The reply loop as a 2-element decision (DEPTH model):
+   *  1. EVALUATE — does the thread now carry the chain target (a concrete cost
+   *     estimate + timeline)? Sufficient → qualify with the extracted offer;
+   *     declined → disqualify. The source is then evaluated as usual.
+   *  2. ANSWER — otherwise the provider asked for more info first: draft the
+   *     follow-up answering every question by priority — original search prompt,
+   *     then questionnaire, then imagination (a plausible invented detail, kept
+   *     consistent for the rest of the thread) — and re-ask for the target.
+   * Falls back to a qualify if the model is unavailable/invalid, so the pipeline
+   * still settles.
    */
   private async decideReply({ reportId, inquiryId, chain }: { reportId: string; inquiryId: string; chain: ChatMsg[] }): Promise<ReplyDecision> {
     const transcript = chain
@@ -169,16 +212,75 @@ export class AgentService implements OnModuleInit {
     try {
       // Focused report context (this inquiry first) so the decision sees the whole run, budget-capped.
       const ctx = await this.reportContext.buildAgentContext({ reportId, budgetTokens: 50_000, focusInquiryId: inquiryId });
-      const p = await this.ai.structured({
-        system: replyParseSystem(), user: `${ctx.text}\n\n# Thread\n${transcript}`, tier: ModelTier.Depth,
-        validate: (raw) => replyParseSchema.parse(raw),
+
+      // Loop element 1 — EVALUATE the thread against the chain target.
+      const ev = await this.ai.structured({
+        system: replyEvaluateSystem(), user: `${ctx.text}\n\n# Thread\n${transcript}`, tier: ModelTier.Depth,
+        validate: (raw) => replyEvaluateSchema.parse(raw),
       });
-      if (p.intent === ReplyIntent.Qualify) {
-        return { intent: ReplyIntent.Qualify, reason: p.reason, result: { price: p.price, currency: p.currency, availability: p.availability, leadTime: p.leadTime } };
+      if (ev.declined) return { intent: ReplyIntent.Disqualify, reason: ev.reason };
+      const offer = { price: ev.price, currency: ev.currency, availability: ev.availability, leadTime: ev.leadTime };
+      if (ev.sufficient) return { intent: ReplyIntent.Qualify, reason: ev.reason, result: offer };
+
+      // Loop bound: enough outbound attempts — settle on what we have rather than loop forever.
+      const outboundCount = chain.filter((m) => m.role === ChatRole.Assistant).length;
+      if (outboundCount >= MAX_OUTBOUND_PER_THREAD) {
+        this.logger.warn(`reply loop: thread cap (${MAX_OUTBOUND_PER_THREAD} outbound) reached on inquiry ${inquiryId} — settling with the extracted offer`);
+        return { intent: ReplyIntent.Qualify, reason: 'thread cap reached without a full quote', result: offer };
       }
-      return { intent: p.intent, reason: p.reason };
+
+      // Loop element 2 — ANSWER by priority: prompt > questionnaire > imagination.
+      // Each draft is audited before sending (anti-hallucination iterations):
+      // (1) forward progress toward the chain target, (2) topic correlation.
+      // A failing draft is redrafted with the issues fed back; when every attempt
+      // fails, NO draft ships — sendFollowup's safe canned line asks for the
+      // cost estimate + timeline without any room to hallucinate.
+      const scope = await this.agents.findReportScope({ id: reportId });
+      const scopeAndThread = `${this.scopeBlock(scope)}\n\n# Thread\n${transcript}`;
+      let issues: string[] = [];
+      for (let attempt = 1; attempt <= MAX_DRAFT_ATTEMPTS; attempt++) {
+        const issuesBlock = issues.length ? `\n\n# Reviewer issues with your previous draft — fix ALL of them\n${issues.map((i) => `- ${i}`).join('\n')}` : '';
+        const answer = await this.ai.structured({
+          system: replyAnswerSystem(),
+          user: `${scopeAndThread}${issuesBlock}`,
+          tier: ModelTier.Depth,
+          validate: (raw) => replyAnswerSchema.parse(raw),
+        });
+        const check = await this.ai.structured({
+          system: replyDraftCheckSystem(),
+          user: `${scopeAndThread}\n\n# DRAFT under review\n${answer.body}`,
+          tier: ModelTier.Depth,
+          validate: (raw) => replyDraftCheckSchema.parse(raw),
+        });
+        if (check.movesForward && check.onTopic) {
+          this.logger.log(`reply loop: follow-up on inquiry ${inquiryId} answered from [${answer.answeredFrom.join(', ') || 'n/a'}] (draft attempt ${attempt} passed review)`);
+          return { intent: ReplyIntent.Continue, reason: ev.reason, draft: answer.body };
+        }
+        issues = check.issues.length ? check.issues : [`forward progress: ${check.movesForward}, topic correlation: ${check.onTopic}`];
+        this.logger.warn(`reply loop: draft attempt ${attempt} on inquiry ${inquiryId} failed review — ${issues.join(' | ')}`);
+      }
+      return { intent: ReplyIntent.Continue, reason: ev.reason }; // no draft → canned safe follow-up
     } catch {
       return { intent: ReplyIntent.Qualify, result: { price: null, currency: null, availability: 'available', leadTime: null } };
     }
+  }
+
+  /** The ANSWER step's priority sources, labeled exactly as the prompt names them. */
+  private scopeBlock(scope: { rawRequest: string; questionnaire: { questions: unknown; answers: unknown; confirmed: boolean } | null }): string {
+    const questions = Array.isArray(scope.questionnaire?.questions)
+      ? (scope.questionnaire.questions as { id?: string; prompt?: string }[])
+      : [];
+    const answers = (scope.questionnaire?.answers ?? {}) as Record<string, string>;
+    const qa = Object.entries(answers).map(([qid, a]) => {
+      const prompt = questions.find((q) => q.id === qid)?.prompt ?? qid;
+      return `- ${prompt}: ${a}`;
+    });
+    return [
+      '# PRIORITY 1 — original search prompt',
+      scope.rawRequest,
+      '',
+      '# PRIORITY 2 — confirmed questionnaire',
+      qa.length ? qa.join('\n') : '(none)',
+    ].join('\n');
   }
 }

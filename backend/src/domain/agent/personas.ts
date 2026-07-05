@@ -75,6 +75,9 @@ export function personaSystem({ persona, task }: { persona: Persona; task: strin
     `Be professional and honest; never misrepresent who you are or why you are writing.`,
     `You personally own this email thread — the same person (you, ${persona.name}) always replies.`,
     `Writing voice: ${persona.style}`,
+    // The voice colours the prose, never the language: a hub in Amsterdam must not
+    // email a Portuguese surf school in Dutch (observed with the local model).
+    `LANGUAGE: always write in ENGLISH, regardless of your hub's local language, unless the task explicitly requests another language.`,
     task,
   ].join(' ');
 }

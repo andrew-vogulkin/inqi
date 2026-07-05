@@ -60,4 +60,20 @@ describe('dossierReducer', () => {
     const s = dossierReducer(initialDossierState, { type: ActionType.DossierProvenanceLoaded, provenance });
     expect(s).toBe(initialDossierState);
   });
+
+  it('overlayPending: true from load until the overlay lands (customer) or the chain lands (admin)', () => {
+    const customer = loaded(DossierOrigin.Customer);
+    expect(customer.overlayPending).toBe(true); // sections hold a spinner, not the provisional fallback
+    expect(dossierReducer(customer, { type: ActionType.DossierProvenanceLoaded, provenance }).overlayPending).toBe(false);
+
+    const admin = loaded(DossierOrigin.Admin);
+    expect(admin.overlayPending).toBe(true);
+    expect(dossierReducer(admin, { type: ActionType.DossierChainLoaded, messages: [] }).overlayPending).toBe(false);
+  });
+
+  it('overlayPending clears on DossierProvenanceFailed (fall back to option-derived sections, never spin forever)', () => {
+    const s = dossierReducer(loaded(DossierOrigin.Customer), { type: ActionType.DossierProvenanceFailed });
+    expect(s.overlayPending).toBe(false);
+    expect(s.dossier?.provider).toBe('Makara Yoga'); // VM intact
+  });
 });

@@ -50,6 +50,8 @@ export const FindingKind = {
   SubjectProviderBackground: 'subject_provider_background',
   Constraint: 'constraint',
   Note: 'note',
+  /** Cached AI dossier summaries (HP-20) + a fingerprint of the inputs they summarize. */
+  ProvenanceSummary: 'provenance_summary',
 } as const;
 export type FindingKind = (typeof FindingKind)[keyof typeof FindingKind];
 
@@ -70,8 +72,40 @@ export type ComplianceStatus = typeof ReviewStatus.Passed | typeof ReviewStatus.
 export const ComplianceKind = {
   Email: 'email',
   Questionnaire: 'questionnaire',
+  /** The customer's raw search prompt (report intake gate). */
+  CustomerRequest: 'customer_request',
+  /** The customer's free-text questionnaire answers (scope-confirm gate). */
+  QuestionnaireAnswers: 'questionnaire_answers',
 } as const;
 export type ComplianceKind = (typeof ComplianceKind)[keyof typeof ComplianceKind];
+
+/**
+ * Canonical prefixes of the depth-research eligibility verdict. The verdict is a
+ * free-text line that STARTS with one of these (the tail carries the evidence),
+ * so consumers match by prefix via the helpers below — never by raw string.
+ */
+export const EligibilityVerdict = {
+  Eligible: 'eligible',
+  EligibleWithReservations: 'eligible with reservations',
+  NotEligible: 'not eligible',
+  Ineligible: 'ineligible',
+  Unverified: 'unverified',
+} as const;
+export type EligibilityVerdict = (typeof EligibilityVerdict)[keyof typeof EligibilityVerdict];
+
+/** "Eligible with reservations" — constraints mismatched, ranked lower (tolerates the singular "reservation"). */
+export const isReserveVerdict = (verdict: string | null | undefined): boolean =>
+  String(verdict ?? '').toLowerCase().startsWith('eligible with reservation');
+
+/** Any eligible verdict — with or without reservations. */
+export const isEligibleVerdict = (verdict: string | null | undefined): boolean =>
+  String(verdict ?? '').toLowerCase().startsWith(EligibilityVerdict.Eligible);
+
+/** Evidence-of-absence verdict ("not eligible" / "ineligible"). */
+export const isIneligibleVerdict = (verdict: string | null | undefined): boolean => {
+  const v = String(verdict ?? '').toLowerCase();
+  return v.startsWith(EligibilityVerdict.NotEligible) || v.startsWith(EligibilityVerdict.Ineligible);
+};
 
 /** Ethical/legal risk categories the compliance gate can flag. */
 export const ComplianceCategory = {

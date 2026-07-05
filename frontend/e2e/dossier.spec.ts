@@ -80,6 +80,46 @@ test('outreach variants render by status', async ({ page }) => {
   await expect(page.getByText(/Not contacted/)).toBeVisible();
 });
 
+test('multi-channel outreach renders one section per contact, exchanges as email boxes, and spins until provenance lands', async ({ page }) => {
+  await seed(page, CUSTOMER);
+  const reserveOption = { ...repliedOption, background: { ...repliedOption.background, eligibility: 'eligible with reservations — no 2-day package advertised', redFlags: ['No 2-day package advertised'] } };
+  const liveBody = JSON.stringify({
+    reportId: 'i1', state: 'OUTREACH', delivered: false, rawRequest: 'a bike', snapshotToken: null, reusedFrom: null, summary: '',
+    options: [reserveOption],
+    questionnaire: { confirmed: true, questions: [{ id: 'q1', type: 'select', prompt: 'Package length?' }], answers: { q1: '2-day weekend' } },
+  });
+  await page.route('**/api/reports/*/live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: liveBody }));
+  // Delay provenance so the pending spinner is observable before the reveal.
+  await page.route('**/api/reports/*/options/*/provenance', async (r: Route) => {
+    await new Promise((res) => setTimeout(res, 700));
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      web: [], feedback: { rating: 4.6, sentiment: 0.8, themes: [], quotes: [] },
+      scoring: { feedbackScore: 0.8, priceScore: 0.5, blendedScore: 0.68, rank: 1 },
+      outreach: { persona: 'nour', route: 'via inqi', outcome: 'replied', chain: [
+        { direction: 'outbound', subject: 'Inquiry: bike', body: 'Sales: price?', at: '2026-07-05T10:00:00Z', channel: 'sales' },
+        { direction: 'inbound', subject: 'Re: Inquiry: bike', body: 'Sales: 200 EUR.', at: '2026-07-05T10:05:00Z', channel: 'sales' },
+        { direction: 'outbound', subject: 'Inquiry: bike', body: 'Booking: availability?', at: '2026-07-05T10:01:00Z', channel: 'booking' },
+        { direction: 'inbound', subject: 'Re: Inquiry: bike', body: 'Booking: next week works.', at: '2026-07-05T10:06:00Z', channel: 'booking' },
+      ] },
+      depth: 'WebOutreachFeedback',
+    }) });
+  });
+
+  await page.goto('/#/d/i1/Aurora');
+  // While provenance is in flight the outreach section holds a compact spinner, never the fallback card.
+  await expect(page.getByTestId('section-pending')).toBeVisible();
+  await expect(page.getByTestId('outreach-redacted')).toHaveCount(0);
+  // Then it unfolds into one section per channel, each message a verbatim email box.
+  await expect(page.getByTestId('outreach-channel')).toHaveCount(2);
+  await expect(page.getByText('Outreach — sales contact')).toBeVisible();
+  await expect(page.getByText('Outreach — booking contact')).toBeVisible();
+  await expect(page.getByTestId('email-outbound')).toHaveCount(2);
+  await expect(page.getByTestId('email-inbound')).toHaveCount(2);
+  // Reserve option: qualification shows the unmet constraints next to the confirmed scope.
+  await expect(page.getByTestId('constraints-panel')).toContainText('did not evidence all of your confirmed constraints');
+  await expect(page.getByTestId('constraints-panel')).toContainText('2-day weekend');
+});
+
 test('customer Back routes to the live report', async ({ page }) => {
   await seed(page, CUSTOMER);
   await page.route('**/api/reports/*/options/*/provenance', (r: Route) => r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'REPORT_NOT_FOUND' } }) }));

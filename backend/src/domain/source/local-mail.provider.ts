@@ -29,6 +29,13 @@ export class LocalMailProvider implements MailProvider {
   private readonly replyCount = new Map<string, number>();
   /** Reply addresses whose simulated provider never answers (rolled once, on first contact — silence is sticky). */
   private readonly ignoring = new Set<string>();
+  /**
+   * Per-thread transcript (customer emails + our simulated replies). Without it the
+   * role-play model only sees the latest follow-up ("can you confirm the price?")
+   * and hallucinates a fresh context — observed: a Portugal surf thread answered
+   * with a Bangkok THB quote.
+   */
+  private readonly transcript = new Map<string, string[]>();
 
   constructor(
     private readonly config: ConfigService,
@@ -42,11 +49,17 @@ export class LocalMailProvider implements MailProvider {
     this.capture(record);
 
     if (this.config.simulateReplies && args.from && !this.isIgnoring(args.from)) {
+      const thread = this.transcript.get(args.from) ?? [];
+      thread.push(`CUSTOMER: ${args.body}`);
+      this.transcript.set(args.from, thread);
       const sentSoFar = this.replyCount.get(args.from) ?? 0;
       if (sentSoFar < REPLY_MAX_PER_THREAD) {
         this.replyCount.set(args.from, sentSoFar + 1);
+        // Round N of SIMULATE_REPLY_ROUNDS: early rounds withhold the quote (one
+        // clarifying question), the final round quotes in full.
+        const complete = sentSoFar + 1 >= this.config.simulateReplyRounds;
         setTimeout(() => {
-          void this.deliverReply({ replyAddress: args.from, subject: args.subject, inReplyTo: externalId, outreachBody: args.body });
+          void this.deliverReply({ replyAddress: args.from, subject: args.subject, inReplyTo: externalId, complete });
         }, REPLY_DELAY_MS);
       }
     }
@@ -81,19 +94,30 @@ export class LocalMailProvider implements MailProvider {
     }
   }
 
-  /** Generate a realistic provider reply (local-currency quote) for the parser to read. */
-  private async simulatedReply(outreachBody: string): Promise<string> {
+  /**
+   * Generate a realistic provider reply (local-currency quote, or a clarifying
+   * question on early rounds). The model sees the WHOLE thread so a follow-up
+   * gets answered in the same context (service, location, currency) it started in.
+   */
+  private async simulatedReply({ replyAddress, complete }: { replyAddress: string; complete: boolean }): Promise<string> {
+    const thread = (this.transcript.get(replyAddress) ?? []).join('\n\n').slice(-4000);
     try {
-      const text = await this.ai.complete({ system: simulatedReplySystem(), user: outreachBody.slice(0, 1800), tier: ModelTier.Breadth });
-      if (text.trim()) return text.trim();
+      const text = await this.ai.complete({ system: simulatedReplySystem({ complete }), user: thread, tier: ModelTier.Breadth });
+      if (text.trim()) {
+        const threadSoFar = this.transcript.get(replyAddress) ?? [];
+        threadSoFar.push(`YOU (provider): ${text.trim()}`);
+        this.transcript.set(replyAddress, threadSoFar);
+        return text.trim();
+      }
     } catch (e) {
       this.logger.warn(`simulated reply generation failed, using fallback: ${(e as Error).message}`);
     }
+    if (!complete) return 'Thanks for reaching out — yes, we offer this. Could you let me know which dates you have in mind?';
     return `Yes, we can help. Our rate is around ${100 + Math.floor(Math.random() * 900)} USD, available with a 1-2 week lead time.`;
   }
 
   /** Loop a Postmark-shaped subject-provider reply back through the inbound webhook. */
-  private async deliverReply({ replyAddress, subject, inReplyTo, outreachBody }: { replyAddress: string; subject: string; inReplyTo: string; outreachBody: string }): Promise<void> {
+  private async deliverReply({ replyAddress, subject, inReplyTo, complete }: { replyAddress: string; subject: string; inReplyTo: string; complete: boolean }): Promise<void> {
     const url = `${this.config.publicBaseUrl}/api/comms/inbound`;
     const id = randomUUID();
     const payload = {
@@ -101,7 +125,7 @@ export class LocalMailProvider implements MailProvider {
       To: replyAddress,
       OriginalRecipient: replyAddress,
       Subject: `Re: ${subject}`,
-      TextBody: await this.simulatedReply(outreachBody),
+      TextBody: await this.simulatedReply({ replyAddress, complete }),
       MessageID: id,
       Headers: [
         { Name: 'Message-ID', Value: `<${id}@provider.example>` },

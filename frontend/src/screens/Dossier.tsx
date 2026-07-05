@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useEffect } from 'react';
+import { CSSProperties, ReactNode, useEffect, useState } from 'react';
 import { MessageDirection } from '@inqi/shared';
 import { AsyncStatus, DossierOrigin, ResearchDepth, ResearchMethod, OutreachVariant } from '../conventions/enums';
 import { Route, hrefFor } from '../conventions/routes';
@@ -8,12 +8,14 @@ import { reportsApi, adminApi, ApiError } from '../api';
 import { ErrorState, Skeleton } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
-import { DossierVM, WebSource, FeedbackVM, OutreachVM, ScoringVM } from '../conventions/dossier';
+import { DossierVM, WebSource, FeedbackVM, OutreachVM, ScoringVM, ChainMessageVM, groupExchanges, groupByChannel } from '../conventions/dossier';
 import { ChainMessage } from '../state/dossier.reducer';
 
 const PAGE: CSSProperties = { maxWidth: 720, margin: '0 auto' };
 const CARD: CSSProperties = { background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.xl, padding: '20px 22px' };
 const PANEL: CSSProperties = { background: color.appBg, border: `1px solid ${color.surfaceAlt}`, borderRadius: radius.md };
+/** Border for the warn-tinted constraints panel (matches color.warnTint). */
+const WARN_BORDER = '#ecd9b0';
 
 const DEPTH_LABEL: Record<ResearchDepth, string> = {
   [ResearchDepth.WebOnly]: 'Web only',
@@ -30,6 +32,8 @@ const METHOD: Record<ResearchMethod, { label: string; icon: string; bg: string; 
 export function Dossier({ reportId, optionRef, origin }: { reportId: string; optionRef: string; origin: DossierOrigin }) {
   const dispatch = useAppDispatch();
   const d = useSelector((s) => s.dossier);
+  // The scope the customer confirmed — step 4 judges constraint mismatches against it.
+  const [scope, setScope] = useState<ScopeAnswers>([]);
 
   useEffect(() => {
     reportsApi.reportLive({ id: reportId })
@@ -37,13 +41,17 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
         const idx = (live.options ?? []).findIndex((o) => optionId(o) === optionRef);
         if (idx < 0) { dispatch({ type: ActionType.DossierLoadFailed, message: 'That option is no longer in the report.' }); return; }
         const option = live.options[idx];
+        const q = live.questionnaire;
+        setScope((q?.questions ?? []).filter((qq) => qq.type !== 'confirm' && q?.answers?.[qq.id]).map((qq) => ({ prompt: qq.prompt, answer: q!.answers![qq.id] })));
         dispatch({ type: ActionType.DossierLoaded, option, rank: idx + 1, origin });
         if (origin === DossierOrigin.Admin && option.inquiryId) {
           // Admin: the full email chain (admin-gated). Customers never call this.
-          adminApi.thread({ inquiryId: option.inquiryId }).then((t) => dispatch({ type: ActionType.DossierChainLoaded, messages: t })).catch(() => undefined);
+          adminApi.thread({ inquiryId: option.inquiryId }).then((t) => dispatch({ type: ActionType.DossierChainLoaded, messages: t })).catch(() => dispatch({ type: ActionType.DossierProvenanceFailed }));
         } else if (origin === DossierOrigin.Customer) {
           // HP-20: the customer-safe, redacted provenance (no chain) — overlays the VM.
-          reportsApi.provenance({ reportId, ref: optionRef }).then((p) => dispatch({ type: ActionType.DossierProvenanceLoaded, provenance: p })).catch(() => undefined);
+          reportsApi.provenance({ reportId, ref: optionRef }).then((p) => dispatch({ type: ActionType.DossierProvenanceLoaded, provenance: p })).catch(() => dispatch({ type: ActionType.DossierProvenanceFailed }));
+        } else {
+          dispatch({ type: ActionType.DossierProvenanceFailed }); // nothing to overlay — don't spin forever
         }
       })
       .catch((e) => dispatch({ type: ActionType.DossierLoadFailed, message: e instanceof ApiError ? e.message : 'Could not load the dossier.' }));
@@ -65,13 +73,17 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Step n={1} title="Web search" result={vm.researchPending ? 'research in progress' : `${vm.web.length} source${vm.web.length === 1 ? '' : 's'}`} summary={vm.summaries?.web}><WebStep web={vm.web} researchPending={vm.researchPending} /></Step>
-        <Step n={2} title="Outreach" result={outreachResult(vm.outreach)} summary={vm.summaries?.outreach}>
-          {origin === DossierOrigin.Admin && d.chain ? <AdminChain messages={d.chain} /> : <OutreachStep outreach={vm.outreach} />}
+        <Step n={2} title="Outreach" result={d.overlayPending ? 'loading…' : outreachResult(vm.outreach)} summary={d.overlayPending ? undefined : vm.summaries?.outreach}>
+          {/* Hold a small stable spinner until the authoritative conversation lands, then unfold it —
+              the full thread can be long, and popping it in would throw the reader's scroll. */}
+          {d.overlayPending
+            ? <SectionPending label="Retrieving the outreach conversation…" />
+            : <Reveal>{origin === DossierOrigin.Admin && d.chain ? <AdminChain messages={d.chain} /> : <OutreachStep outreach={vm.outreach} />}</Reveal>}
         </Step>
         <Step n={3} title="Feedback scan" result={vm.feedback.reviewsCount != null ? `${vm.feedback.reviewsCount} reviews` : (vm.feedback.rating != null ? `★ ${vm.feedback.rating}` : 'scanned')} summary={vm.summaries?.feedback}>
           <FeedbackStep feedback={vm.feedback} />
         </Step>
-        <Step n={4} title="Qualification & ranking" accent result={`ranked #${vm.scoring.rank}`} summary={vm.summaries?.ranking}><ScoringStep scoring={vm.scoring} provider={vm.provider} /></Step>
+        <Step n={4} title="Qualification & ranking" accent result={`ranked #${vm.scoring.rank}`} summary={vm.summaries?.ranking}><ScoringStep scoring={vm.scoring} provider={vm.provider} reservations={vm.reservations} scope={scope} /></Step>
       </div>
     </div>
   );
@@ -100,6 +112,33 @@ function Header({ vm, reportId }: { vm: DossierVM; reportId: string }) {
   );
 }
 
+/**
+ * Animated expansion (grid-rows 0fr → 1fr): late-arriving section content unfolds
+ * over half a second instead of slamming the layout — the reader's scroll position
+ * degrades gracefully. Disabled under prefers-reduced-motion.
+ */
+function Reveal({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const reduced = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => { const f = requestAnimationFrame(() => setOpen(true)); return () => cancelAnimationFrame(f); }, []);
+  if (reduced) return <>{children}</>;
+  return (
+    <div style={{ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr', transition: 'grid-template-rows .55s cubic-bezier(.22,.7,.3,1)' }}>
+      <div style={{ overflow: 'hidden', minHeight: 0 }}>{children}</div>
+    </div>
+  );
+}
+
+/** Compact in-section spinner: holds the section small + stable while the authoritative data is in flight. */
+function SectionPending({ label }: { label: string }) {
+  return (
+    <div data-testid="section-pending" style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '2px 2px 4px', color: color.muted, fontSize: fontSize.sm }}>
+      <span style={{ width: 13, height: 13, borderRadius: '50%', flex: 'none', border: `2px solid ${color.lineStrong}`, borderTopColor: color.subtle, animation: 'inqi-spin .9s linear infinite' }} />
+      {label}
+    </div>
+  );
+}
+
 function Step({ n, title, result, accent, summary, children }: { n: number; title: string; result?: string; accent?: boolean; summary?: string; children: ReactNode }) {
   return (
     <div style={CARD}>
@@ -108,7 +147,8 @@ function Step({ n, title, result, accent, summary, children }: { n: number; titl
         <h3 style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold, margin: 0 }}>{title}</h3>
         {result && <span style={{ marginLeft: 'auto', fontSize: fontSize.sm, fontWeight: accent ? fontWeight.medium : fontWeight.regular, color: accent ? color.brand : color.muted }}>{result}</span>}
       </div>
-      {summary && <AiSummary text={summary} />}
+      {/* The AI summary arrives with the provenance overlay — unfold it, don't jump. */}
+      {summary && <Reveal><AiSummary text={summary} /></Reveal>}
       {children}
     </div>
   );
@@ -163,24 +203,65 @@ function outreachResult(o: OutreachVM): string {
   return o.variant === OutreachVariant.Replied ? 'replied' : o.variant === OutreachVariant.Pending ? 'awaiting reply' : 'public listings';
 }
 
+/**
+ * One email of the thread, VERBATIM as it went over the wire: From/Subject header
+ * + the untouched body. Outbound = our inquiry (persona voice); inbound = the
+ * provider's reply.
+ */
+function EmailMessage({ m, persona }: { m: ChainMessageVM; persona: string | null }) {
+  const out = m.direction === MessageDirection.Outbound;
+  const when = m.at ? new Date(m.at).toLocaleString() : '';
+  return (
+    <div data-testid={out ? 'email-outbound' : 'email-inbound'} style={{ background: color.surface, border: `1px solid ${out ? color.lineStrong : color.line}`, borderLeft: `3px solid ${out ? color.ink : color.brand}`, borderRadius: radius.md, overflow: 'hidden' }}>
+      <div style={{ padding: '9px 13px', borderBottom: `1px solid ${color.surfaceSunken}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 11, color: color.subtle, fontFamily: font.mono, flex: 'none' }}>From:</span>
+          <span style={{ fontSize: 12.5, fontWeight: fontWeight.medium, flex: 1, minWidth: 0 }}>{out ? `${persona ?? 'inqi'} · Inqi Tech Service Provider` : 'the provider'}</span>
+          {when && <span style={{ fontSize: 10.5, color: color.subtle, fontFamily: font.mono, flex: 'none' }}>{when}</span>}
+        </div>
+        {m.subject && (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontSize: 11, color: color.subtle, fontFamily: font.mono, flex: 'none' }}>Subject:</span>
+            <span style={{ fontSize: 12.5, color: color.inkSoft, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.subject}</span>
+          </div>
+        )}
+      </div>
+      <div style={{ padding: '12px 14px', fontSize: 13, lineHeight: 1.55, color: color.ink, whiteSpace: 'pre-wrap' }}>{m.body}</div>
+    </div>
+  );
+}
+
 /** The outreach conversation as it happened; falls back to the summary card when no chain exists yet. */
 function OutreachStep({ outreach }: { outreach: OutreachVM }) {
   if (outreach.chain.length > 0) {
     const pending = outreach.variant === OutreachVariant.Pending;
+    const channels = groupByChannel(outreach.chain);
     return (
       <div data-testid="outreach-chain">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <span style={{ fontSize: 12.5, color: color.subtle }}>{outreach.persona ? `Reached out as ${outreach.persona}` : 'Reached out on your behalf'}</span>
           <span style={{ fontSize: 10.5, fontWeight: fontWeight.medium, color: color.info, background: color.infoTint, padding: '2px 8px', borderRadius: radius.sm }}>✉ Email</span>
+          {channels.length > 1 && <span style={{ fontSize: 10.5, color: color.subtle }}>{channels.length} contacts</span>}
         </div>
-        <div style={{ ...PANEL, display: 'flex', flexDirection: 'column', gap: 13, padding: 16 }}>
-          {outreach.chain.map((m, i) => {
-            const out = m.direction === MessageDirection.Outbound;
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {channels.map(({ channel, msgs }) => {
+            const exchanges = groupExchanges(msgs);
             return (
-              <div key={i} style={{ display: 'flex', justifyContent: out ? 'flex-end' : 'flex-start' }}>
-                <div style={{ maxWidth: '80%' }}>
-                  <div style={{ fontSize: 11, color: color.subtle, marginBottom: 4, textAlign: out ? 'right' : 'left', fontFamily: font.mono }}>{out ? outreach.persona ?? 'inqi' : 'provider'}</div>
-                  <div style={{ fontSize: 13.5, lineHeight: 1.5, padding: '11px 14px', borderRadius: radius.lg, whiteSpace: 'pre-wrap', background: out ? color.ink : color.surface, color: out ? color.onSolid : color.ink, border: `1px solid ${out ? color.ink : color.line}` }}>{m.body}</div>
+              <div key={channel ?? 'default'} data-testid="outreach-channel">
+                {(channel || channels.length > 1) && (
+                  <div style={{ fontSize: 10.5, fontWeight: fontWeight.semibold, color: color.info, letterSpacing: '.05em', textTransform: 'uppercase', fontFamily: font.mono, marginBottom: 8 }}>
+                    ✉ Outreach — {channel ?? 'general'} contact
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {exchanges.map((ex, i) => (
+                    <div key={i} data-testid="email-section" style={{ ...PANEL, display: 'flex', flexDirection: 'column', gap: 10, padding: 14 }}>
+                      {exchanges.length > 1 && (
+                        <div style={{ fontSize: 10.5, fontWeight: fontWeight.semibold, color: color.subtle, letterSpacing: '.05em', textTransform: 'uppercase', fontFamily: font.mono }}>Email {i + 1} of {exchanges.length}</div>
+                      )}
+                      {ex.map((m, j) => <EmailMessage key={j} m={m} persona={outreach.persona} />)}
+                    </div>
+                  ))}
                 </div>
               </div>
             );
@@ -216,7 +297,7 @@ function OutreachStep({ outreach }: { outreach: OutreachVM }) {
       <div style={{ ...PANEL, padding: 16, fontSize: 13.5, color: color.inkSoft, lineHeight: 1.5 }}>
         {pending
           ? <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: color.muted, fontSize: fontSize.sm }}><span style={{ width: 12, height: 12, borderRadius: '50%', flex: 'none', border: `2px solid ${color.lineStrong}`, borderTopColor: color.subtle, animation: 'inqi-spin .9s linear infinite' }} /><b style={{ fontWeight: fontWeight.medium }}>{OUTREACH_COPY[outreach.variant]}</b> — pricing taken from the public listing for now.</span>
-          : <span><b style={{ fontWeight: fontWeight.medium }}>{OUTREACH_COPY[outreach.variant]}.</b>{outreach.outcome ? ` ${outreach.outcome}` : ' The provider confirmed availability.'}</span>}
+          : <span><b style={{ fontWeight: fontWeight.medium }}>{OUTREACH_COPY[outreach.variant]}.</b> {outreach.outcome ? outreach.outcome : 'The reply content is not available here.'}</span>}
       </div>
     </div>
   );
@@ -279,7 +360,33 @@ function FeedbackStep({ feedback }: { feedback: FeedbackVM }) {
   );
 }
 
-function ScoringStep({ scoring, provider }: { scoring: ScoringVM; provider: string }) {
+/** One confirmed questionnaire answer, as shown in the constraints panel. */
+export type ScopeAnswers = { prompt: string; answer: string }[];
+
+/** "Eligible with reservations": which confirmed constraints this option missed, next to what the customer asked for. */
+function ConstraintsPanel({ provider, reservations, scope }: { provider: string; reservations: string[]; scope: ScopeAnswers }) {
+  return (
+    <div data-testid="constraints-panel" style={{ background: color.warnTint, border: `1px solid ${WARN_BORDER}`, borderRadius: radius.lg, padding: '13px 15px', marginBottom: 14 }}>
+      <div style={{ fontSize: 12.5, fontWeight: fontWeight.semibold, marginBottom: 8 }}>⚠ Ranked lower: {provider} did not evidence all of your confirmed constraints</div>
+      <ul style={{ margin: '0 0 10px', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {reservations.map((r, i) => <li key={i} style={{ fontSize: 12.5, color: color.inkSoft, lineHeight: 1.5 }}>{r}</li>)}
+      </ul>
+      {scope.length > 0 && (
+        <div style={{ borderTop: `1px solid ${WARN_BORDER}`, paddingTop: 10 }}>
+          <div style={{ fontSize: 10.5, fontWeight: fontWeight.semibold, color: color.muted, letterSpacing: '.04em', textTransform: 'uppercase', marginBottom: 6 }}>Your confirmed constraints</div>
+          {scope.map((s, i) => (
+            <div key={i} style={{ display: 'flex', gap: 10, padding: '3px 0', fontSize: fontSize.sm }}>
+              <span style={{ flex: 1, minWidth: 0, color: color.muted }}>{s.prompt}</span>
+              <span style={{ flex: 'none', maxWidth: '50%', fontWeight: fontWeight.medium, textAlign: 'right' }}>{s.answer}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScoringStep({ scoring, provider, reservations, scope }: { scoring: ScoringVM; provider: string; reservations: string[]; scope: ScopeAnswers }) {
   const box = (label: string, value: number, dark?: boolean) => (
     <div style={{ flex: 1, background: dark ? color.ink : color.appBg, border: `1px solid ${dark ? color.ink : color.surfaceAlt}`, borderRadius: radius.lg, padding: '14px 16px' }}>
       <div style={{ fontSize: 11.5, color: color.subtle, marginBottom: 6 }}>{label}</div>
@@ -288,12 +395,13 @@ function ScoringStep({ scoring, provider }: { scoring: ScoringVM; provider: stri
   );
   return (
     <div>
+      {reservations.length > 0 && <ConstraintsPanel provider={provider} reservations={reservations} scope={scope} />}
       <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
         {box('Public feedback score', scoring.feedbackScore)}
         {box('Price score', scoring.priceScore)}
         {box('Blended score', scoring.blendedScore, true)}
       </div>
-      <div style={{ fontSize: 12.5, color: color.muted, lineHeight: 1.55 }}>The blended score weights public feedback against price and availability. With these inputs, {provider} ranked #{scoring.rank} for this report.</div>
+      <div style={{ fontSize: 12.5, color: color.muted, lineHeight: 1.55 }}>The blended score weights public feedback against price and availability. With these inputs, {provider} ranked #{scoring.rank} for this report.{reservations.length > 0 ? ' Its unmet constraints above lowered the feedback score.' : ''}</div>
     </div>
   );
 }

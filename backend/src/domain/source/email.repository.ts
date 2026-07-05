@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { MessageDirection } from '@inqi/shared';
+import { MessageDirection, ReviewStatus } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
+
+/** Excludes compliance-blocked messages (kept for audit; never fed to models or shown to customers). */
+const NOT_BLOCKED: Prisma.MessageWhereInput = { reviewStatus: { not: ReviewStatus.Blocked } };
 
 /** Thin data-access for the outreach communication track (messages + thread reads). */
 @Injectable()
@@ -21,13 +24,20 @@ export class EmailChannelRepository {
     return this.exec(tx).message.findUnique({ where: { externalId } });
   }
 
+  /** The conversation as the MODEL and the customer may see it — blocked messages excluded. */
   listThread({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
-    return this.exec(tx).message.findMany({ where: { inquiryId }, orderBy: { createdAt: 'asc' } });
+    return this.exec(tx).message.findMany({ where: { inquiryId, AND: [NOT_BLOCKED] }, orderBy: { createdAt: 'asc' } });
   }
 
-  /** First outbound message on an inquiry, if any — used to make the initial send idempotent. */
-  findFirstOutbound({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
-    return this.exec(tx).message.findFirst({ where: { inquiryId, direction: MessageDirection.Outbound }, orderBy: { createdAt: 'asc' } });
+  /**
+   * First outbound message on an inquiry (optionally scoped to one thread source) —
+   * used to make the initial send idempotent per thread.
+   */
+  findFirstOutbound({ inquiryId, sourceId, tx }: { inquiryId: string; sourceId?: string; tx?: DbTx }) {
+    return this.exec(tx).message.findFirst({
+      where: { inquiryId, direction: MessageDirection.Outbound, ...(sourceId ? { sourceId } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   findInquiry({ id, tx }: { id: string; tx?: DbTx }) {

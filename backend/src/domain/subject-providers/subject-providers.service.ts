@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EventType, FindingKind, InquiryStatus, ModelTier, QueueJob, ReportState, SearchFocus, SourceType, UsageKind } from '@inqi/shared';
+import { EventType, FindingKind, InquiryStatus, ModelTier, QueueJob, ReportState, SearchFocus, SourceType, UsageKind, isEligibleVerdict, isIneligibleVerdict, isReserveVerdict } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { PrismaService } from '../../infra/persistence/prisma.service';
@@ -155,13 +155,22 @@ export class SubjectProvidersService implements OnModuleInit {
     const SETTLED: InquiryStatus[] = [InquiryStatus.Qualified, InquiryStatus.Failed, InquiryStatus.Skipped];
     if (SETTLED.includes(fresh.status as InquiryStatus)) return;
 
-    const verdict = (background.eligibility ?? '').toLowerCase();
-    const eligible = verdict.startsWith('eligible') && background.qualityScore >= SubjectProvidersService.RESEARCH_QUALIFY_MIN_SCORE;
-    const ineligible = verdict.startsWith('not eligible') || verdict.startsWith('ineligible');
+    const verdict = background.eligibility ?? '';
+    // "eligible with reservations": the core service is confirmed but formal constraints
+    // mismatch — kept in the report RATED LOWER (its qualityScore reflects the mismatches),
+    // never dropped on the score floor. The mismatches ride along for the dossier.
+    const reserve = isReserveVerdict(verdict);
+    const eligible = reserve || (isEligibleVerdict(verdict) && background.qualityScore >= SubjectProvidersService.RESEARCH_QUALIFY_MIN_SCORE);
+    const ineligible = isIneligibleVerdict(verdict);
     if (!eligible && !ineligible) return; // ambiguous — leave it to outreach / the reply-wait sweep
 
     if (eligible) {
-      const result = { price: background.price ?? null, currency: background.currency ?? null, notes: 'qualified from web research; awaiting provider confirmation' };
+      const result = {
+        price: background.price ?? null, currency: background.currency ?? null,
+        notes: reserve
+          ? 'meets the request, but not all confirmed constraints are evidenced (see qualification)'
+          : 'qualified from web research; awaiting provider confirmation',
+      };
       await this.prisma.$transaction(async (tx) => {
         await this.repo.updateInquiryStatus({ id: inquiry.id, status: InquiryStatus.Qualified, result: result as Prisma.InputJsonValue, tx });
         const existing = await this.repo.findOptionFinding({ inquiryId: inquiry.id, tx });

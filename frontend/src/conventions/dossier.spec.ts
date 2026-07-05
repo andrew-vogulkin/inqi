@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ResearchDepth, ResearchMethod, OutreachVariant, DossierOrigin } from './enums';
 import { ProvenanceDepth } from '@inqi/shared';
-import { deriveDepth, deriveMethods, outreachVariant, assembleDossier, depthFromProvenance } from './dossier';
+import { deriveDepth, deriveMethods, outreachVariant, assembleDossier, depthFromProvenance, groupExchanges, groupByChannel } from './dossier';
 import { ReportOption } from '../api/types';
 import { dossierReducer, initialDossierState } from '../state/dossier.reducer';
 import { ActionType } from '../state/actions';
@@ -90,5 +90,35 @@ describe('dossierReducer', () => {
     let s = dossierReducer(initialDossierState, { type: ActionType.DossierLoaded, option, rank: 1, origin: DossierOrigin.Admin });
     s = dossierReducer(s, { type: ActionType.DossierChainLoaded, messages: [{ id: 'm1', inquiryId: 's', direction: 'outbound', status: 'sent', body: 'hi', createdAt: 'now' }] });
     expect(s.chain).toHaveLength(1);
+  });
+});
+
+describe('groupExchanges — outbound opens a section, replies attach', () => {
+  const m = (direction: string, body: string, channel: string | null = null) => ({ direction, subject: null, body, at: '2026-07-05T10:00:00Z', channel });
+
+  it('two exchanges: [out, in, out, in] → two sections of two', () => {
+    const groups = groupExchanges([m('outbound', 'q1'), m('inbound', 'a1'), m('outbound', 'q2'), m('inbound', 'a2')]);
+    expect(groups.map((g) => g.map((x) => x.body))).toEqual([['q1', 'a1'], ['q2', 'a2']]);
+  });
+
+  it('a leading inbound starts its own section; empty chain → no sections', () => {
+    expect(groupExchanges([m('inbound', 'spontaneous')]).length).toBe(1);
+    expect(groupExchanges([])).toEqual([]);
+  });
+});
+
+describe('groupByChannel — one outreach section per provider contact', () => {
+  const m = (direction: string, body: string, channel: string | null = null) => ({ direction, subject: null, body, at: '2026-07-05T10:00:00Z', channel });
+
+  it('splits sales vs booking preserving first-seen order', () => {
+    const groups = groupByChannel([m('outbound', 's1', 'sales'), m('outbound', 'b1', 'booking'), m('inbound', 's2', 'sales')]);
+    expect(groups.map((g) => g.channel)).toEqual(['sales', 'booking']);
+    expect(groups[0].msgs.map((x) => x.body)).toEqual(['s1', 's2']);
+  });
+
+  it('an unlabeled chain collapses to one group', () => {
+    const groups = groupByChannel([m('outbound', 'a'), m('inbound', 'b')]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].channel).toBeNull();
   });
 });

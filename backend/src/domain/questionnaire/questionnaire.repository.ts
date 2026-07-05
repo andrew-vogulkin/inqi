@@ -32,4 +32,9 @@ export class QuestionnaireRepository {
   update({ token, data, tx }: { token: string; data: Prisma.QuestionnaireUncheckedUpdateInput; tx?: DbTx }) {
     return this.exec(tx).questionnaire.update({ where: { token }, data });
   }
+
+  /** Record WHY the report was denied (the answers-compliance gate) — audit reads this. */
+  denyReport({ reportId, reason, tx }: { reportId: string; reason: string; tx?: DbTx }) {
+    return this.exec(tx).report.update({ where: { id: reportId }, data: { denyReason: reason } });
+  }
 }

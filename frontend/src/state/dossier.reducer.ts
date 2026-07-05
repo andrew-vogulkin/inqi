@@ -10,6 +10,8 @@ export interface DossierState {
   origin: DossierOrigin;
   dossier: DossierVM | null;
   chain: ChainMessage[] | null; // admin origin only — never set for customers
+  /** True while the authoritative provenance overlay (customer) or chain (admin) is in flight — sections show a spinner, not the provisional data. */
+  overlayPending: boolean;
   error: string | null;
 }
 
@@ -18,6 +20,7 @@ export const initialDossierState: DossierState = {
   origin: DossierOrigin.Customer,
   dossier: null,
   chain: null,
+  overlayPending: false,
   error: null,
 };
 
@@ -25,15 +28,18 @@ export const initialDossierState: DossierState = {
 export function dossierReducer(state: DossierState, action: Action): DossierState {
   switch (action.type) {
     case ActionType.DossierLoaded:
-      return { ...state, status: AsyncStatus.Ready, origin: action.origin, dossier: assembleDossier({ option: action.option, rank: action.rank }), chain: null, error: null };
+      return { ...state, status: AsyncStatus.Ready, origin: action.origin, dossier: assembleDossier({ option: action.option, rank: action.rank }), chain: null, overlayPending: true, error: null };
     case ActionType.DossierLoadFailed:
-      return { ...state, status: AsyncStatus.Error, error: action.message };
+      return { ...state, status: AsyncStatus.Error, overlayPending: false, error: action.message };
     case ActionType.DossierChainLoaded:
       // Defensive: the chain is admin-only; ignore if somehow dispatched for a customer.
-      return state.origin === DossierOrigin.Admin ? { ...state, chain: action.messages } : state;
+      return state.origin === DossierOrigin.Admin ? { ...state, chain: action.messages, overlayPending: false } : state;
     case ActionType.DossierProvenanceLoaded:
       // HP-20: overlay the authoritative customer-safe provenance onto the VM.
-      return state.dossier ? { ...state, dossier: applyProvenance({ vm: state.dossier, provenance: action.provenance }) } : state;
+      return state.dossier ? { ...state, dossier: applyProvenance({ vm: state.dossier, provenance: action.provenance }), overlayPending: false } : state;
+    case ActionType.DossierProvenanceFailed:
+      // Overlay unavailable — fall back to the option-derived sections rather than spin forever.
+      return { ...state, overlayPending: false };
     default:
       return state;
   }

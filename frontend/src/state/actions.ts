@@ -64,6 +64,7 @@ export const ActionType = {
   DossierLoadFailed: 'dossier/loadFailed',
   DossierChainLoaded: 'dossier/chainLoaded',
   DossierProvenanceLoaded: 'dossier/provenanceLoaded',
+  DossierProvenanceFailed: 'dossier/provenanceFailed',
 
   ToastPushed: 'toast/pushed',
   ToastDismissed: 'toast/dismissed',
@@ -120,6 +121,7 @@ export type Action =
   | { type: typeof ActionType.DossierLoadFailed; message: string }
   | { type: typeof ActionType.DossierChainLoaded; messages: ThreadMessageDto[] }
   | { type: typeof ActionType.DossierProvenanceLoaded; provenance: ProvenanceDto }
+  | { type: typeof ActionType.DossierProvenanceFailed }
   | { type: typeof ActionType.ToastPushed; toast: ToastItem }
   | { type: typeof ActionType.ToastDismissed; id: string }
   | { type: typeof ActionType.EventReceived; event: InqiEvent }

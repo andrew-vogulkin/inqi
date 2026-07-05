@@ -1,4 +1,4 @@
-import { OutreachOutcome, ProvenanceDto, ProvenanceDepth, ProvenanceSummaries } from '@inqi/shared';
+import { MessageDirection, OutreachOutcome, ProvenanceDto, ProvenanceDepth, ProvenanceSummaries, isReserveVerdict } from '@inqi/shared';
 import { ResearchDepth, ResearchMethod, OutreachVariant } from './enums';
 import { ReportOption } from '../api/types';
 
@@ -35,7 +35,7 @@ export function toWebSource(s: BackgroundSource): WebSource {
 
 export interface WebSource { source: string; url?: string; snippet?: string }
 export interface FeedbackVM { rating: number | null; sentiment: number; themes: string[]; quotes: string[]; reviewsCount: number | null; eligibility: string | null }
-export interface ChainMessageVM { direction: string; body: string; at: string }
+export interface ChainMessageVM { direction: string; subject: string | null; body: string; at: string; channel?: string | null }
 export interface OutreachVM { variant: OutreachVariant; route: string; outcome: string | null; persona: string | null; chain: ChainMessageVM[] }
 export interface ScoringVM { feedbackScore: number; priceScore: number; blendedScore: number; rank: number }
 
@@ -47,6 +47,8 @@ export interface DossierVM {
   depth: ResearchDepth;
   methods: ResearchMethod[];
   inquiryId: string | null;
+  /** "Eligible with reservations": the confirmed-scope constraints this option did NOT evidence (ranked lower for it). */
+  reservations: string[];
   /** True while the inquiry's depth-research job is still queued/running — sections may still fill in. */
   researchPending: boolean;
   web: WebSource[];
@@ -73,6 +75,37 @@ export function deriveMethods({ hasWeb, hasOutreach, hasFeedback }: { hasWeb: bo
   if (hasOutreach) methods.push(ResearchMethod.Outreach);
   if (hasFeedback) methods.push(ResearchMethod.FeedbackScan);
   return methods;
+}
+
+/**
+ * Group a thread into email exchanges: each OUTBOUND message opens a new section,
+ * and the replies that follow attach to it (a leading inbound gets its own section).
+ * The dossier renders one email box per exchange — two inquiries → two sections.
+ */
+export function groupExchanges(chain: ChainMessageVM[]): ChainMessageVM[][] {
+  const groups: ChainMessageVM[][] = [];
+  for (const m of chain) {
+    const startNew = m.direction === MessageDirection.Outbound || groups.length === 0;
+    if (startNew) groups.push([m]);
+    else groups[groups.length - 1].push(m);
+  }
+  return groups;
+}
+
+/**
+ * Group a thread by CHANNEL (sales, booking, …) preserving first-seen order — a
+ * provider with several contacts gets one outreach section per channel. A chain
+ * with no channel labels collapses to a single unlabeled group.
+ */
+export function groupByChannel(chain: ChainMessageVM[]): { channel: string | null; msgs: ChainMessageVM[] }[] {
+  const groups: { channel: string | null; msgs: ChainMessageVM[] }[] = [];
+  for (const m of chain) {
+    const ch = m.channel ?? null;
+    const g = groups.find((x) => x.channel === ch);
+    if (g) g.msgs.push(m);
+    else groups.push({ channel: ch, msgs: [m] });
+  }
+  return groups;
 }
 
 /** Outreach variant from contact/reply state. */
@@ -118,7 +151,7 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
       route: provenance.outreach.route,
       outcome: vm.outreach.outcome,
       persona: provenance.outreach.persona,
-      chain: (provenance.outreach.chain ?? []).map((m) => ({ direction: m.direction, body: m.body, at: m.at })),
+      chain: (provenance.outreach.chain ?? []).map((m) => ({ direction: m.direction, subject: m.subject ?? null, body: m.body, at: m.at, channel: m.channel ?? null })),
     },
     scoring: { feedbackScore: provenance.scoring.feedbackScore, priceScore: provenance.scoring.priceScore, blendedScore: provenance.scoring.blendedScore, rank: provenance.scoring.rank },
     summaries: provenance.summaries,
@@ -143,6 +176,8 @@ export function assembleDossier({ option, rank }: { option: ReportOption; rank: 
   const hasWeb = web.length > 0;
   const hasFeedback = bg.rating != null || bg.reviewsCount != null;
   const hasOutreach = variant !== OutreachVariant.NotContacted;
+  // "eligible with reservations" — the red flags ARE the unmet/unevidenced constraints.
+  const reserve = isReserveVerdict(bg.eligibility);
 
   return {
     provider: option.subjectProvider,
@@ -152,6 +187,7 @@ export function assembleDossier({ option, rank }: { option: ReportOption; rank: 
     depth: deriveDepth({ hasWeb, hasOutreach, hasFeedback }),
     methods: deriveMethods({ hasWeb, hasOutreach, hasFeedback }),
     inquiryId: option.inquiryId ?? null,
+    reservations: reserve ? (bg.redFlags ?? []) : [],
     researchPending: false, // the option alone can't tell; the provenance overlay is authoritative
     web,
     feedback: { rating: bg.rating ?? null, sentiment: quality, themes, quotes: [], reviewsCount: bg.reviewsCount ?? null, eligibility: bg.eligibility ?? null },

@@ -27,8 +27,10 @@ export class ProvenanceScoringDto {
 /** One message of the outreach conversation (no addresses/message ids). */
 export class ProvenanceChainMessageDto {
   @ApiProperty({ example: 'outbound' }) direction!: string;
+  @ApiProperty({ nullable: true, example: 'Inquiry: Surf School Weekend Package', description: 'The email subject as sent (threaded with Re: on follow-ups)' }) subject!: string | null;
   @ApiProperty({ example: 'Hello — could you share price and availability?' }) body!: string;
   @ApiProperty({ example: '2026-07-02T16:36:39.000Z' }) at!: string;
+  @ApiPropertyOptional({ nullable: true, example: 'sales', description: 'Thread channel label when the provider has several contacts (sales, booking, …)' }) channel?: string | null;
 }
 
 /** Outreach summary + the full email chain as it happened (relay addresses/ids stay internal). */

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { SearchFocus } from '@inqi/shared';
 
 /** One ranked option in the live report (mirrors RankedOption). */
 export class LiveOptionDto {
@@ -36,6 +37,7 @@ export class LiveReportDto {
   @ApiProperty({ nullable: true, type: LiveQuestionnaireDto, description: 'read-only answered scope (questions + answers) shown on the report' }) questionnaire!: LiveQuestionnaireDto | null;
   @ApiProperty({ example: false, description: 'true once the snapshot is delivered (REPORT_DELIVERED)' }) delivered!: boolean;
   @ApiProperty({ example: 'A second-hand road bike, 56cm frame, under €800, around Amsterdam.' }) rawRequest!: string;
+  @ApiProperty({ nullable: true, enum: Object.values(SearchFocus), example: SearchFocus.Quality, description: 'ranking priority the customer picked (price | quality)' }) focus!: SearchFocus | null;
   @ApiProperty({ nullable: true, description: 'snapshot id once generated (for POST /reports/:id/unlock)', example: 'clz4rep0001' }) snapshotId!: string | null;
   @ApiProperty({ nullable: true, description: 'snapshot webview token once delivered', example: '2000564171a5…' }) snapshotToken!: string | null;
   @ApiProperty({ nullable: true, example: null, description: 'source report id when this report was answered by prior-report reuse' }) reusedFrom!: string | null;

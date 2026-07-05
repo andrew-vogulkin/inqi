@@ -14,12 +14,14 @@ test('two-step email + code sign-in routes to the Dashboard', async ({ page }) =
   await expect(page.getByText('First report is free')).toBeVisible();
 
   // Step 1 — email
-  await page.getByPlaceholder('your email').fill('c@x.io');
+  await page.getByPlaceholder('you@example.com').fill('c@x.io');
   await page.getByTestId('signin-button').click();
 
-  // Step 2 — the MFA code (mock transport: 123456)
+  // Step 2 — the MFA code boxes (mock transport: 123456); typing auto-advances box to box
   await expect(page.getByText('We sent a 6-digit code')).toBeVisible();
-  await page.getByPlaceholder('6-digit code').fill('123456');
+  await page.getByTestId('otp-0').click();
+  await page.keyboard.type('123456');
+  await expect(page.getByTestId('otp-5')).toHaveValue('6');
   await page.getByTestId('verify-button').click();
 
   await expect(page).toHaveURL(/#\/dashboard/);
@@ -34,13 +36,14 @@ test('a wrong code shows the error and stays on the code step', async ({ page })
   await page.route('**/api/auth/email', (r) => r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ sent: true }) }));
 
   await page.goto('/#/signin');
-  await page.getByPlaceholder('your email').fill('c@x.io');
+  await page.getByPlaceholder('you@example.com').fill('c@x.io');
   await page.getByTestId('signin-button').click();
-  await page.getByPlaceholder('6-digit code').fill('000000');
+  await page.getByTestId('otp-0').click();
+  await page.keyboard.type('000000');
   await page.getByTestId('verify-button').click();
 
   await expect(page.getByTestId('signin-error')).toContainText('verification code is incorrect');
-  await expect(page.getByPlaceholder('6-digit code')).toBeVisible(); // still on the code step
+  await expect(page.getByTestId('otp-0')).toBeVisible(); // still on the code step
 });
 
 test('a 401 anywhere returns to Sign in', async ({ page }) => {

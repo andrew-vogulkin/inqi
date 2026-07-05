@@ -43,6 +43,7 @@ const TRANSITIONS_V1 = [
   { from: ReportState.PRE_RESEARCH,       event: WorkflowEvent.PRE_RESEARCH_DENIED,   to: ReportState.DENIED },
   { from: ReportState.PRE_RESEARCH,       event: WorkflowEvent.PRE_RESEARCH_PASSED,   to: ReportState.QUESTIONNAIRE_SENT, action: WorkflowAction.SendQuestionnaire },
   { from: ReportState.QUESTIONNAIRE_SENT, event: WorkflowEvent.QUESTIONNAIRE_EXPIRED, to: ReportState.DROPPED },
+  { from: ReportState.QUESTIONNAIRE_SENT, event: WorkflowEvent.QUESTIONNAIRE_DENIED,  to: ReportState.DENIED },
   { from: ReportState.QUESTIONNAIRE_SENT, event: WorkflowEvent.QUESTIONNAIRE_FILLED,  to: ReportState.ENRICHMENT,         action: WorkflowAction.EnqueueEnrichSubject },
   { from: ReportState.ENRICHMENT,         event: WorkflowEvent.ENRICHMENT_DONE,       to: ReportState.BROAD_RESEARCH,     action: WorkflowAction.EnqueueBroadResearch },
   { from: ReportState.BROAD_RESEARCH,     event: WorkflowEvent.BROAD_RESEARCH_DONE,   to: ReportState.FUNNEL,             action: WorkflowAction.EnqueueBuildFunnel },

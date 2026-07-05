@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { FindingKind, ReviewStatus } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for snapshot synthesis (reads epics/inquiries/findings, writes ReportSnapshot). */
@@ -34,7 +35,7 @@ export class SnapshotsRepository {
   }
 
   findReport({ id, tx }: { id: string; tx?: DbTx }) {
-    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, state: true, rawRequest: true, freeReport: true, personaId: true, customerId: true, customerEmail: true } });
+    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, state: true, rawRequest: true, focus: true, freeReport: true, personaId: true, customerId: true, customerEmail: true } });
   }
 
   findSnapshotByReport({ reportId, tx }: { reportId: string; tx?: DbTx }) {
@@ -70,12 +71,37 @@ export class SnapshotsRepository {
     });
   }
 
-  /** The thread messages for an inquiry (for the AI outreach-summary: timing + reply text). */
+  /**
+   * The cached AI dossier summary for one option — keyed by inquiry when it has
+   * one, else by the option ref stored in the finding data (option without inquiry).
+   */
+  findProvenanceSummary({ reportId, inquiryId, ref, tx }: { reportId: string; inquiryId: string | null; ref: string; tx?: DbTx }) {
+    return this.exec(tx).finding.findFirst({
+      where: {
+        reportId, kind: FindingKind.ProvenanceSummary,
+        ...(inquiryId ? { inquiryId } : { data: { path: ['ref'], equals: ref } }),
+      },
+    });
+  }
+
+  /** Write-through the freshly generated dossier summary (update in place, or first write). */
+  saveProvenanceSummary({ id, reportId, epicId, inquiryId, data, tx }: {
+    id: string | null; reportId: string; epicId: string; inquiryId: string | null; data: Prisma.InputJsonValue; tx?: DbTx;
+  }) {
+    if (id) return this.exec(tx).finding.update({ where: { id }, data: { data } });
+    return this.exec(tx).finding.create({ data: { reportId, epicId, inquiryId, kind: FindingKind.ProvenanceSummary, data } });
+  }
+
+  /**
+   * The thread messages for an inquiry (customer provenance + AI outreach-summary).
+   * Compliance-blocked messages are excluded — they exist for audit only.
+   */
   findMessages({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }) {
     return this.exec(tx).message.findMany({
-      where: { inquiryId },
+      where: { inquiryId, reviewStatus: { not: ReviewStatus.Blocked } },
       orderBy: { createdAt: 'asc' },
-      select: { direction: true, body: true, createdAt: true },
+      // source.data carries the thread's channel label (sales, booking, …).
+      select: { direction: true, subject: true, body: true, createdAt: true, source: { select: { data: true } } },
     });
   }
 }

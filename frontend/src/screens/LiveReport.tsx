@@ -12,6 +12,7 @@ import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
 import { ReportState, TimelineItem, freemiumView } from '../state/report.reducer';
+import { linkifySummary, SummaryLinkTarget } from '../conventions/summary';
 
 const PAGE: CSSProperties = { maxWidth: 900, margin: '0 auto' };
 const META_CHIP: CSSProperties = { fontSize: fontSize.sm, color: color.inkSoft, background: color.surfaceSunken, padding: '4px 9px', borderRadius: radius.sm };
@@ -98,8 +99,10 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
       </div>
 
       {report.delivered && report.summary && (
-        <p style={{ fontSize: fontSize.md, color: color.muted, margin: `0 0 ${space[4]}px`, lineHeight: 1.5 }}>{report.summary}</p>
+        <SummarySection summary={report.summary} targets={options.map((o) => ({ name: o.subjectProvider, href: dossierFor(o) ?? '' })).filter((t) => t.href)} />
       )}
+
+      <PromptSection rawRequest={report.rawRequest ?? ''} focus={report.focus ?? null} />
 
       {scope && <ScopeSection scope={scope} />}
 
@@ -149,6 +152,28 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
   );
 }
 
+/**
+ * The delivered report's synthesis, enveloped in its own "Summary" section.
+ * Provider names inside the text link straight to their dossiers (how inqi
+ * researched that option) — the summary is the report's navigation hub.
+ */
+function SummarySection({ summary, targets }: { summary: string; targets: SummaryLinkTarget[] }) {
+  const segments = linkifySummary({ summary, targets });
+  return (
+    <div data-testid="report-summary" style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '16px 18px', marginBottom: space[4] }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+        <span style={{ width: 22, height: 22, borderRadius: radius.sm, flex: 'none', background: color.brand, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.sm }}>✦</span>
+        <span style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold }}>Summary</span>
+      </div>
+      <p style={{ fontSize: fontSize.md, color: color.inkSoft, margin: 0, lineHeight: 1.6 }}>
+        {segments.map((s, i) => s.href
+          ? <a key={i} href={s.href} style={{ color: color.brandStrong, fontWeight: fontWeight.medium, textDecoration: 'underline', textDecorationColor: color.brand, textUnderlineOffset: 3 }}>{s.text}</a>
+          : <span key={i}>{s.text}</span>)}
+      </p>
+    </div>
+  );
+}
+
 /** A locked (freemium-redacted) rank slot — renders above the revealed taster so the
  *  user sees better-ranked options exist without leaking any of their data. */
 function LockedRow({ rank, reportId }: { rank: number; reportId: string | null }) {
@@ -193,6 +218,28 @@ function UnlockBanner({ lockedCount, reportId }: { lockedCount: number; reportId
         style={{ height: 32, padding: '0 13px', display: 'inline-flex', alignItems: 'center', borderRadius: radius.md, background: color.ink, color: color.onSolid, fontSize: fontSize.sm, fontWeight: fontWeight.medium, flex: 'none', textDecoration: 'none' }}>
         Unlock full report
       </a>
+    </div>
+  );
+}
+
+/** The verbatim customer prompt that started this research — expandable, like the scope below it. */
+function PromptSection({ rawRequest, focus }: { rawRequest: string; focus: string | null }) {
+  const [open, setOpen] = useState(false);
+  if (!rawRequest) return null;
+  return (
+    <div data-testid="prompt-section" style={{ background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, marginBottom: 14, overflow: 'hidden' }}>
+      <button onClick={() => setOpen((v) => !v)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+        <span style={{ width: 22, height: 22, borderRadius: radius.sm, flex: 'none', background: color.surfaceSunken, color: color.muted, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.sm }}>❝</span>
+        <span style={{ fontSize: fontSize.base, fontWeight: fontWeight.semibold, flex: 'none' }}>Original prompt</span>
+        <span style={{ fontSize: fontSize.sm, color: color.muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rawRequest}</span>
+        {focus && <span style={{ fontSize: 10.5, fontWeight: fontWeight.medium, color: color.brandStrong, background: color.brandTint, padding: '2px 8px', borderRadius: radius.sm, flex: 'none' }}>focus: {focus}</span>}
+        <span style={{ fontSize: 10, color: color.subtle, flex: 'none', transition: 'transform .2s', transform: open ? 'rotate(180deg)' : 'none' }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ padding: '4px 16px 14px', borderTop: `1px solid ${color.surfaceSunken}` }}>
+          <div style={{ fontSize: fontSize.md, color: color.inkSoft, lineHeight: 1.6, whiteSpace: 'pre-wrap', paddingTop: 10 }}>{rawRequest}</div>
+        </div>
+      )}
     </div>
   );
 }

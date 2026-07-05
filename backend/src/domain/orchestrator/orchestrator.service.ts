@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AgentStage, AuditAction, AuditTargetType, EpicStatus, EventType, FindingKind, ReportState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, ReaperAction, InquiryStatus, TERMINAL_STATES, UsageStage, WorkflowEvent, failureEventForState, READY_MIN, PARTIAL_READY_MIN, deriveStage } from '@inqi/shared';
+import { AgentStage, AuditAction, AuditTargetType, ComplianceKind, EpicStatus, EventType, FindingKind, ReportState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, ReaperAction, ReviewStatus, InquiryStatus, TERMINAL_STATES, UsageStage, WorkflowEvent, failureEventForState, READY_MIN, PARTIAL_READY_MIN, deriveStage } from '@inqi/shared';
 import type { Prisma } from '@prisma/client';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
@@ -16,6 +16,7 @@ import { QuestionnaireGenerator } from '../questionnaire/questionnaire-generator
 import { SnapshotsService } from '../snapshot/snapshots.service';
 import { SourcesService } from '../source/sources.service';
 import { ComplianceBlockedError, ConflictError } from '../../common/errors';
+import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
 import { feasibilitySystem, FeasibilityVerdict, buildFeasibilityUser, feasibilitySchema } from './prompts/feasibility.prompt';
 import { ReportLifecycleEvent, notificationForLifecycle } from '../report/report-lifecycle';
 import { OutreachActionKind, SynthesisGate, assignWaves, decideNextAction, decideSynthesisGate, planSize } from './planning';
@@ -67,6 +68,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly audit: AuditService,
     private readonly usageCtx: UsageContextService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
+    @Inject(COMPLIANCE_SCORER) private readonly compliance: ComplianceScorer,
   ) {}
 
   async onModuleInit() {
@@ -131,6 +133,16 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       fn: async (log) => {
         const inq = await this.repo.findReport({ id: reportId });
         await log({ message: 'Pre-researching subject + ethical/feasibility evaluation' });
+
+        // Compliance gate on the CUSTOMER'S RAW PROMPT (ethical + legal rubric) —
+        // a blocked request denies the report before any research spends a token.
+        const promptReview = await this.compliance.score({ kind: ComplianceKind.CustomerRequest, text: inq.rawRequest, tier: ModelTier.Depth });
+        if (promptReview.status === ReviewStatus.Blocked) {
+          await this.repo.updateReport({ id: reportId, data: { denyReason: `request_compliance: ${promptReview.reason || promptReview.categories.join(', ') || 'policy'}` } });
+          await log({ message: `Request blocked by the compliance gate: ${promptReview.reason || 'policy'}`, data: { categories: promptReview.categories, riskScore: promptReview.score } });
+          await this.wf.advance({ reportId, event: WorkflowEvent.PRE_RESEARCH_DENIED }); // lifecycle handler emails the denial
+          return;
+        }
 
         let enriched: EnrichedSubject | undefined;
         if (this.ai.isConfigured()) {

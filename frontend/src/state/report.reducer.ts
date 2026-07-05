@@ -14,6 +14,7 @@ export interface ReportState {
   personaId: string | null;
   reportState: string;
   rawRequest: string;
+  focus: string | null; // ranking priority the customer picked (price | quality)
   summary: string;
   delivered: boolean;
   reusedFrom: string | null;
@@ -35,6 +36,7 @@ export const initialReportState: ReportState = {
   personaId: null,
   reportState: '',
   rawRequest: '',
+  focus: null,
   summary: '',
   delivered: false,
   reusedFrom: null,
@@ -123,6 +125,7 @@ export function reportReducer(state: ReportState, action: Action): ReportState {
         personaId: live.personaId ?? null,
         reportState: live.state,
         rawRequest: live.rawRequest,
+        focus: live.focus ?? null,
         summary: live.summary,
         delivered: live.delivered,
         reusedFrom: live.reusedFrom,

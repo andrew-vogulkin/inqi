@@ -65,3 +65,22 @@ describe('SourcesService', () => {
     expect(repo.createThread).not.toHaveBeenCalled();
   });
 });
+
+describe('blockThread — compliance quarantine of ONE channel', () => {
+  it('closes the thread and marks it blocked with the reason, preserving existing data', async () => {
+    const updates: Record<string, unknown>[] = [];
+    const db = {
+      source: {
+        findUnique: jest.fn().mockResolvedValue({ data: { channel: 'sales' } }),
+        update: jest.fn().mockImplementation((args: Record<string, unknown>) => { updates.push(args); return Promise.resolve({}); }),
+      },
+    };
+    const { SourcesRepository } = await import('./sources.repository');
+    const repo = new SourcesRepository(db as never);
+    await repo.blockThread({ sourceId: 'src1', reason: 'inbound reply blocked by the compliance review' });
+    expect(updates[0]).toMatchObject({
+      where: { id: 'src1' },
+      data: { convState: 'closed', data: { channel: 'sales', blocked: true, blockedReason: 'inbound reply blocked by the compliance review' } },
+    });
+  });
+});

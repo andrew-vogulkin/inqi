@@ -11,6 +11,7 @@ function makeProvider({ ignoreRate }: { ignoreRate: number }) {
   const config = {
     simulateReplies: true,
     simulateReplyIgnoreRate: ignoreRate,
+    simulateReplyRounds: 1,
     localMailDir: join(tmpdir(), 'inqi-localmail-spec'),
     publicBaseUrl: 'http://localhost:0',
     webhookInboundAuth: {},

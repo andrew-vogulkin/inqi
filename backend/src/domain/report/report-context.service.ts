@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ReviewStatus } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 import { AgentContext, packAgentContext } from './report-context';
 
@@ -28,7 +29,11 @@ export class ReportContextService {
           select: {
             id: true, name: true, status: true, qualityScore: true, result: true, createdAt: true,
             sources: { select: { type: true, url: true, title: true, snippet: true, createdAt: true }, orderBy: { createdAt: 'desc' } },
-            messages: { select: { direction: true, body: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: MESSAGES_PER_THREAD },
+            // Compliance-blocked messages never reach a model context (audit-only rows).
+            messages: {
+              where: { reviewStatus: { not: ReviewStatus.Blocked } },
+              select: { direction: true, body: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: MESSAGES_PER_THREAD,
+            },
           },
         },
       },

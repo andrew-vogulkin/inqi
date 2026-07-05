@@ -16,9 +16,10 @@ test('root → role-aware home (→ sign-in when signed out)', async ({ page }) 
   await expect(page.getByText('One report. AI agents on it.')).toBeVisible();
 });
 
-test('navigates sign-in → styleguide', async ({ page }) => {
+test('the styleguide stays reachable by direct URL (no visible link — dev tool)', async ({ page }) => {
   await page.goto('/#/signin');
-  await page.getByRole('link', { name: 'styleguide' }).click();
+  await expect(page.getByRole('link', { name: 'styleguide' })).toHaveCount(0); // hidden from the sign-in page
+  await page.goto('/#/styleguide');
   await expect(page.getByTestId('styleguide')).toBeVisible();
 });
 

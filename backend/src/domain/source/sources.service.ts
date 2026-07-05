@@ -52,18 +52,20 @@ export class SourcesService {
   }
 
   /**
-   * The email-thread anchor for an inquiry: one Source of type `email` carrying
-   * the unique reply address + conversation state. Idempotent — a retried send
-   * reuses the existing thread (and its original reply address).
+   * The email-thread anchor for an inquiry: one Source of type `email` per
+   * `channel` (a provider can expose several contacts — sales, booking, …),
+   * each carrying its own unique reply address + conversation state. Idempotent —
+   * a retried send reuses the existing thread (and its original reply address).
    */
-  async ensureEmailThread({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }): Promise<Source> {
-    const existing = await this.sources.findThread({ inquiryId, type: SourceType.Email, tx });
+  async ensureEmailThread({ inquiryId, channel, tx }: { inquiryId: string; channel?: string; tx?: DbTx }): Promise<Source> {
+    const existing = await this.sources.findThread({ inquiryId, type: SourceType.Email, channel, tx });
     if (existing) return existing;
     const token = randomBytes(16).toString('hex');
     return this.sources.createThread({
       inquiryId, type: SourceType.Email,
       replyAddress: `${token}@${this.config.inboundDomain}`,
       convState: ConvState.Idle,
+      channel,
       tx,
     });
   }
@@ -71,6 +73,20 @@ export class SourcesService {
   /** The existing email thread of an inquiry, if any (no create). */
   findEmailThread({ inquiryId, tx }: { inquiryId: string; tx?: DbTx }): ReturnType<SourcesRepository['findThread']> {
     return this.sources.findThread({ inquiryId, type: SourceType.Email, tx });
+  }
+
+  /** One source by id (reply loop: pin a follow-up to the thread that received the reply). */
+  findSourceById({ id, tx }: { id: string; tx?: DbTx }): ReturnType<SourcesRepository['findById']> {
+    return this.sources.findById({ id, tx });
+  }
+
+  /**
+   * Quarantine ONE channel whose counterparty failed the compliance gate: the thread
+   * closes and is marked blocked (no further outreach on it) — verdicts the inquiry
+   * already earned through other channels or research stay untouched.
+   */
+  blockThread({ sourceId, reason, tx }: { sourceId: string; reason: string; tx?: DbTx }): ReturnType<SourcesRepository['blockThread']> {
+    return this.sources.blockThread({ sourceId, reason, tx });
   }
 
   /** Conversation-state bookkeeping on a thread source (agent reply loop). */

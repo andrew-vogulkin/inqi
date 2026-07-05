@@ -100,6 +100,16 @@ export class ConfigService {
     return Number.isFinite(rate) ? Math.min(1, Math.max(0, rate)) : 0;
   }
 
+  /**
+   * How many email rounds a simulated provider plays before giving the full quote
+   * (1 = quote immediately). With 2+, earlier replies withhold the price and ask a
+   * clarifying question — the agent must follow up, exercising multi-round threads.
+   */
+  get simulateReplyRounds(): number {
+    const rounds = Number(process.env.SIMULATE_REPLY_ROUNDS ?? 1);
+    return Number.isFinite(rounds) && rounds >= 1 ? Math.floor(rounds) : 1;
+  }
+
   /** What the compliance gate does when the scorer is unavailable/errors (default: open). */
   get complianceFailMode(): ComplianceFailMode {
     return process.env.COMPLIANCE_FAIL_MODE?.toLowerCase() === ComplianceFailMode.Closed

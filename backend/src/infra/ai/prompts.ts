@@ -201,35 +201,102 @@ export function depthResearchSystem({ focus }: { focus?: SearchFocus | null } = 
     '"qualityScore": number (0..1, your overall judgement), "sources": [ { "source": string (page/site name), "url": string, "snippet": string (what this page evidenced) } ] }.',
     'VERDICT RULES — `eligibility` must start with exactly one of:',
     '- "eligible" — a page supports that they can serve this request;',
+    '- "eligible with reservations" — they DO offer the core service, but one or more FORMAL constraints from the confirmed scope are not evidenced or mismatch',
+    '  (package length, group size, accommodation type, bundling, schedule, "price not advertised"). List EACH mismatch in redFlags and lower qualityScore accordingly.',
+    '  A constraint mismatch is a question for outreach, NEVER grounds for "not eligible" — do not disqualify a real surf school because its website only advertises 3-day courses.',
     '- "not eligible" — ONLY on EVIDENCE OF ABSENCE: a page you opened proves the wrong location, closure, or the wrong service. Failing to find something is NOT evidence of absence.',
+    '  ALWAYS follow the verdict with a dash and the concrete evidence ("not eligible — the site shows the school operates only in Peniche").',
     '- "unverified" — you could not strengthen the dossier either way (thin results, pages unreachable). NEVER phrase a lack of evidence as "not eligible".',
     'Rules: sources MUST be urls you actually received from web_search or opened — never invent urls. Only state what the pages support; unknown → null/empty. Be concise.',
   ].join('\n');
 }
 
-/** DEPTH reply parser — read a provider's reply, decide the outcome + extract the offer. */
-export function replyParseSystem(): string {
+/**
+ * Reply loop, element 1 of 2 — EVALUATE: does the thread now carry what the
+ * research needs (the chain target: a concrete cost estimate + timeline)?
+ * Sufficient → the source is evaluated as usual; insufficient → element 2 answers.
+ */
+export function replyEvaluateSystem(): string {
   return [
-    "You are inqi's outreach agent reading a service provider's email reply to our inquiry.",
-    'Decide the outcome and extract the offer they quoted.',
-    'Respond as STRICT JSON only: { "intent": "qualify"|"disqualify"|"continue", "price": number|null, "currency": string|null, "availability": string|null, "leadTime": string|null, "reason": string }.',
-    '- "qualify": they can help and quoted (or clearly implied) a price/availability.',
-    '- "disqualify": they decline, cannot help, or are unavailable.',
-    '- "continue": they need more info before quoting.',
+    "[stage:reply-loop] You are inqi's outreach agent — the EVALUATION step of the reply loop.",
+    'Read the provider email thread and judge whether it now carries the information our research needs.',
+    'THE TARGET OF THIS EMAIL CHAIN: a concrete COST ESTIMATE for exactly the customer\'s request (in the provider\'s local currency) and a TIMELINE (availability and/or lead time).',
+    'Respond as STRICT JSON only: { "sufficient": boolean, "declined": boolean, "price": number|null, "currency": string|null, "availability": string|null, "leadTime": string|null, "reason": string }.',
+    '- sufficient: true ONLY when the provider quoted (or clearly implied) a price for THIS request — i.e. the thread answers the chain target. A reply that only asks questions or talks generalities is NOT sufficient.',
+    '- declined: true when they decline, cannot serve this request, are closed, or say they are unavailable.',
     '- price: the number they quoted (no thousands separators), else null.',
     '- currency: exactly the currency they used — a 3-letter code (THB, GBP, USD, EUR, …) or the symbol — never convert it.',
-    '- availability / leadTime: short phrases taken from the reply (e.g. "available", "in stock", "1-2 weeks"), else null.',
-    '- reason: one short sentence.',
+    '- availability / leadTime: short phrases taken verbatim from the reply (e.g. "available", "in stock", "1-2 weeks"), else null.',
+    '- reason: one short sentence on why the thread is or is not sufficient.',
   ].join('\n');
 }
 
-/** Simulation only (SIMULATE_REPLIES): role-play the provider writing a local-currency reply. */
-export function simulatedReplySystem(): string {
+/**
+ * Reply loop, element 2 of 2 — ANSWER: the thread is not yet sufficient, so keep
+ * the conversation moving toward the chain target. Every provider question gets an
+ * answer, taken from the first source in the priority order that carries it:
+ * original search prompt → questionnaire → imagination.
+ */
+export function replyAnswerSystem(): string {
   return [
-    'You are a service provider replying to a customer inquiry email.',
+    "[stage:reply-loop] You are inqi's outreach agent — the ANSWER step of the reply loop (the provider needs more info before quoting).",
+    'Write the next email body of the thread. ANSWER EVERY question the provider asked; take each answer from the FIRST of these sources that carries it:',
+    'PRIORITY 1 — the customer\'s ORIGINAL SEARCH PROMPT (given below).',
+    'PRIORITY 2 — the confirmed QUESTIONNAIRE answers (given below).',
+    'PRIORITY 3 — IMAGINATION: when neither source answers it, INVENT a plausible, ordinary detail consistent with the request and with everything already said in the thread (pick a typical value, nothing exotic), and stay consistent with it for the rest of the thread.',
+    'NEVER say "I don\'t know" and never leave a provider question unanswered — that stalls the chain.',
+    'Answer ONLY what the provider asked — do NOT volunteer a recap of all requirements or add constraints they did not ask about (that invites errors).',
+    'Then RE-ASK for the chain target: a concrete cost estimate (in their local currency) and the timeline (availability + lead time).',
+    'Stay on the SAME request and location as the thread. 40-90 words, email body only — no subject.',
+    'Do NOT add any sign-off, name or signature — the signature is appended automatically.',
+    'Respond as STRICT JSON only: { "body": string, "answeredFrom": ("prompt"|"questionnaire"|"imagination")[] }',
+    '— answeredFrom lists, for each provider question you answered, which priority source supplied the answer.',
+  ].join('\n');
+}
+
+/**
+ * Reply loop — the ANSWER draft is verified in iterations before sending:
+ * (1) does it logically move the chain forward? (2) does it correlate with the
+ * topic/scope? A failing draft is regenerated with the issues fed back.
+ */
+export function replyDraftCheckSystem(): string {
+  return [
+    "[stage:reply-loop] You are inqi's outreach reviewer — you audit a DRAFT follow-up email before it is sent to a provider.",
+    'You are given the customer scope (original prompt + questionnaire), the email thread so far, and the DRAFT of our next reply.',
+    'Run these analysis iterations:',
+    '1) FORWARD PROGRESS — does the draft logically move the chain toward its target (a concrete cost estimate + timeline)?',
+    '   It must answer the provider\'s latest question(s) directly and re-ask for the quote/timeline. A draft that dodges the question, repeats an earlier email, or asks the provider something they already answered FAILS.',
+    '2) TOPIC CORRELATION — does every statement in the draft stay on the request\'s topic and scope?',
+    '   The service, location, constraints and any numbers must match the scope and the thread. A draft that contradicts the scope, distorts a constraint (e.g. reattaches a radius to the wrong anchor), drifts to another city/service, or volunteers an unprompted requirements dump FAILS.',
+    'Invented-but-plausible personal details answering a provider question (e.g. a typical dog weight) are ALLOWED — that is the imagination fallback, not a failure; flag only contradictions and drift.',
+    'Respond as STRICT JSON only: { "movesForward": boolean, "onTopic": boolean, "issues": string[] }',
+    '— issues: one short actionable line per problem found (empty when both checks pass).',
+  ].join('\n');
+}
+
+/**
+ * Simulation only (SIMULATE_REPLIES): role-play the provider writing a local-currency
+ * reply. `complete: false` (an early round of SIMULATE_REPLY_ROUNDS) withholds the
+ * quote and asks ONE clarifying question — forcing the agent to write a real
+ * follow-up, so multi-round email threads get exercised end to end.
+ */
+export function simulatedReplySystem({ complete }: { complete: boolean }): string {
+  if (!complete) {
+    return [
+      'You are a service provider replying to a customer inquiry email.',
+      'Write a SHORT first reply (1-3 sentences): thank them, confirm you generally offer this,',
+      'but do NOT quote any price yet — instead ask exactly ONE clarifying question you genuinely need answered first',
+      '(dates, group size, experience level, equipment model, etc.).',
+      'Output the email body text only — no subject, no signature.',
+    ].join('\n');
+  }
+  return [
+    'You are a service provider replying to a customer inquiry email. You are given the email thread so far;',
+    'stay strictly consistent with the SERVICE and LOCATION discussed in it.',
     'Write a SHORT reply (1-3 sentences): confirm you can help, quote ONE concrete price in YOUR LOCAL currency',
-    'for the location mentioned in the inquiry (a business in Bangkok quotes THB, London GBP, New York USD, etc.),',
-    'and give availability + a lead time. Output the email body text only — no subject, no signature.',
+    'for the location of the thread (a business in Bangkok quotes THB, London GBP, Lisbon EUR, etc.),',
+    'and give availability + a lead time. If the customer answered your earlier question, acknowledge it.',
+    'Output the email body text only — no subject, no signature.',
   ].join('\n');
 }
 
@@ -238,11 +305,20 @@ export function synthesisSystem(): string {
   return [
     '[stage:synthesis] You are inqi\'s report writer.',
     'Given the ranked subject-provider options (each with price, availability, quality score and background),',
-    'write a concise, neutral summary for the customer that explains the trade-offs and why the top option leads — quality, not just price.',
+    'write a concise recommendation narrative for the customer:',
+    'LEAD with the top option and the concrete reason it wins (clarity of the offer, value, evidence quality — not just the score);',
+    'then COMPARE the strongest alternatives BY NAME: what each does better and the specific thing holding it back',
+    '(no public pricing, bundled/accommodation-only packages, higher price, thin evidence).',
+    'ALWAYS state concrete prices with their currency wherever known ("85 EUR"), and quantify claims when the data allows.',
+    'Refer to every provider by its EXACT name as given in the options — no abbreviations or nicknames (the UI links names to their dossiers).',
     'If NO options qualified, still write the summary: state plainly that none of the candidates qualified and WHY, grounded in the research context.',
     'BE PRECISE about the reason class: "disqualified" ONLY for candidates with evidence of absence (wrong location, closed, wrong service);',
     'say "could not be verified yet" for candidates research could not strengthen, and "awaiting a reply" for contacted-but-silent ones — never present a verification gap as a disqualification.',
     'Name the closest near-misses with their actual quotes/reasons, and end with one concrete suggestion (adjust budget/area/format, or wait — unresponsive providers may still reply and the report will update itself).',
+    'LANGUAGE: write the summary and highlights in the LANGUAGE THE CUSTOMER\'S REQUEST (`customerRequest`) IS WRITTEN IN —',
+    'the language of its words, NOT the language of the destination: "Surf school in Ericeira" is an ENGLISH sentence → English summary;',
+    '"Aulas de surf na Ericeira" is Portuguese → Portuguese summary; German words → German — even though the research context is in English.',
+    'Keep provider names and currency codes as-is.',
     'Respond as strict JSON: { "summary": string, "highlights": string[] }.',
   ].join(' ');
 }
@@ -251,6 +327,8 @@ export function synthesisSystem(): string {
 export function provenanceSummarySystem(): string {
   return [
     'You are inqi, transparently explaining to a customer how you evaluated ONE provider for their request.',
+    'LANGUAGE: write in the LANGUAGE the customer\'s `request` field is WRITTEN IN — its words, not the destination\'s language',
+    '("Surf school in Ericeira" is English → English; "Aulas de surf na Ericeira" is Portuguese → Portuguese); keep provider names and currency codes as-is.',
     'Write a short, concrete, honest summary (1-2 sentences) for each section:',
     '- web: what you found about the provider online — its ranking/standing and the key information available.',
     '- outreach: how the provider responded — their response time and the clarity/helpfulness of the reply.',

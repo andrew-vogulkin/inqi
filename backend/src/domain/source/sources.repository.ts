@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { SourceType } from '@inqi/shared';
+import { ConvState, SourceType } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for Source rows (typed channel records under an Inquiry). */
@@ -25,15 +25,22 @@ export class SourcesRepository {
     });
   }
 
-  /** The (single) thread source of `type` for an inquiry, if any. */
-  findThread({ inquiryId, type, tx }: { inquiryId: string; type: SourceType; tx?: DbTx }) {
-    return this.exec(tx).source.findFirst({ where: { inquiryId, type } });
+  /**
+   * The thread source of `type` for an inquiry, if any. `channel` narrows to one
+   * named thread (an inquiry can hold several email threads — sales, booking, …);
+   * without it the first thread wins (single-thread inquiries, back-compat).
+   */
+  findThread({ inquiryId, type, channel, tx }: { inquiryId: string; type: SourceType; channel?: string; tx?: DbTx }) {
+    return this.exec(tx).source.findFirst({
+      where: { inquiryId, type, ...(channel ? { data: { path: ['channel'], equals: channel } } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
-  createThread({ inquiryId, type, replyAddress, convState, tx }: {
-    inquiryId: string; type: SourceType; replyAddress: string; convState: string; tx?: DbTx;
+  createThread({ inquiryId, type, replyAddress, convState, channel, tx }: {
+    inquiryId: string; type: SourceType; replyAddress: string; convState: string; channel?: string; tx?: DbTx;
   }) {
-    return this.exec(tx).source.create({ data: { inquiryId, type, replyAddress, convState } });
+    return this.exec(tx).source.create({ data: { inquiryId, type, replyAddress, convState, ...(channel ? { data: { channel } } : {}) } });
   }
 
   updateThreadState({ sourceId, convState, lastInboundAt, tx }: {
@@ -43,6 +50,17 @@ export class SourcesRepository {
       where: { id: sourceId },
       data: { ...(convState ? { convState } : {}), ...(lastInboundAt ? { lastInboundAt } : {}) },
     });
+  }
+
+  findById({ id, tx }: { id: string; tx?: DbTx }) {
+    return this.exec(tx).source.findUnique({ where: { id } });
+  }
+
+  /** Quarantine a thread: closed + marked blocked (compliance) — outreach never resumes on it. */
+  async blockThread({ sourceId, reason, tx }: { sourceId: string; reason: string; tx?: DbTx }) {
+    const src = await this.exec(tx).source.findUnique({ where: { id: sourceId }, select: { data: true } });
+    const data = { ...((src?.data as Record<string, unknown>) ?? {}), blocked: true, blockedReason: reason };
+    return this.exec(tx).source.update({ where: { id: sourceId }, data: { convState: ConvState.Closed, data } });
   }
 
   /** Resolve an inbound reply address back to its thread source + owning inquiry. */

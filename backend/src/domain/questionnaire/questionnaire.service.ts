@@ -66,7 +66,24 @@ export class QuestionnaireService {
     if (!answers.confirmedSubject) {
       throw new DomainError({ code: ErrorCode.QuestionnaireNotConfirmed, message: 'customer must confirm the subject' });
     }
-    await this.questionnaires.update({ token, data: { answers: answers.answers, confirmed: true, filledAt: new Date() } });
+
+    // Compliance gate on the CUSTOMER'S ANSWERS (every value is customer-controlled
+    // text at the API level, not just the free-text questions). A block records the
+    // answers + verdict for audit, DENIES the report and never advances the pipeline.
+    const text = Object.values(answers.answers ?? {}).filter((v) => String(v ?? '').trim()).join('\n');
+    const review = text
+      ? await this.compliance.score({ kind: ComplianceKind.QuestionnaireAnswers, text })
+      : null;
+    await this.questionnaires.update({
+      token,
+      data: { answers: answers.answers, confirmed: true, filledAt: new Date(), ...(review ? { reviewStatus: review.status, riskScore: review.score } : {}) },
+    });
+    if (review?.status === ReviewStatus.Blocked) {
+      await this.questionnaires.denyReport({ reportId: q.reportId, reason: `answers_compliance: ${review.reason || review.categories.join(', ') || 'policy'}` });
+      await this.wf.advance({ reportId: q.reportId, event: WorkflowEvent.QUESTIONNAIRE_DENIED }); // -> DENIED (lifecycle emails the denial)
+      throw new ComplianceBlockedError({ message: 'the submitted answers were blocked by the compliance gate', details: { categories: review.categories, reason: review.reason } });
+    }
+
     await this.wf.advance({ reportId: q.reportId, event: WorkflowEvent.QUESTIONNAIRE_FILLED }); // -> ENRICHMENT
     return { ok: true };
   }

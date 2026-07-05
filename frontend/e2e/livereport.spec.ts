@@ -54,7 +54,7 @@ test('streaming: ranks options with BEST MATCH and switches layouts', async ({ p
   await page.route('**/api/reports/*/live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: liveBody() }));
   await page.goto('/#/r/i1');
 
-  await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'a used road bike, Amsterdam' })).toBeVisible();
   await expect(page.getByTestId('report-status')).toContainText('Researching');
   await expect(page.getByText('Aurora Studio').first()).toBeVisible();
   await expect(page.getByText('BEST MATCH')).toBeVisible(); // on the top-ranked option
@@ -63,6 +63,18 @@ test('streaming: ranks options with BEST MATCH and switches layouts', async ({ p
   await expect(page.getByText('Provider')).toBeVisible();
   await page.getByRole('button', { name: 'Split' }).click();
   await expect(page.getByText('Aurora Studio').first()).toBeVisible();
+});
+
+test('the original prompt section expands to the verbatim request (+focus chip)', async ({ page }) => {
+  await seed(page);
+  await page.route('**/api/reports/*/live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: liveBody({ focus: 'quality' }) }));
+  await page.goto('/#/r/i1');
+
+  const section = page.getByTestId('prompt-section');
+  await expect(section).toContainText('Original prompt');
+  await expect(section).toContainText('focus: quality');
+  await section.getByRole('button').click(); // expand → full verbatim prompt below the header
+  await expect(section.getByText('a used road bike, Amsterdam').nth(1)).toBeVisible();
 });
 
 test('final: delivered shows the summary + reused-report banner + Ready pill', async ({ page }) => {
@@ -80,7 +92,7 @@ test('live: a streamed event appears in the activity timeline', async ({ page })
   await seed(page);
   await page.route('**/api/reports/*/live', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: liveBody() }));
   await page.goto('/#/r/i1');
-  await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'a used road bike, Amsterdam' })).toBeVisible();
 
   await page.evaluate(() => {
     (window as unknown as { __inqiDispatch: (a: unknown) => void }).__inqiDispatch({

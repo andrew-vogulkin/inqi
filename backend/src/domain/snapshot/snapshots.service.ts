@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { Prisma } from '@prisma/client';
-import { EventType, FindingKind, ReportState, ModelTier, InquiryStatus, ProvenanceDto, ProvenanceDepth, OutreachOutcome, AuditAction, AuditTargetType, deriveStage, ReportStage } from '@inqi/shared';
+import { EventType, FindingKind, ReportState, ModelTier, ProvenanceDto, ProvenanceDepth, OutreachOutcome, AuditAction, AuditTargetType, deriveStage, isReserveVerdict, ReportStage } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { PrismaService } from '../../infra/persistence/prisma.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
@@ -44,10 +44,15 @@ export function lockedSummary({ total }: { total: number }): string {
   return `Found ${total} qualified option${total === 1 ? '' : 's'}. The full ranking and the research summary are locked — unlock the report to reveal them.`;
 }
 
-/** Inquiry status → outreach outcome (HP-20). Unresponsive = still pending: the thread is open (long-poll). */
-function outreachOutcomeFor(status: string): OutreachOutcome {
-  if (status === InquiryStatus.Replied || status === InquiryStatus.Qualified) return OutreachOutcome.Replied;
-  if (status === InquiryStatus.Contacted || status === InquiryStatus.Researching || status === InquiryStatus.Unresponsive) return OutreachOutcome.Pending;
+/**
+ * Outreach outcome grounded in the ACTUAL message trail (HP-20) — never the inquiry
+ * status. An inquiry can qualify purely from web research; calling that "replied"
+ * fabricates a conversation that never happened. Replied = an inbound email exists;
+ * pending = we wrote, they haven't (unresponsive included — the thread stays open).
+ */
+function outreachOutcomeFromMessages(msgs: { direction: string }[]): OutreachOutcome {
+  if (msgs.some((m) => m.direction === MessageDirection.Inbound)) return OutreachOutcome.Replied;
+  if (msgs.some((m) => m.direction === MessageDirection.Outbound)) return OutreachOutcome.Pending;
   return OutreachOutcome.NotContacted;
 }
 
@@ -70,12 +75,22 @@ export interface FindingLike {
   data: unknown;
 }
 
+/** Reserves (eligible-with-reservations options) only FILL the report up to this size. */
+export const MAX_OPTIONS_WITH_RESERVES = 10;
+
+/** An option whose verdict was "eligible with reservations" — constraints mismatched, ranked lower. */
+function isReserveOption(o: RankedOption): boolean {
+  return isReserveVerdict(String((o.background as Record<string, unknown> | null)?.eligibility ?? ''));
+}
+
 /**
  * Pure dynamic-report assembly: merge `option` findings with their inquiry's
  * `subject_provider_background`, then rank by blended quality+price. Shared by the
  * delivery snapshot ({@link SnapshotsService.generate}) and the live read
  * ({@link SnapshotsService.live}) so the in-progress view and the final report use
  * the exact same logic — the report is "alive" because it's assembled on read.
+ * Reserve options (constraints mismatched) only fill the report while it has fewer
+ * than {@link MAX_OPTIONS_WITH_RESERVES} results — a full report drops them.
  */
 export function assembleOptions(findings: FindingLike[]): RankedOption[] {
   const backgroundByInquiry = new Map<string, Record<string, unknown>>();
@@ -102,7 +117,13 @@ export function assembleOptions(findings: FindingLike[]): RankedOption[] {
         background: bg ? compactBackground(bg) : null,
       };
     });
-  return rankOptions(rawOptions);
+  const ranked = rankOptions(rawOptions);
+  if (ranked.length <= MAX_OPTIONS_WITH_RESERVES) return ranked;
+  // Over the cap: shed reserve options from the bottom of the ranking first.
+  const excess = ranked.length - MAX_OPTIONS_WITH_RESERVES;
+  const reserveIdxFromBottom = ranked.map((o, i) => ({ o, i })).filter(({ o }) => isReserveOption(o)).map(({ i }) => i).reverse().slice(0, excess);
+  const drop = new Set(reserveIdxFromBottom);
+  return ranked.filter((_, i) => !drop.has(i));
 }
 
 /** Report synthesis + dynamic assembly from the Finding store. */
@@ -187,9 +208,11 @@ export class SnapshotsService {
     try {
       // Everything the run learned (inquiries + sources + threads), packed under the 100k budget.
       const ctx = await this.reportContext.buildAgentContext({ reportId, budgetTokens: AGENT_CONTEXT_BUDGET_TOKENS });
+      // The raw request rides along verbatim — the summary mirrors ITS language.
+      const report = await this.reports.findReport({ id: reportId });
       const result = await this.ai.structured({
         system: synthesisSystem(),
-        user: `${buildSynthesisUser({ options: ranked })}\n\n# Research context\n${ctx.text}`,
+        user: `${buildSynthesisUser({ options: ranked, customerRequest: report?.rawRequest ?? null })}\n\n# Research context\n${ctx.text}`,
         tier: ModelTier.Depth,
         validate: (raw) => synthesisSchema.parse(raw),
       });
@@ -297,21 +320,26 @@ export class SnapshotsService {
     }));
     const themes = toStringArray(bg.themes);
     const quotes = toStringArray(bg.quotes);
-    const status = inquiry?.status ?? '';
-    const contacted = status === InquiryStatus.Contacted || status === InquiryStatus.Replied || status === InquiryStatus.Qualified;
     const hasFeedback = bg.rating != null || themes.length > 0;
 
     const feedback = { rating: num(bg.rating), sentiment: num(bg.sentiment), themes, quotes };
     const scoring = { feedbackScore: round3(opt.qualityScore), priceScore: round3(opt.priceScore), blendedScore: round3(opt.score), rank: idx + 1 };
-    const outcome = outreachOutcomeFor(status);
     const owner = await this.reports.findReport({ id: reportId }); // persona lives on the report (one voice per report)
-    // The conversation as it happened (no addresses/ids — findMessages selects direction/body/time only).
+    // The conversation as it happened (no addresses/ids — findMessages selects direction/subject/body/time only).
     const msgs = optionFinding?.inquiryId ? await this.reports.findMessages({ inquiryId: optionFinding.inquiryId }) : [];
-    const chain = msgs.map((m) => ({ direction: m.direction, body: m.body, at: m.createdAt.toISOString() }));
+    const chain = msgs.map((m) => ({
+      direction: m.direction, subject: m.subject ?? null, body: m.body, at: m.createdAt.toISOString(),
+      // The thread's channel label (sales, booking, …) — the dossier renders one outreach section per channel.
+      channel: String(((m.source?.data ?? {}) as Record<string, unknown>).channel ?? '') || null,
+    }));
+    // Outcome + depth come from the message trail, not the status — a research-qualified
+    // inquiry with no emails is honestly "not contacted".
+    const outcome = outreachOutcomeFromMessages(msgs);
+    const contacted = msgs.some((m) => m.direction === MessageDirection.Outbound);
 
     // AI transparency summaries (best-effort; the dossier still renders without them).
     const summaries = await this.summarizeProvenance({
-      provider: ref, reportId, inquiryId: optionFinding?.inquiryId ?? null,
+      provider: ref, reportId, epicId: optionFinding?.epicId ?? null, inquiryId: optionFinding?.inquiryId ?? null,
       web, feedback, scoring, outcome, rank: idx + 1, totalOptions: ranked.length,
       price: { amount: typeof opt.price === 'number' ? opt.price : null, currency: opt.currency ?? null },
     });
@@ -327,9 +355,14 @@ export class SnapshotsService {
     };
   }
 
-  /** One DEPTH call → a short transparency summary per evaluation section (best-effort). */
+  /**
+   * The AI transparency summaries for one option — CACHED as a `provenance_summary`
+   * Finding with a fingerprint of the inputs. Same inputs → the stored summaries
+   * come back instantly; a new reply / re-rank changes the fingerprint and the next
+   * view regenerates (one DEPTH call) and writes through.
+   */
   private async summarizeProvenance(ctx: {
-    provider: string; reportId: string; inquiryId: string | null;
+    provider: string; reportId: string; epicId: string | null; inquiryId: string | null;
     web: { source: string; url: string; snippet: string }[];
     feedback: { rating: number; sentiment: number; themes: string[]; quotes: string[] };
     scoring: { feedbackScore: number; priceScore: number; blendedScore: number; rank: number };
@@ -342,18 +375,34 @@ export class SnapshotsService {
       const outbound = msgs.find((m) => m.direction === MessageDirection.Outbound);
       const inbound = msgs.find((m) => m.direction === MessageDirection.Inbound);
       const responseMinutes = outbound && inbound ? Math.max(0, Math.round((inbound.createdAt.getTime() - outbound.createdAt.getTime()) / 60_000)) : null;
+      // The LATEST inbound is what the chain achieved (the quote), not the provider's first counter-question.
+      const lastInbound = [...msgs].reverse().find((m) => m.direction === MessageDirection.Inbound);
+      const rounds = msgs.filter((m) => m.direction === MessageDirection.Outbound).length;
 
       const input: ProvenanceSummaryInput = {
         provider: ctx.provider, request: report?.rawRequest ?? '', rank: ctx.rank, totalOptions: ctx.totalOptions,
         web: ctx.web, feedback: ctx.feedback, scoring: { feedbackScore: ctx.scoring.feedbackScore, priceScore: ctx.scoring.priceScore, blendedScore: ctx.scoring.blendedScore },
         price: ctx.price,
-        outreach: { outcome: ctx.outcome, responseMinutes, reply: inbound?.body ?? null },
+        // Message count invalidates on every new email, not just the first reply.
+        outreach: { outcome: ctx.outcome, responseMinutes, rounds, reply: lastInbound?.body ?? null },
       };
+      const fingerprint = createHash('sha256').update(JSON.stringify({ ...input, messageCount: msgs.length })).digest('hex');
+      const cached = await this.reports.findProvenanceSummary({ reportId: ctx.reportId, inquiryId: ctx.inquiryId, ref: ctx.provider });
+      const stored = (cached?.data ?? null) as { fingerprint?: string; summaries?: ProvenanceSummaries } | null;
+      if (stored?.fingerprint === fingerprint && stored.summaries) return stored.summaries;
+
       const r = await this.ai.structured({
         system: provenanceSummarySystem(), user: buildProvenanceSummaryUser(input), tier: ModelTier.Depth,
         validate: (raw) => provenanceSummarySchema.parse(raw),
       });
-      return { web: r.web ?? '', outreach: r.outreach ?? '', feedback: r.feedback ?? '', ranking: r.ranking ?? '' };
+      const summaries: ProvenanceSummaries = { web: r.web ?? '', outreach: r.outreach ?? '', feedback: r.feedback ?? '', ranking: r.ranking ?? '' };
+      if (ctx.epicId) {
+        await this.reports.saveProvenanceSummary({
+          id: cached?.id ?? null, reportId: ctx.reportId, epicId: ctx.epicId, inquiryId: ctx.inquiryId,
+          data: { ref: ctx.provider, fingerprint, summaries } as unknown as Prisma.InputJsonValue,
+        });
+      }
+      return summaries;
     } catch {
       return undefined; // never fail the dossier on a summary hiccup
     }
@@ -399,6 +448,7 @@ export class SnapshotsService {
       questionnaire,
       delivered,
       rawRequest: report.rawRequest,
+      focus: report.focus ?? null,
       snapshotId: snapshot?.id ?? null,
       snapshotToken: snapshot?.token ?? null,
       reusedFrom: snapshot?.reusedFrom ?? null,
@@ -423,6 +473,7 @@ export interface LiveReport {
   questionnaire: { questions: QuestionnaireQuestion[]; answers: Record<string, string> | null; confirmed: boolean } | null;
   delivered: boolean;
   rawRequest: string;
+  focus: string | null;
   snapshotId: string | null;
   snapshotToken: string | null;
   reusedFrom: string | null;
