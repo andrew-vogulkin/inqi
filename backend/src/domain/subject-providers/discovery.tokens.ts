@@ -34,12 +34,6 @@ export interface DiscoveryOutcome {
   notes: string[];
 }
 
-/**
- * Swappable source of subject-provider candidates. AI-proposed today; a real
- * web-search / directory API plugs in behind this token later. Bind to
- * {@link DISCOVERY_SOURCE}; inject by token.
- */
-export interface DiscoverySource {
-  discover(args: DiscoverArgs): Promise<DiscoveryOutcome>;
-}
-export const DISCOVERY_SOURCE = Symbol('DiscoverySource');
+// NOTE: the DiscoverySource seam is gone — discovery is the `breadth_search`
+// workflow type now (domain/phases + breadth-lifecycle.ts). Swapping discovery
+// behaviour means publishing a new workflow version, not rebinding a token.

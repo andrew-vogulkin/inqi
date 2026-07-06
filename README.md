@@ -36,6 +36,13 @@ One customer request end-to-end: `rawRequest`, geo/budget/deadline, credit gatin
 `personaId` — one of **8 code-defined personas** (region-matched at creation) that
 carries *every* interaction of this report with one voice.
 
+> **Persona fleet pin (temporary):** while the outbound sender identity is under
+> email-provider (Postmark) approval, every new report is pinned to **Marlowe** via
+> the hardcoded `FORCED_PERSONA_ID` constant in
+> `backend/src/domain/agent/personas.ts`. Set it back to `null` to restore
+> region-aware routing across all 8 personas. Existing reports keep the persona
+> they were created with either way.
+
 **Lifecycle** = the versioned workflow (`ReportState`, stored in the DB, pinned per report):
 
 ```

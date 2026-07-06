@@ -1,6 +1,5 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AgentStage, AuditAction, AuditTargetType, ComplianceKind, EpicStatus, EventType, FindingKind, ReportState, ModelTier, NotificationKind, OutreachStrategy, QueueJob, ReaperAction, ReviewStatus, InquiryStatus, TERMINAL_STATES, UsageStage, WorkflowEvent, failureEventForState, READY_MIN, PARTIAL_READY_MIN, deriveStage } from '@inqi/shared';
-import type { Prisma } from '@prisma/client';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { AgentStage, AuditAction, AuditTargetType, BreadthPurpose, EventType, ReportState, NotificationKind, OutreachStrategy, PhaseKey, QueueJob, ReaperAction, InquiryStatus, TERMINAL_STATES, UsageStage, WorkflowEvent, failureEventForState, READY_MIN, PARTIAL_READY_MIN, deriveStage } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ActivityService } from '../../infra/observability/activity.service';
@@ -8,24 +7,24 @@ import { AuditService } from '../../infra/observability/audit.service';
 import { ConfigService } from '../../infra/config/config.service';
 import { UsageContextService } from '../../infra/usage/usage-context.service';
 import { decideReaperAction, findStuckRuns, retryBackoffSeconds } from '../../infra/observability/reaper.logic';
-import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
-import { EnrichedSubject, SubjectsService } from '../subjects/subjects.service';
-import { SubjectProvidersService } from '../subject-providers/subject-providers.service';
+import { SubjectsService } from '../subjects/subjects.service';
 import { QuestionnaireService } from '../questionnaire/questionnaire.service';
-import { QuestionnaireGenerator } from '../questionnaire/questionnaire-generator';
 import { SnapshotsService } from '../snapshot/snapshots.service';
-import { SourcesService } from '../source/sources.service';
-import { ComplianceBlockedError, ConflictError } from '../../common/errors';
-import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
-import { feasibilitySystem, FeasibilityVerdict, buildFeasibilityUser, feasibilitySchema } from './prompts/feasibility.prompt';
+import { PhaseEngine } from '../phases/phase-engine.service';
+import { ConflictError } from '../../common/errors';
 import { ReportLifecycleEvent, notificationForLifecycle } from '../report/report-lifecycle';
-import { OutreachActionKind, SynthesisGate, assignWaves, decideNextAction, decideSynthesisGate, planSize } from './planning';
+import { OutreachActionKind, SynthesisGate, decideNextAction, decideSynthesisGate, planSize } from './planning';
 import { WorkflowEngine } from './workflow-engine.service';
 import { OrchestratorRepository } from './orchestrator.repository';
+import { OutreachControlService } from './outreach-control.service';
 
-/** Recoverable processing states → their AgentStage + the job to re-enqueue on retry (omit job = stall→fail). */
+/**
+ * Recoverable processing states → their AgentStage + the job to re-enqueue on retry
+ * (omit job = stall→fail). PRE_RESEARCH is absent: it runs as a `pre_research`
+ * PhaseRun now, and the phase reaper path owns its recovery. FUNNEL recovery only
+ * covers the epic-creation slice before the breadth run starts (startRun dedupes).
+ */
 const RECOVERY: Partial<Record<ReportState, { stage: AgentStage; job?: QueueJob }>> = {
-  [ReportState.PRE_RESEARCH]: { stage: AgentStage.PreResearch, job: QueueJob.PreResearch },
   [ReportState.ENRICHMENT]: { stage: AgentStage.EnrichSubject, job: QueueJob.EnrichSubject },
   [ReportState.BROAD_RESEARCH]: { stage: AgentStage.BroadResearch, job: QueueJob.BroadResearch },
   [ReportState.FUNNEL]: { stage: AgentStage.BuildFunnel, job: QueueJob.BuildFunnel },
@@ -59,16 +58,13 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly activity: ActivityService,
     private readonly wf: WorkflowEngine,
     private readonly subjects: SubjectsService,
-    private readonly subjectProviders: SubjectProvidersService,
     private readonly questionnaire: QuestionnaireService,
-    private readonly questionnaireGen: QuestionnaireGenerator,
     private readonly reports: SnapshotsService,
-    private readonly sources: SourcesService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
     private readonly usageCtx: UsageContextService,
-    @Inject(AI_PROVIDER) private readonly ai: AiProvider,
-    @Inject(COMPLIANCE_SCORER) private readonly compliance: ComplianceScorer,
+    private readonly phases: PhaseEngine,
+    private readonly outreach: OutreachControlService,
   ) {}
 
   async onModuleInit() {
@@ -77,7 +73,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     const stage = (s: AgentStage, fn: (d: { reportId: string }) => Promise<void>) =>
       (j: { data: { reportId: string } }) => this.runPipelineStage({ stage: s, reportId: j.data.reportId, fn: () => fn(j.data) });
 
-    await this.boss.work<{ reportId: string }>({ job: QueueJob.PreResearch, handler: stage(AgentStage.PreResearch, (d) => this.preResearch(d)) });
+    // Pre-research runs as a `pre_research` PhaseRun (DB-stored state machine).
+    // The worker only starts the run — startRun dedupes re-deliveries; the run's
+    // terminal actions fire PRE_RESEARCH_PASSED/DENIED/FAILED back on the report.
+    await this.boss.work<{ reportId: string }>({ job: QueueJob.PreResearch, handler: (j) => this.startPreResearch(j.data) });
     await this.boss.work<{ reportId: string }>({ job: QueueJob.SendQuestionnaire, handler: stage(AgentStage.SendQuestionnaire, (d) => this.sendQuestionnaire(d)) });
     await this.boss.work<{ reportId: string }>({ job: QueueJob.EnrichSubject, handler: stage(AgentStage.EnrichSubject, (d) => this.enrichSubject(d)) });
     await this.boss.work<{ reportId: string }>({ job: QueueJob.BroadResearch, handler: stage(AgentStage.BroadResearch, (d) => this.broadResearch(d)) });
@@ -126,72 +125,17 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // 2. Pre-research + ethical/feasibility evaluation.
-  private async preResearch({ reportId }: { reportId: string }): Promise<void> {
-    await this.activity.runStage({
-      reportId, stage: AgentStage.PreResearch,
-      fn: async (log) => {
-        const inq = await this.repo.findReport({ id: reportId });
-        await log({ message: 'Pre-researching subject + ethical/feasibility evaluation' });
-
-        // Compliance gate on the CUSTOMER'S RAW PROMPT (ethical + legal rubric) —
-        // a blocked request denies the report before any research spends a token.
-        const promptReview = await this.compliance.score({ kind: ComplianceKind.CustomerRequest, text: inq.rawRequest, tier: ModelTier.Depth });
-        if (promptReview.status === ReviewStatus.Blocked) {
-          await this.repo.updateReport({ id: reportId, data: { denyReason: `request_compliance: ${promptReview.reason || promptReview.categories.join(', ') || 'policy'}` } });
-          await log({ message: `Request blocked by the compliance gate: ${promptReview.reason || 'policy'}`, data: { categories: promptReview.categories, riskScore: promptReview.score } });
-          await this.wf.advance({ reportId, event: WorkflowEvent.PRE_RESEARCH_DENIED }); // lifecycle handler emails the denial
-          return;
-        }
-
-        let enriched: EnrichedSubject | undefined;
-        if (this.ai.isConfigured()) {
-          try {
-            const verdict = await this.ai.structured({
-              system: feasibilitySystem(),
-              user: buildFeasibilityUser({ rawRequest: inq.rawRequest }),
-              tier: ModelTier.Depth, // ethical/legal judgement is high-stakes
-              validate: (raw) => feasibilitySchema.parse(raw),
-            });
-            if (verdict.decision === FeasibilityVerdict.Deny) {
-              await this.repo.updateReport({ id: reportId, data: { denyReason: verdict.reason || 'policy' } });
-              await log({ message: `Pre-research denied: ${verdict.reason || 'policy'}`, data: { riskTags: verdict.riskTags } });
-              await this.wf.advance({ reportId, event: WorkflowEvent.PRE_RESEARCH_DENIED }); // lifecycle handler emails the denial
-              return;
-            }
-            enriched = verdict.subject;
-          } catch (e) {
-            // A model/parse failure must not block a legitimate report — proceed without AI enrichment.
-            this.logger.warn(`feasibility eval failed; proceeding without AI enrichment: ${(e as Error).message}`);
-          }
-        }
-
-        await this.subjects.createFromReport({ reportId, rawRequest: inq.rawRequest, enriched });
-
-        // The questionnaire agent researches the topic (~5 web searches) and generates
-        // 7–10 select questions with 3–4 concrete options each (static fallback inside).
-        await log({ message: 'Researching the topic to design the scope questionnaire' });
-        const questions = await this.questionnaireGen.generate({
-          rawRequest: inq.rawRequest,
-          subject: enriched ? { title: enriched.title, summary: enriched.summary } : null,
-        });
-
-        // Compliance-gate + create the questionnaire here so a block denies the report
-        // through the existing PRE_RESEARCH→DENIED gate (no workflow-v1 change).
-        try {
-          await this.questionnaire.createForReport({ reportId, questions });
-        } catch (e) {
-          if (e instanceof ComplianceBlockedError) {
-            await this.repo.updateReport({ id: reportId, data: { denyReason: `questionnaire_compliance: ${String(e.details.reason ?? '')}` } });
-            await log({ message: 'Questionnaire blocked by compliance — denying', data: e.details });
-            await this.wf.advance({ reportId, event: WorkflowEvent.PRE_RESEARCH_DENIED }); // lifecycle handler emails the denial
-            return;
-          }
-          throw e;
-        }
-        await this.wf.advance({ reportId, event: WorkflowEvent.PRE_RESEARCH_PASSED }); // action: send:questionnaire
-      },
-    });
+  // 2. Pre-research: start the `pre_research` phase run (compliance gate →
+  // feasibility → subject → questionnaire gen → questionnaire gate — each a DB
+  // state; see domain/phases/pre-research.steps.ts). Skips cancelled/terminal
+  // reports; startRun dedupes at-least-once re-deliveries.
+  private async startPreResearch({ reportId }: { reportId: string }): Promise<void> {
+    const inq = await this.repo.findReport({ id: reportId });
+    if (inq.cancelRequested || TERMINAL_STATES.includes(inq.state as ReportState)) {
+      await this.outbox.emit({ type: EventType.AgentCancelled, reportId, data: { stage: AgentStage.PreResearch, state: inq.state } });
+      return;
+    }
+    await this.phases.startRun({ key: PhaseKey.PreResearch, reportId, data: {} });
   }
 
   // 2.1 Build + send the questionnaire (temp link).
@@ -241,7 +185,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  // 4. Funnel: discover real subject-provider candidates → Epic + Inquiries (assigned to waves).
+  // 4. Funnel: create the Epic, then start a `breadth_search` phase run (the
+  // adaptive discovery loop as a DB state machine). The run's terminal action
+  // enqueues AssembleFunnel, which creates the waved inquiries + depth runs and
+  // fires FUNNEL_BUILT — this stage no longer awaits discovery.
   private async buildFunnel({ reportId }: { reportId: string }): Promise<void> {
     await this.activity.runStage({
       reportId, stage: AgentStage.BuildFunnel,
@@ -252,30 +199,37 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         });
         await this.outbox.emit({ type: EventType.EpicCreated, reportId, epicId: epic.id, data: { strategy } });
 
-        // Breadth-search lifecycle (multi-query + conversion-driven fallback), hard-capped
-        // at the per-report inquiry limit. Lifecycle notes (relaxed constraints) go on the
-        // activity timeline so the customer sees WHY broader matches appeared.
         const breadthCap = this.config.research.maxBreadthInquiries;
-        const { candidates, notes } = await this.subjectProviders.discover({ subject: await this.subjectContext({ reportId }), count: Math.min(planSize(strategy), breadthCap), exclude: [] });
-        for (const note of notes) await log({ message: `Discovery: ${note}` });
-        for (const c of assignWaves({ candidates: candidates.slice(0, breadthCap), strategy })) {
-          const st = await this.repo.createInquiry({ data: { reportId, epicId: epic.id, name: c.name, wave: c.wave, leadSource: c.source, contact: { country: c.country, ...(c.matchNote ? { matchNote: c.matchNote } : {}), ...(c.website ? { website: c.website } : {}), ...(c.socials?.length ? { socials: c.socials } : {}), ...(c.facts?.length ? { facts: c.facts } : {}) } } });
-          if (c.evidence?.length) await this.sources.addWebsearch({ reportId, inquiryId: st.id, results: c.evidence });
-          await this.outbox.emit({ type: EventType.InquiryCreated, reportId, epicId: epic.id, inquiryId: st.id, data: { name: c.name, wave: c.wave, leadSource: c.source } });
-          // Depth task per found candidate — queued immediately (not gated behind outreach waves).
-          await this.boss.enqueue({ job: QueueJob.ResearchBackground, data: { reportId, inquiryId: st.id } });
-        }
-        await log({ message: `Funnel built via discovery: ${Math.min(candidates.length, breadthCap)} candidates (cap ${breadthCap})`, data: { strategy } });
-        await this.wf.advance({ reportId, event: WorkflowEvent.FUNNEL_BUILT });
+        await this.startBreadthRun({
+          reportId, epicId: epic.id, purpose: BreadthPurpose.Funnel,
+          count: Math.min(planSize(strategy), breadthCap), exclude: [],
+        });
+        await log({ message: 'Breadth-search run started (funnel assembles when it finishes)', data: { strategy } });
       },
     });
+  }
+
+  /** Start a breadth_search run with the loop's working memory pinned into run.data. */
+  private async startBreadthRun({ reportId, epicId, purpose, count, exclude }: {
+    reportId: string; epicId: string; purpose: BreadthPurpose; count: number; exclude: string[];
+  }): Promise<boolean> {
+    const run = await this.phases.startRun({
+      key: PhaseKey.BreadthSearch, reportId,
+      data: {
+        purpose, epicId, subject: await this.subjectContext({ reportId }), count,
+        maxCycles: Math.max(1, this.config.research.breadthMaxCycles),
+        cycle: 1, exclude, queries: [], pool: null, proposed: [], candidates: [],
+        seenNames: exclude, gainedThisCycle: 0, dryRounds: 0, matchNote: null, notes: [],
+      },
+    });
+    return run != null;
   }
 
   // 4.1 Outreach: release the first wave; the reactor escalates from there.
   private async startOutreach({ reportId }: { reportId: string }): Promise<void> {
     const epic = await this.repo.findEpicWithInquiries({ epicId: (await this.repo.findLatestEpic({ reportId })).id });
     const pendingWaves = [...new Set(epic.inquiries.filter((s) => s.status === InquiryStatus.Pending).map((s) => s.wave))];
-    if (pendingWaves.length) await this.releaseWave({ reportId, epicId: epic.id, wave: Math.min(...pendingWaves), priority: epic.priority });
+    if (pendingWaves.length) await this.outreach.releaseWave({ reportId, epicId: epic.id, wave: Math.min(...pendingWaves), priority: epic.priority });
   }
 
   /**
@@ -308,80 +262,28 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     const action = decideNextAction({ qualified, target: epic.targetQualifiedOptions, inFlight, pendingWaves });
     if (action.kind === OutreachActionKind.Wait) return;
     if (action.kind === OutreachActionKind.Release) {
-      await this.releaseWave({ reportId, epicId, wave: action.wave, priority: epic.priority });
+      await this.outreach.releaseWave({ reportId, epicId, wave: action.wave, priority: epic.priority });
       return;
     }
     if (action.kind === OutreachActionKind.Finish) {
-      await this.finishOutreach({ reportId });
+      await this.outreach.finishOutreach({ reportId });
       return;
     }
-    // widen: discover more unless we've hit the per-report inquiry cap or discovery is dry.
+    // widen: start another breadth_search run unless we've hit the per-report cap.
+    // The run's terminal action assembles the fresh candidates as the next wave
+    // (or finishes outreach if discovery came back empty). startRun dedupes — a
+    // widen while any breadth run is live for this report is a no-op (wait).
     const breadthCap = this.config.research.maxBreadthInquiries;
     if (subs.length >= breadthCap) {
-      await this.finishOutreach({ reportId });
+      await this.outreach.finishOutreach({ reportId });
       return;
     }
     const exclude = subs.map((s) => s.name);
-    const widened = await this.subjectProviders.discover({ subject: await this.subjectContext({ reportId }), count: Math.min(WIDEN_BATCH, breadthCap - subs.length), exclude });
-    for (const note of widened.notes) this.logger.log(`widen discovery: ${note}`);
-    const fresh = widened.candidates
-      .filter((c) => !exclude.includes(c.name))
-      .slice(0, breadthCap - subs.length);
-    if (!fresh.length) {
-      await this.finishOutreach({ reportId });
-      return;
-    }
-    const nextWave = Math.max(...subs.map((s) => s.wave)) + 1;
-    for (const c of fresh) {
-      const st = await this.repo.createInquiry({ data: { reportId, epicId, name: c.name, wave: nextWave, leadSource: c.source, contact: { country: c.country, ...(c.matchNote ? { matchNote: c.matchNote } : {}), ...(c.website ? { website: c.website } : {}), ...(c.socials?.length ? { socials: c.socials } : {}), ...(c.facts?.length ? { facts: c.facts } : {}) } } });
-      if (c.evidence?.length) await this.sources.addWebsearch({ reportId, inquiryId: st.id, results: c.evidence });
-      await this.outbox.emit({ type: EventType.InquiryCreated, reportId, epicId, inquiryId: st.id, data: { name: c.name, wave: nextWave, leadSource: c.source } });
-      await this.boss.enqueue({ job: QueueJob.ResearchBackground, data: { reportId, inquiryId: st.id } });
-    }
-    await this.outbox.emit({ type: EventType.FunnelWidened, reportId, epicId, data: { added: fresh.length, wave: nextWave } });
-    await this.repo.createFinding({ data: { reportId, epicId, kind: FindingKind.Note, data: { note: `Widened discovery: ${fresh.length} new candidates (wave ${nextWave})` } as Prisma.InputJsonValue } });
-    await this.releaseWave({ reportId, epicId, wave: nextWave, priority: epic.priority });
-  }
-
-  /**
-   * Mark a wave's pending inquiries released, emit wave.released, and enqueue their
-   * outreach. Idempotent: `claimWave` atomically records the wave on the epic, so a
-   * re-delivered InquirySettled (pg-boss is at-least-once) can never double-release
-   * a wave (= double-send).
-   */
-  private async releaseWave({ reportId, epicId, wave, priority }: { reportId: string; epicId: string; wave: number; priority: number }): Promise<void> {
-    if (!(await this.repo.claimWave({ epicId, wave }))) {
-      this.logger.debug(`wave ${wave} already released for epic ${epicId} — skipping (idempotent)`);
-      return;
-    }
-    const subs = await this.repo.findPendingInquiries({ epicId, waves: [wave] });
-    for (const s of subs) {
-      await this.repo.updateInquiry({ id: s.id, data: { status: InquiryStatus.Researching } });
-      await this.outbox.emit({ type: EventType.InquiryUpdated, reportId, epicId, inquiryId: s.id, data: { status: InquiryStatus.Researching, wave } });
-      await this.boss.enqueue({ job: QueueJob.OutreachInquiry, data: { reportId, inquiryId: s.id }, options: { priority: 10 - priority } });
-    }
-    if (subs.length) await this.outbox.emit({ type: EventType.WaveReleased, reportId, epicId, data: { wave, count: subs.length } });
-  }
-
-  /**
-   * Advance OUTREACH_DONE → report generation; tolerate a lost race (already
-   * advanced). First, retire any un-released (still-pending) inquiries to `skipped`
-   * — a terminal state distinct from `failed` — so the board isn't perpetually
-   * pending and the reaper never tries to revive a wave we stopped early.
-   */
-  private async finishOutreach({ reportId }: { reportId: string }): Promise<void> {
-    const epic = await this.repo.findLatestEpic({ reportId });
-    const pending = await this.repo.findPendingInquiries({ epicId: epic.id, waves: undefined });
-    for (const s of pending) {
-      await this.repo.updateInquiry({ id: s.id, data: { status: InquiryStatus.Skipped } });
-      await this.outbox.emit({ type: EventType.InquiryUpdated, reportId, epicId: epic.id, inquiryId: s.id, data: { status: InquiryStatus.Skipped, wave: s.wave } });
-    }
-    await this.repo.setEpicStatus({ epicId: epic.id, status: EpicStatus.Done });
-    try {
-      await this.wf.advance({ reportId, event: WorkflowEvent.OUTREACH_DONE });
-    } catch (e) {
-      if (!(e instanceof ConflictError)) throw e;
-    }
+    const started = await this.startBreadthRun({
+      reportId, epicId, purpose: BreadthPurpose.Widen,
+      count: Math.min(WIDEN_BATCH, breadthCap - subs.length), exclude,
+    });
+    if (!started) this.logger.debug(`widen skipped for report ${reportId} — a breadth run is already live`);
   }
 
   // --- HP-09: failure recovery, reaper, cancellation ---
@@ -421,6 +323,14 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     try {
       const stuck = findStuckRuns({ runs: await this.repo.findRunningRuns(), now: new Date() });
       for (const r of stuck) {
+        // A run shadowing a PhaseRun routes to the phase engine: it re-leases +
+        // re-enqueues the step while attempts remain, else fails the run (whose
+        // FAILED action bridges to the parent report / inquiry).
+        if (r.phaseRunId) {
+          this.logger.warn(`reaper: phase run ${r.phaseRunId} (${r.stage}) lease expired — recovering`);
+          await this.phases.recover({ runId: r.phaseRunId });
+          continue;
+        }
         this.logger.warn(`reaper: run ${r.id} (${r.stage}) lease expired — recovering report ${r.reportId}`);
         await this.repo.failRun({ id: r.id, error: 'lease expired (reaped)' });
         await this.outbox.emit({ type: EventType.AgentFailed, reportId: r.reportId, data: { stage: r.stage, error: 'lease expired (reaped)' } });

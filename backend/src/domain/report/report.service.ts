@@ -6,12 +6,18 @@ import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 import { ErrorCode, NotFoundError, PaymentRequiredError } from '../../common/errors';
 import { WorkflowEngine } from '../orchestrator/workflow-engine.service';
 import { CreditsService } from '../credits/credits.service';
-import { pickPersona } from '../agent/personas';
+import { FORCED_PERSONA_ID, assignPersona } from '../agent/personas';
 import { ReportLifecycleEvent, notificationForLifecycle } from './report-lifecycle';
+import { formatReportRef, reportRefPrefix } from './report-ref';
 import { ReportRepository } from './report.repository';
 
 /** The authenticated caller (mirrors edge/auth AuthUser; kept local to avoid an edge→domain import). */
 export interface ReportViewer { sub: string; email: string; role: AuthRole }
+
+/** Concurrent submits racing the same day-counter: retry the create this many times. */
+const REF_MINT_ATTEMPTS = 3;
+/** Prisma unique-constraint violation code. */
+const P2002 = 'P2002';
 
 /** The report aggregate + lifecycle entry point. */
 @Injectable()
@@ -39,7 +45,24 @@ export class ReportService {
     const cost = this.credits.reportCost();
     const workflowVersionId = await this.wf.activeVersionId({ key: 'report' });
 
-    const inq = await this.prisma.$transaction(async (tx) => {
+    // Human-facing ref (RPT-YYMMDD-NN): count today's refs → next seq. Two submits can
+    // race the same seq — the unique constraint rejects the loser and the whole create
+    // transaction retries with a fresh count (bounded; refs are per-day so a stale
+    // count self-corrects immediately).
+    const inq = await this.withRefRetry(() => this.createTx({ dto, viewer, cost, workflowVersionId }));
+
+    // `created` lifecycle: RECEIVED is the initial state — no transition lands on it,
+    // so the engine can't dispatch this one. Intake acknowledges the customer itself.
+    const kind = notificationForLifecycle(ReportLifecycleEvent.Created);
+    if (kind) await this.boss.enqueue({ job: QueueJob.SendNotification, data: { reportId: inq.id, kind } });
+
+    await this.wf.advance({ reportId: inq.id, event: WorkflowEvent.START_PRE_RESEARCH }); // kicks off pre-research (post-commit)
+    return inq;
+  }
+
+  /** The submit transaction: free-slot claim + report row (with its minted ref) + created event. */
+  private createTx({ dto, viewer, cost, workflowVersionId }: { dto: CreateReportDto; viewer: ReportViewer; cost: number; workflowVersionId: string }) {
+    return this.prisma.$transaction(async (tx) => {
       // HP-21, credits-first: a customer WITH enough credits always gets a full paid
       // report — the free (freemium-locked) slot is only the fallback when the balance
       // can't cover the cost. This keeps the teaser as the zero-credit on-ramp without
@@ -55,8 +78,11 @@ export class ReportService {
         }
       }
 
+      const now = new Date();
+      const seq = (await this.reports.countByRefPrefix({ prefix: reportRefPrefix({ date: now }), tx })) + 1;
       const created = await this.reports.create({
         data: {
+          ref: formatReportRef({ date: now, seq }),
           customerEmail: viewer.email, customerId: viewer.sub, rawRequest: dto.rawRequest, workflowVersionId,
           geoLat: dto.geo?.lat, geoLng: dto.geo?.lng, geoLabel: dto.geo?.label,
           budgetMin: dto.budgetMin, budgetMax: dto.budgetMax,
@@ -65,8 +91,9 @@ export class ReportService {
           freeReport,
           // Report 1:1 persona: one region-matched voice carries every thread of this
           // report — routed by the geo label, else by places named in the request text,
-          // else randomly (the fleet must not read as one person).
-          personaId: pickPersona({ regionHint: dto.geo?.label ?? null, requestText: dto.rawRequest }).id,
+          // else randomly (the fleet must not read as one person). The hardcoded
+          // FORCED_PERSONA_ID pin (email-approval mode) overrides all of that.
+          personaId: assignPersona({ forcedId: FORCED_PERSONA_ID, regionHint: dto.geo?.label ?? null, requestText: dto.rawRequest }).id,
         },
         tx,
       });
@@ -74,17 +101,21 @@ export class ReportService {
       // Pay-on-delivery: nothing is held here — the cost is charged only when the
       // report reaches REPORT_DELIVERED (workflow settle). A run that fails, drops
       // or is cancelled never touches the balance.
-      await this.outbox.emit({ type: EventType.ReportCreated, reportId: created.id, data: { rawRequest: created.rawRequest }, tx });
+      await this.outbox.emit({ type: EventType.ReportCreated, reportId: created.id, data: { rawRequest: created.rawRequest, ref: created.ref }, tx });
       return created;
     });
+  }
 
-    // `created` lifecycle: RECEIVED is the initial state — no transition lands on it,
-    // so the engine can't dispatch this one. Intake acknowledges the customer itself.
-    const kind = notificationForLifecycle(ReportLifecycleEvent.Created);
-    if (kind) await this.boss.enqueue({ job: QueueJob.SendNotification, data: { reportId: inq.id, kind } });
-
-    await this.wf.advance({ reportId: inq.id, event: WorkflowEvent.START_PRE_RESEARCH }); // kicks off pre-research (post-commit)
-    return inq;
+  /** Retry the create when the minted ref lost a same-second race (unique violation). */
+  private async withRefRetry<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        const conflict = (e as { code?: string; meta?: { target?: string[] } })?.code === P2002;
+        if (!conflict || attempt >= REF_MINT_ATTEMPTS) throw e;
+      }
+    }
   }
 
   /** Detail read, ownership-scoped: admins see any; a customer only their own (else 404 — no existence leak). */

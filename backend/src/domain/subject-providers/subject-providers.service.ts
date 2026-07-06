@@ -1,6 +1,6 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EventType, FindingKind, InquiryStatus, ModelTier, QueueJob, ReportState, SearchFocus, SourceType, UsageKind, isEligibleVerdict, isIneligibleVerdict, isReserveVerdict } from '@inqi/shared';
+import { EventType, FindingKind, InquiryStatus, QueueJob, ReportState, SearchFocus, SourceType, isEligibleVerdict, isIneligibleVerdict, isReserveVerdict } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { PrismaService } from '../../infra/persistence/prisma.service';
@@ -8,26 +8,35 @@ import { ConfigService } from '../../infra/config/config.service';
 import { AI_PROVIDER, AiProvider, ToolSet } from '../../infra/ai/ai.tokens';
 import { WEB_SEARCH, WebSearchProvider } from '../../infra/websearch/websearch.tokens';
 import { OPEN_URL_TOOL, PAGE_READER, PageReader } from '../../infra/browser/browser.tokens';
-import { UsageService } from '../../infra/usage/usage.service';
-import { UsageContextService } from '../../infra/usage/usage-context.service';
 import { FlatSourceInput, SourcesService } from '../source/sources.service';
 import { SubjectProvidersRepository } from './subject-providers.repository';
 import { BACKGROUND_RESEARCH_SOURCE, BackgroundResearchSource, BackgroundSource, SubjectProviderBackground } from './background.tokens';
-import { DISCOVERY_SOURCE, DiscoverArgs, DiscoveryOutcome, DiscoverySource } from './discovery.tokens';
-import { depthResearchSystem, buildDepthResearchUser, buildDepthRefineUser, depthResearchSchema, DepthResearchResult, KnownFacts } from './background.prompt';
-import { formDepthQueries, searchDepthLeads, evaluateDepthVerdict } from './depth-lifecycle';
+import { KnownFacts } from './background.prompt';
 
 const WEB_SEARCH_TOOL_NAME = 'web_search';
 const OPEN_URL_TOOL_NAME = 'open_url';
 
+/** Everything a depth_search run needs pinned into its run.data at start. */
+export interface DepthRunContext {
+  name: string;
+  epicId: string;
+  regionHint: string | null;
+  subject: { title: string; description: string } | null;
+  webRoom: number;
+  matchNote: string | null;
+  focus: SearchFocus | null;
+  knownFacts: KnownFacts;
+}
+
 /**
- * Subject-provider discovery + background/quality research. Discovery seeds the
- * funnel (real candidates via the {@link DISCOVERY_SOURCE} seam); depth research
- * runs an agentic tool loop (web_search + a real-browser open_url) per candidate
- * and scores eligibility/quality so the report ranks on quality, not just price.
+ * Subject-provider background/quality research collaborators. The verify→
+ * strengthen loop itself is the `depth_search` workflow (DB-stored states,
+ * driven by the PhaseEngine — see domain/phases/depth-search.steps.ts); this
+ * service owns what the steps share: the agent tool set, the run context, the
+ * verdict persistence + settlement, and the deterministic no-AI fallback.
  */
 @Injectable()
-export class SubjectProvidersService implements OnModuleInit {
+export class SubjectProvidersService {
   private readonly logger = new Logger(SubjectProvidersService.name);
 
   constructor(
@@ -40,40 +49,14 @@ export class SubjectProvidersService implements OnModuleInit {
     @Inject(WEB_SEARCH) private readonly web: WebSearchProvider,
     @Inject(PAGE_READER) private readonly pageReader: PageReader,
     @Inject(BACKGROUND_RESEARCH_SOURCE) private readonly source: BackgroundResearchSource,
-    @Inject(DISCOVERY_SOURCE) private readonly discovery: DiscoverySource,
-    private readonly usage: UsageService,
-    private readonly usageCtx: UsageContextService,
     private readonly sources: SourcesService,
   ) {}
 
-  async onModuleInit() {
-    await this.boss.work<{ reportId: string; inquiryId: string }>({
-      job: QueueJob.ResearchBackground,
-      handler: (job) => this.researchBackground(job.data).then(() => undefined),
-    });
-  }
-
-  /** Discover candidate subject providers for the funnel (delegates to the seam; counted for cost). */
-  discover(args: DiscoverArgs): Promise<DiscoveryOutcome> {
-    void this.usage.recordAction({ reportId: this.usageCtx.reportId(), kind: UsageKind.DiscoveryCall });
-    return this.discovery.discover(args);
-  }
-
-  /**
-   * Depth-research a subject provider (agentic: web_search + open_url within a
-   * tool budget), persist the verdict to the inquiry + a Finding (which the
-   * dynamic report reads), record the cited pages as websearch Sources (the
-   * customer-visible proof), and emit inquiry.updated with the qualityScore.
-   */
-  async researchBackground({ reportId, inquiryId }: { reportId: string; inquiryId: string }): Promise<SubjectProviderBackground> {
-    void this.usage.recordAction({ reportId, kind: UsageKind.BackgroundResearch });
+  /** Assemble the context a depth run pins into run.data (facts, focus, source budget). */
+  async depthRunContext({ reportId, inquiryId }: { reportId: string; inquiryId: string }): Promise<DepthRunContext> {
     const st = await this.repo.findInquiry({ id: inquiryId });
     const contact = (st.contact ?? {}) as { country?: string; region?: string; matchNote?: string; website?: string; socials?: string[]; facts?: string[] };
-    const regionHint = contact.country ?? contact.region ?? null;
-    // The facts breadth collected — depth strengthens these instead of re-verifying.
-    const knownFacts = { website: contact.website ?? null, socials: contact.socials ?? [], facts: contact.facts ?? [] };
     const subject = await this.repo.findSubjectByReport({ reportId });
-    // The customer's ranking priority steers what the depth agent hunts hardest for.
     const focus = ((await this.repo.findReportFocus({ id: reportId }))?.focus ?? null) as SearchFocus | null;
 
     // Source budget: maxSourcesPerInquiry total per inquiry, ≥1 slot always reserved
@@ -84,16 +67,35 @@ export class SubjectProvidersService implements OnModuleInit {
     const existingFlat = existing.filter((s) => s.type === SourceType.Websearch || s.type === SourceType.RatingFeedback).length;
     const webRoom = Math.max(0, flatCap - existingFlat - 1); // −1: keep room for the rating digest
 
-    const background = await this.investigate({ name: st.name, regionHint, subject, webRoom, matchNote: contact.matchNote ?? null, focus, knownFacts });
+    return {
+      name: st.name,
+      epicId: st.epicId,
+      regionHint: contact.country ?? contact.region ?? null,
+      subject,
+      webRoom,
+      matchNote: contact.matchNote ?? null,
+      focus,
+      // The facts breadth collected — depth strengthens these instead of re-verifying.
+      knownFacts: { website: contact.website ?? null, socials: contact.socials ?? [], facts: contact.facts ?? [] },
+    };
+  }
+
+  /**
+   * Persist a depth verdict: inquiry background + websearch/rating Sources + the
+   * report-feeding Finding + the live event as one transaction, then settle the
+   * inquiry from the verdict and refresh a delivered snapshot if this landed late.
+   */
+  async persistDepthVerdict({ reportId, inquiryId, background, webRoom }: {
+    reportId: string; inquiryId: string; background: SubjectProviderBackground; webRoom: number;
+  }): Promise<void> {
+    const st = await this.repo.findInquiry({ id: inquiryId });
 
     // The cited evidence pages become websearch Source rows (the proof the report links to).
     const webSources: FlatSourceInput[] = background.sources
       .filter((s): s is BackgroundSource => typeof s === 'object' && !!s.url && s.url.startsWith('http'))
-      .slice(0, webRoom)
+      .slice(0, Math.max(0, webRoom))
       .map((s) => ({ url: s.url, title: s.source, snippet: s.snippet ?? null }));
 
-    // Persist the inquiry background, its websearch + rating_feedback Sources, the
-    // report-feeding Finding, and the live event as one unit (research done above).
     await this.prisma.$transaction(async (tx) => {
       await this.repo.updateBackground({ id: inquiryId, background: background as unknown as Prisma.InputJsonValue, qualityScore: background.qualityScore, tx });
       if (webSources.length) await this.sources.addWebsearch({ reportId, inquiryId, results: webSources, tx });
@@ -133,7 +135,6 @@ export class SubjectProvidersService implements OnModuleInit {
       await this.boss.enqueue({ job: QueueJob.RefreshSnapshot, data: { reportId }, options: { singletonKey: `refresh:${reportId}` } });
       this.logger.log(`late depth verdict for "${st.name}" on delivered report ${reportId} — snapshot refresh enqueued`);
     }
-    return background;
   }
 
   /** Research-verdict settlement thresholds: eligible + at least this score → qualified. */
@@ -162,7 +163,14 @@ export class SubjectProvidersService implements OnModuleInit {
     const reserve = isReserveVerdict(verdict);
     const eligible = reserve || (isEligibleVerdict(verdict) && background.qualityScore >= SubjectProvidersService.RESEARCH_QUALIFY_MIN_SCORE);
     const ineligible = isIneligibleVerdict(verdict);
-    if (!eligible && !ineligible) return; // ambiguous — leave it to outreach / the reply-wait sweep
+    if (!eligible && !ineligible) {
+      // Ambiguous — leave the inquiry OPEN (outreach / the reply-wait sweep may settle
+      // it), but STILL kick the reactor: this verdict just cleared researchPending, and
+      // if it was the last one in flight the funnel decision is now unblocked. Without
+      // this kick a report whose FINAL verdict is ambiguous wedges in OUTREACH forever.
+      await this.boss.enqueue({ job: QueueJob.InquirySettled, data: { reportId, epicId: inquiry.epicId } });
+      return;
+    }
 
     if (eligible) {
       const result = {
@@ -194,99 +202,8 @@ export class SubjectProvidersService implements OnModuleInit {
     await this.boss.enqueue({ job: QueueJob.InquirySettled, data: { reportId, epicId: inquiry.epicId } });
   }
 
-  /** Agentic depth research when AI is configured; deterministic fallback otherwise (or on agent failure). */
-  private async investigate({ name, regionHint, subject, webRoom, matchNote = null, focus = null, knownFacts = null }: {
-    name: string; regionHint: string | null; subject: { title: string; description: string } | null; webRoom: number;
-    matchNote?: string | null; focus?: SearchFocus | null; knownFacts?: KnownFacts | null;
-  }): Promise<SubjectProviderBackground> {
-    if (this.ai.isConfigured()) {
-      const { depthMaxToolCalls, depthCycles } = this.config.research;
-      const maxCycles = Math.max(1, depthCycles);
-      // B + C. The model forms ~5 targeted queries (site, reviews, pricing, red
-      // flags, the unconfirmed constraint); all run up front into one lead pool
-      // that seeds the agent's first cycle (deeper than one naive name search).
-      // The customer's focus (price ↔ quality) biases the queries, the agent's
-      // instructions and the evaluation gate's strictness.
-      const queries = await formDepthQueries({ ai: this.ai, name, regionHint, subject, matchNote, focus, logger: this.logger });
-      const searchLeads = await searchDepthLeads({ web: this.web, name, queries, logger: this.logger });
-      let verdict: DepthResearchResult | null = null;
-      let gaps: string[] = [];
-      let priorGapsKey = '';
-      // D + E + F. Cycle 1 investigates over the lead pool; the evaluation gate
-      // then audits the verdict — the loop SELF-ADJUSTS: sufficient evidence stops
-      // early, repeated gaps stop as stalled (the evidence simply isn't out there),
-      // and maxCycles is only the hard cap on a genuinely productive refine loop.
-      // A failed later cycle keeps the best verdict so far (never degrades a
-      // good earlier result).
-      for (let cycle = 1; cycle <= maxCycles; cycle++) {
-        try {
-          verdict = await this.ai.toolStructured({
-            system: depthResearchSystem({ focus }),
-            user: verdict
-              ? buildDepthRefineUser({ name, regionHint, subject, prior: verdict, cycle, gaps })
-              : buildDepthResearchUser({ name, regionHint, subject, matchNote, searchLeads, knownFacts }),
-            tier: ModelTier.Depth,
-            tools: this.researchTools(),
-            maxToolCalls: depthMaxToolCalls,
-            validate: (raw) => depthResearchSchema.parse(raw),
-            onToolCall: (c) => this.logger.log(`depth[${name}] c${cycle} tool ${c.name}(${JSON.stringify(c.args).slice(0, 120)})`),
-          });
-        } catch (e) {
-          this.logger.warn(`depth agent cycle ${cycle} failed for "${name}"${verdict ? ' — keeping the prior verdict' : ''}: ${(e as Error).message}`);
-          if (verdict) break;
-          continue;
-        }
-        if (cycle >= maxCycles) {
-          this.logger.warn(`depth[${name}] cycle cap (${maxCycles}) reached — shipping the current verdict`);
-          break;
-        }
-        const gate = await evaluateDepthVerdict({ ai: this.ai, name, subject, matchNote, verdict, focus, logger: this.logger });
-        if (gate.sufficient) {
-          this.logger.log(`depth[${name}] gate: evidence sufficient after cycle ${cycle}`);
-          break;
-        }
-        gaps = gate.gaps;
-        if (!gaps.length) {
-          // Insufficient but nothing actionable named — another cycle has no target.
-          this.logger.log(`depth[${name}] gate: insufficient with no gaps named after cycle ${cycle} — stopping`);
-          break;
-        }
-        // Stall detection: the SAME gaps twice in a row means the evidence isn't out
-        // there (e.g. a genuinely unpublished price) — more cycles won't change that.
-        const gapsKey = gaps.map((g) => g.trim().toLowerCase()).sort().join('|');
-        if (gapsKey === priorGapsKey) {
-          this.logger.log(`depth[${name}] gate: same gaps twice after cycle ${cycle} — stalled, shipping the verdict`);
-          break;
-        }
-        priorGapsKey = gapsKey;
-        this.logger.log(`depth[${name}] gate: insufficient after cycle ${cycle} — ${gaps.join('; ')}`);
-      }
-      if (verdict) {
-        return {
-          rating: verdict.rating ?? undefined,
-          reviewsCount: verdict.reviewsCount ?? undefined,
-          sentiment: verdict.sentiment,
-          themes: verdict.themes,
-          quotes: verdict.quotes,
-          eligibility: verdict.eligibility,
-          redFlags: verdict.redFlags,
-          price: verdict.price ?? null,
-          currency: verdict.currency ?? null,
-          qualityScore: verdict.qualityScore,
-          sources: verdict.sources
-            .map((s) => ({ source: s.source ?? 'web', url: s.url ?? '', snippet: s.snippet ?? null }))
-            .filter((s) => s.url.length > 0),
-        };
-      }
-    }
-    // Fallback: one direct web search for evidence + deterministic stub scoring.
-    const webHits = webRoom > 0 ? await this.depthSearch({ name, regionHint, take: webRoom }) : [];
-    const external = await this.source.lookup({ name, regionHint });
-    return this.deriveBackground({ webHits, external: external.sources });
-  }
-
   /** The depth agent's tool set: real web search + a real-browser page reader. */
-  private researchTools(): ToolSet {
+  researchTools(): ToolSet {
     const webSearchDef = this.web.tools.find((t) => (t as { function?: { name?: string } }).function?.name === WEB_SEARCH_TOOL_NAME);
     return {
       definitions: [...(webSearchDef ? [webSearchDef] : []), OPEN_URL_TOOL],
@@ -304,6 +221,16 @@ export class SubjectProvidersService implements OnModuleInit {
         }
       },
     };
+  }
+
+  /**
+   * Deterministic no-AI/agent-failure background: one direct web search for
+   * evidence + stub scoring, so the pipeline still produces real proof pages.
+   */
+  async fallbackBackground({ name, regionHint, webRoom }: { name: string; regionHint: string | null; webRoom: number }): Promise<SubjectProviderBackground> {
+    const webHits = webRoom > 0 ? await this.depthSearch({ name, regionHint, take: webRoom }) : [];
+    const external = await this.source.lookup({ name, regionHint });
+    return this.deriveBackground({ webHits, external: external.sources });
   }
 
   /** Depth search for one candidate — best-effort; an unreachable search backend never fails the task. */

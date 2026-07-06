@@ -334,7 +334,11 @@ export function provenanceSummarySystem(): string {
     '- outreach: how the provider responded — their response time and the clarity/helpfulness of the reply.',
     '- feedback: which platforms the reviews came from and a summary of the recent reviews (sentiment + themes).',
     '- ranking: the final judgement — why this provider landed at its rank, grounded in the web, outreach and feedback above.',
+    '- overview: the GENERAL summary of the whole evaluation (2-4 sentences), written LAST, synthesizing the four sections above.',
+    '  It MUST cite its claims inline with bracketed section references: [1] = web search, [2] = outreach, [3] = feedback scan, [4] = qualification & ranking',
+    '  (e.g. "Quoted 85 EUR with a 48h lead time [2] and holds a 4.6 rating [3], ranking it #1 [4]."). Use only [1]-[4]; every concrete claim carries its reference.',
+    'Bracket references belong in `overview` ONLY — the web/outreach/feedback/ranking texts must NOT contain any [n] markers.',
     'Only state what the data supports; if a section has little data, say so plainly. Do not invent specifics.',
-    'Respond as STRICT JSON only: { "web": string, "outreach": string, "feedback": string, "ranking": string }.',
+    'Respond as STRICT JSON only: { "overview": string, "web": string, "outreach": string, "feedback": string, "ranking": string }.',
   ].join('\n');
 }

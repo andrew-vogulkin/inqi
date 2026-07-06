@@ -5,7 +5,10 @@ import { ReportService } from './report.service';
 function makeService({ balance, freeSlot }: { balance: number; freeSlot: boolean }) {
   const tx = {};
   const prisma = { $transaction: jest.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)) };
-  const reports = { create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'r1', rawRequest: data.rawRequest, ...data })) };
+  const reports = {
+    create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'r1', rawRequest: data.rawRequest, ...data })),
+    countByRefPrefix: jest.fn(async () => 2), // two refs minted today → the next is -03
+  };
   const wf = { activeVersionId: jest.fn(async () => 'wfv1'), advance: jest.fn(async () => undefined) };
   const outbox = { emit: jest.fn(async () => undefined) };
   const credits = {

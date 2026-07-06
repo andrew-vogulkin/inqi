@@ -28,6 +28,7 @@ model WorkflowDefinition {
   states      WorkflowState[]
   transitions WorkflowTransition[]
   reports     Report[]
+  phaseRuns   PhaseRun[]
 
   @@unique([key, version])
   @@index([key, status])
@@ -58,6 +59,32 @@ model WorkflowTransition {
 
   @@unique([definitionId, fromState, event])
   @@index([definitionId, fromState])
+}
+
+/// One execution of a phase workflow (PhaseKey: pre_research | breadth_search |
+/// depth_search), pinned to a WorkflowDefinition version and advanced step-by-step
+/// by the PhaseEngine. Append-only: a report accumulates runs (funnel + widens,
+/// re-research); `data` carries the run's working memory (cycle counters, query
+/// pool, candidates, gaps, notes) so every step is replayable.
+model PhaseRun {
+  id                String   @id @default(cuid())
+  key               String   // PhaseKey
+  workflowVersionId String   // pinned WorkflowDefinition.id
+  state             String   // current phase state (per-key state enum)
+  reportId          String
+  inquiryId         String?  // depth_search runs only
+  data              Json     @default("{}")
+  attempts          Int      @default(0) // per-STATE step attempts; the engine resets to 0 on advance
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workflow WorkflowDefinition @relation(fields: [workflowVersionId], references: [id])
+  report   Report             @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  inquiry  Inquiry?           @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([reportId, key])
+  @@index([inquiryId])
+  @@index([key, state])
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +132,9 @@ model CreditLedger {
 /// credits, and the persona that carries all interaction for this report.
 model Report {
   id                String   @id @default(cuid())
+  /// Human-facing reference (RPT-YYMMDD-NN): date-coded + per-day counter. Unique;
+  /// nullable only for legacy/seed rows — creation always assigns one.
+  ref               String?  @unique
   customerEmail     String
   customerId        String?                        // owner once signed in (linked by verified email)
   rawRequest        String
@@ -141,6 +171,7 @@ model Report {
   findings      Finding[]
   usage         UsageRecord[]
   ledger        CreditLedger[]
+  phaseRuns     PhaseRun[]
 
   @@index([state])
   @@index([customerId])
@@ -216,10 +247,11 @@ model Inquiry {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  report   Report    @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  epic     Epic      @relation(fields: [epicId], references: [id], onDelete: Cascade)
-  sources  Source[]
-  messages Message[]
+  report    Report     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  epic      Epic       @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  sources   Source[]
+  messages  Message[]
+  phaseRuns PhaseRun[]
 
   @@index([reportId])
   @@index([epicId, status])
@@ -301,8 +333,9 @@ model ReportSnapshot {
 model AgentRun {
   id        String   @id @default(cuid())
   reportId  String
-  stage     String   // pre_research | enrich_subject | broad_research | build_funnel | outreach_inquiry | generate_report
+  stage     String   // AgentStage: pipeline stages + phase-run shadow stages (breadth_search | depth_search)
   inquiryId String?
+  phaseRunId String?                  // set when this run shadows a PhaseRun (activity timeline + reaper routing)
   status    String   @default("running") // running | done | failed | stopped | cancelled
   error     String?
   attempts    Int       @default(1)   // delivery attempt count (retry/backoff bookkeeping)
@@ -316,6 +349,7 @@ model AgentRun {
 
   @@index([reportId, stage])
   @@index([status, leaseUntil])
+  @@index([phaseRunId])
 }
 
 model AgentEvent {

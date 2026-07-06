@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { SearchFocus } from '@inqi/shared';
+import { DepthEvent, DepthOutcome, SearchFocus } from '@inqi/shared';
 import { AiProvider } from '../../infra/ai/ai.tokens';
 import { WebSearchProvider } from '../../infra/websearch/websearch.tokens';
 import { DepthResearchResult } from './background.prompt';
-import { DEPTH_MAX_LEADS, evaluateDepthVerdict, formDepthQueries, searchDepthLeads } from './depth-lifecycle';
+import { DEPTH_MAX_LEADS, decideDepthGate, evaluateDepthVerdict, formDepthQueries, searchDepthLeads } from './depth-lifecycle';
 
 const logger = new Logger('depth-lifecycle.spec');
 jest.spyOn(logger, 'log').mockImplementation(() => undefined);
@@ -90,5 +90,28 @@ describe('evaluateDepthVerdict (step E, the evaluation gate)', () => {
     const ai = { structured: jest.fn(async () => ({ sufficient: true, gaps: [] })) } as unknown as AiProvider;
     await evaluateDepthVerdict({ ai, name: 'X', subject, matchNote: null, verdict: VERDICT, focus: SearchFocus.Price, logger });
     expect((ai.structured as jest.Mock).mock.calls[0][0].system).toContain('CUSTOMER FOCUS: PRICE');
+  });
+});
+
+describe('decideDepthGate (step F, the loop decision — pure)', () => {
+  it('sufficient evidence stops the loop early', () => {
+    expect(decideDepthGate({ sufficient: true, gaps: [], priorGapsKey: '' })).toMatchObject({ event: DepthEvent.EVIDENCE_SUFFICIENT, outcome: DepthOutcome.Sufficient });
+  });
+
+  it('insufficient with NO gaps named stalls (nothing actionable to refine toward)', () => {
+    expect(decideDepthGate({ sufficient: false, gaps: [], priorGapsKey: '' })).toMatchObject({ event: DepthEvent.STALLED, outcome: DepthOutcome.Stalled });
+  });
+
+  it('the SAME gaps twice stall — the evidence is not out there (order/case-insensitive)', () => {
+    const first = decideDepthGate({ sufficient: false, gaps: ['Price missing', 'reviews thin'], priorGapsKey: '' });
+    expect(first.event).toBe(DepthEvent.GAPS_NAMED);
+    const second = decideDepthGate({ sufficient: false, gaps: ['reviews THIN', 'price missing'], priorGapsKey: first.gapsKey });
+    expect(second).toMatchObject({ event: DepthEvent.STALLED, outcome: DepthOutcome.Stalled });
+  });
+
+  it('fresh gaps refine (GAPS_NAMED carries no terminal outcome)', () => {
+    const first = decideDepthGate({ sufficient: false, gaps: ['price missing'], priorGapsKey: '' });
+    const second = decideDepthGate({ sufficient: false, gaps: ['booking page unreachable'], priorGapsKey: first.gapsKey });
+    expect(second).toMatchObject({ event: DepthEvent.GAPS_NAMED, outcome: null });
   });
 });

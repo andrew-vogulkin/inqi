@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { ModelTier, SearchFocus } from '@inqi/shared';
+import { DepthEvent, DepthOutcome, ModelTier, SearchFocus } from '@inqi/shared';
 import { AiProvider } from '../../infra/ai/ai.tokens';
 import { WebSearchProvider } from '../../infra/websearch/websearch.tokens';
 import {
@@ -96,4 +96,18 @@ export async function evaluateDepthVerdict({ ai, name, subject, matchNote, verdi
     logger.warn(`depth[${name}] evaluation gate failed (fail-sufficient): ${(e as Error).message}`);
     return { sufficient: true, gaps: [] };
   }
+}
+
+/**
+ * F. What the loop does with a gate result, pure: sufficient stops early; no
+ * actionable gaps or the SAME gaps twice stop as stalled (the evidence isn't
+ * out there — e.g. a genuinely unpublished price); fresh gaps refine.
+ */
+export function decideDepthGate({ sufficient, gaps, priorGapsKey }: { sufficient: boolean; gaps: string[]; priorGapsKey: string }): {
+  event: DepthEvent; outcome: DepthOutcome | null; gapsKey: string;
+} {
+  const gapsKey = gaps.map((g) => g.trim().toLowerCase()).sort().join('|');
+  if (sufficient) return { event: DepthEvent.EVIDENCE_SUFFICIENT, outcome: DepthOutcome.Sufficient, gapsKey };
+  if (!gaps.length || gapsKey === priorGapsKey) return { event: DepthEvent.STALLED, outcome: DepthOutcome.Stalled, gapsKey };
+  return { event: DepthEvent.GAPS_NAMED, outcome: null, gapsKey };
 }

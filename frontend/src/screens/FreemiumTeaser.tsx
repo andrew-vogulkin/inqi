@@ -60,7 +60,7 @@ export function FreemiumTeaser({ reportId }: { reportId: string }) {
   const { locked, revealed } = freemiumView(report);
   const unlocked = report.freemiumState === FreemiumState.Unlocked;
   const total = locked.length + revealed.length;
-  const ref = `#${(report.reportId ?? '').slice(0, 8)}`;
+  const ref = report.ref ?? `#${(report.reportId ?? '').slice(0, 8)}`;
   // Revealed (qualified) options link to their research dossier; locked rows stay redacted.
   const dossierFor = (o: RankedOption) => report.reportId ? hrefFor({ route: Route.Dossier, params: { id: report.reportId, ref: optionId(o) } }) : undefined;
 

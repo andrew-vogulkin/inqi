@@ -41,6 +41,9 @@ export function workflowReducer(state: WorkflowState, action: Action): WorkflowS
       return { ...state, status: AsyncStatus.Ready, versions: action.versions, selectedId: pickSelected(action.versions, state.selectedId) };
 
     case ActionType.WorkflowVersionSelected:
+      // Re-clicking the selected version keeps the loaded inspect — wiping it would
+      // strand the skeleton (the fetch effect only re-runs when selectedId changes).
+      if (action.id === state.selectedId) return { ...state, panel: WorkflowPanel.Diagram };
       return { ...state, selectedId: action.id, panel: WorkflowPanel.Diagram, inspect: null, diff: null };
 
     case ActionType.WorkflowPanelToggled:

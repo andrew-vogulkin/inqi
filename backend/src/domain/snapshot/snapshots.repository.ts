@@ -35,7 +35,7 @@ export class SnapshotsRepository {
   }
 
   findReport({ id, tx }: { id: string; tx?: DbTx }) {
-    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, state: true, rawRequest: true, focus: true, freeReport: true, personaId: true, customerId: true, customerEmail: true } });
+    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, ref: true, state: true, rawRequest: true, focus: true, freeReport: true, personaId: true, customerId: true, customerEmail: true } });
   }
 
   findSnapshotByReport({ reportId, tx }: { reportId: string; tx?: DbTx }) {
@@ -67,7 +67,8 @@ export class SnapshotsRepository {
   findInquiryById({ id, tx }: { id: string; tx?: DbTx }) {
     return this.exec(tx).inquiry.findUnique({
       where: { id },
-      select: { id: true, status: true, background: true, qualityScore: true, researchPending: true },
+      // contact carries the provider's own website/socials — the dossier's carry-it-forward reference.
+      select: { id: true, status: true, background: true, qualityScore: true, researchPending: true, contact: true },
     });
   }
 
@@ -101,7 +102,9 @@ export class SnapshotsRepository {
       where: { inquiryId, reviewStatus: { not: ReviewStatus.Blocked } },
       orderBy: { createdAt: 'asc' },
       // source.data carries the thread's channel label (sales, booking, …).
-      select: { direction: true, subject: true, body: true, createdAt: true, source: { select: { data: true } } },
+      // toAddr = the VENDOR's address on outbound mail — customer-safe (it is their
+      // counterparty); the relay fromAddr + message ids stay internal.
+      select: { direction: true, subject: true, body: true, createdAt: true, toAddr: true, source: { select: { data: true } } },
     });
   }
 }

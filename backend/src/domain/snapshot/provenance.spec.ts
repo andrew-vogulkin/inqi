@@ -60,10 +60,12 @@ describe('SnapshotsService.provenance (HP-20)', () => {
 });
 
 describe('summarizeProvenance cache — one DEPTH call per input fingerprint, not per view', () => {
-  const SUMMARIES = { web: 'w', outreach: 'o', feedback: 'f', ranking: 'r' };
+  // The model returns [n] markers everywhere; only the overview keeps them (sections are stripped).
+  const AI_RAW = { overview: 'Quoted 100 EUR [2], rated well [3] — ranked #1 [4].', web: 'w [1]', outreach: 'o [2]', feedback: 'f', ranking: 'r [4]' };
+  const SUMMARIES = { overview: 'Quoted 100 EUR [2], rated well [3] — ranked #1 [4].', web: 'w', outreach: 'o', feedback: 'f', ranking: 'r' };
 
   function svcWithAi({ cached }: { cached?: { fingerprint: string; summaries?: typeof SUMMARIES } | null } = {}) {
-    const ai = { isConfigured: () => true, structured: jest.fn().mockResolvedValue(SUMMARIES) };
+    const ai = { isConfigured: () => true, structured: jest.fn().mockResolvedValue(AI_RAW) };
     const repo = {
       findFindings: jest.fn().mockResolvedValue([
         { kind: FindingKind.SubjectProviderBackground, inquiryId: 's1', data: { qualityScore: 0.8 } },

@@ -38,6 +38,10 @@ export const EventType = {
   ReportResumed: 'report.resumed',
   WorkflowPublished: 'workflow.published',
   NotificationSent: 'notification.sent',  // customer notification dispatched (HP-13)
+  // phase runs (pre_research / breadth_search / depth_search state machines)
+  PhaseRunStarted: 'phase.run.started',           // data: { runId, key, inquiryId? }
+  PhaseRunTransitioned: 'phase.run.transitioned', // data: { runId, key, from, to, event }
+  PhaseRunFinished: 'phase.run.finished',         // data: { runId, key, state }
   // credits (HP-19)
   CreditsTopup: 'credits.topup',          // admin granted credits to a customer
   CreditsReserved: 'credits.reserved',    // credits held on report submit

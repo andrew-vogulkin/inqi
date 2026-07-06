@@ -4,18 +4,20 @@ import { SubjectProvidersService } from './subject-providers.service';
 import { SubjectProvidersRepository } from './subject-providers.repository';
 import { BACKGROUND_RESEARCH_SOURCE } from './background.tokens';
 import { StubBackgroundResearchSource } from './ratings-source.provider';
-import { DISCOVERY_SOURCE } from './discovery.tokens';
-import { AiDiscoverySource } from './ai-discovery.source';
 
-/** Domain: subject-provider discovery + background/quality research. */
+/**
+ * Domain: subject-provider background/quality research collaborators. Discovery
+ * and the depth loop themselves are the breadth_search / depth_search workflow
+ * types (domain/phases) — this module provides what their step handlers share:
+ * the agent tool set, run context, verdict persistence + settlement, fallbacks.
+ */
 @Module({
   imports: [SourcesModule],
   providers: [
     SubjectProvidersService,
     SubjectProvidersRepository,
     { provide: BACKGROUND_RESEARCH_SOURCE, useClass: StubBackgroundResearchSource },
-    { provide: DISCOVERY_SOURCE, useClass: AiDiscoverySource },
   ],
-  exports: [SubjectProvidersService],
+  exports: [SubjectProvidersService, SubjectProvidersRepository],
 })
 export class SubjectProvidersModule {}

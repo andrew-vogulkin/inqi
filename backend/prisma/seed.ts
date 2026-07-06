@@ -5,6 +5,7 @@ import {
   ReportState, SourceType, WorkflowEvent, WorkflowStatus,
 } from '@inqi/shared';
 import { WorkflowAction } from '../src/domain/orchestrator/workflow-registry';
+import { PHASE_GRAPHS } from '../src/domain/phases/phase-graphs';
 import { rankOptions, RankableOption } from '../src/domain/snapshot/ranking';
 
 const db = new PrismaClient();
@@ -81,22 +82,22 @@ const TRANSITIONS_V2 = [
   ...CONTROL_TRANSITIONS,
 ];
 
-type Transition = { from: string; event: string; to: string; action?: string };
+type Transition = { from: string; event: string; to: string; guard?: string; action?: string };
 
-async function installVersion({ version, status, states, transitions }: { version: number; status: string; states: State[]; transitions: Transition[] }) {
-  const existing = await db.workflowDefinition.findUnique({ where: { key_version: { key: WORKFLOW_KEY, version } } });
+async function installVersion({ key, version, status, states, transitions }: { key: string; version: number; status: string; states: State[]; transitions: Transition[] }) {
+  const existing = await db.workflowDefinition.findUnique({ where: { key_version: { key, version } } });
   if (existing) {
-    console.log(`workflow v${version} already present`);
+    console.log(`workflow ${key} v${version} already present`);
     return;
   }
   const def = await db.workflowDefinition.create({
     data: {
-      key: WORKFLOW_KEY, version, status,
+      key, version, status,
       states: { create: states.map((s) => ({ name: s.name, isInitial: !!s.isInitial, isTerminal: !!s.isTerminal })) },
-      transitions: { create: transitions.map((t) => ({ fromState: t.from, toState: t.to, event: t.event, action: t.action ?? null })) },
+      transitions: { create: transitions.map((t) => ({ fromState: t.from, toState: t.to, event: t.event, guard: t.guard ?? null, action: t.action ?? null })) },
     },
   });
-  console.log(`Installed ${WORKFLOW_KEY} workflow v${version} (${def.id}, ${status}) — ${states.length} states, ${transitions.length} transitions`);
+  console.log(`Installed ${key} workflow v${version} (${def.id}, ${status}) — ${states.length} states, ${transitions.length} transitions`);
 }
 
 // ---------------------------------------------------------------------------
@@ -195,8 +196,14 @@ async function seedFreemiumReport({ owner, workflowVersionId }: { owner: { id: s
 }
 
 async function main() {
-  await installVersion({ version: 1, status: WorkflowStatus.Archived, states: STATES_V1, transitions: TRANSITIONS_V1 });
-  await installVersion({ version: 2, status: WorkflowStatus.Active, states: STATES_V2, transitions: TRANSITIONS_V2 });
+  await installVersion({ key: WORKFLOW_KEY, version: 1, status: WorkflowStatus.Archived, states: STATES_V1, transitions: TRANSITIONS_V1 });
+  await installVersion({ key: WORKFLOW_KEY, version: 2, status: WorkflowStatus.Active, states: STATES_V2, transitions: TRANSITIONS_V2 });
+
+  // Research-phase workflows (pre_research / breadth_search / depth_search) —
+  // graphs live in src/domain/phases/phase-graphs.ts (single source of truth).
+  for (const graph of PHASE_GRAPHS) {
+    await installVersion({ key: graph.key, version: 1, status: WorkflowStatus.Active, states: graph.states, transitions: graph.transitions });
+  }
 
   const customers = await seedCustomers();
   const active = await db.workflowDefinition.findFirst({ where: { key: WORKFLOW_KEY, status: WorkflowStatus.Active }, select: { id: true } });

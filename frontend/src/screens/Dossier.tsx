@@ -8,7 +8,7 @@ import { reportsApi, adminApi, ApiError } from '../api';
 import { ErrorState, Skeleton } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
-import { DossierVM, WebSource, FeedbackVM, OutreachVM, ScoringVM, ChainMessageVM, groupExchanges, groupByChannel } from '../conventions/dossier';
+import { DossierVM, WebSource, FeedbackVM, OutreachVM, ScoringVM, ChainMessageVM, groupExchanges, groupByChannel, splitCitations, citedSections, CITATION_SECTIONS } from '../conventions/dossier';
 import { ChainMessage } from '../state/dossier.reducer';
 
 const PAGE: CSSProperties = { maxWidth: 720, margin: '0 auto' };
@@ -34,6 +34,7 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
   const d = useSelector((s) => s.dossier);
   // The scope the customer confirmed — step 4 judges constraint mismatches against it.
   const [scope, setScope] = useState<ScopeAnswers>([]);
+  const [reportRef, setReportRef] = useState<string | null>(null);
 
   useEffect(() => {
     reportsApi.reportLive({ id: reportId })
@@ -41,6 +42,7 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
         const idx = (live.options ?? []).findIndex((o) => optionId(o) === optionRef);
         if (idx < 0) { dispatch({ type: ActionType.DossierLoadFailed, message: 'That option is no longer in the report.' }); return; }
         const option = live.options[idx];
+        setReportRef(live.ref ?? null);
         const q = live.questionnaire;
         setScope((q?.questions ?? []).filter((qq) => qq.type !== 'confirm' && q?.answers?.[qq.id]).map((qq) => ({ prompt: qq.prompt, answer: q!.answers![qq.id] })));
         dispatch({ type: ActionType.DossierLoaded, option, rank: idx + 1, origin });
@@ -69,9 +71,10 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
     <div style={{ ...PAGE }} data-testid="dossier">
       <a href={backHref} style={{ fontSize: fontSize.base, color: color.muted, marginBottom: space[4], display: 'inline-flex', alignItems: 'center', gap: 5 }}>{backLabel}</a>
 
-      <Header vm={vm} reportId={reportId} />
+      <Header vm={vm} reportId={reportId} reportRef={reportRef} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {vm.summaries?.overview && <OverviewCard text={vm.summaries.overview} />}
         <Step n={1} title="Web search" result={vm.researchPending ? 'research in progress' : `${vm.web.length} source${vm.web.length === 1 ? '' : 's'}`} summary={vm.summaries?.web}><WebStep web={vm.web} researchPending={vm.researchPending} /></Step>
         <Step n={2} title="Outreach" result={d.overlayPending ? 'loading…' : outreachResult(vm.outreach)} summary={d.overlayPending ? undefined : vm.summaries?.outreach}>
           {/* Hold a small stable spinner until the authoritative conversation lands, then unfold it —
@@ -89,13 +92,13 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
   );
 }
 
-function Header({ vm, reportId }: { vm: DossierVM; reportId: string }) {
+function Header({ vm, reportId, reportRef }: { vm: DossierVM; reportId: string; reportRef: string | null }) {
   // Price origin: a reply means the provider quoted it directly; otherwise it came off public listings.
   const priceOrigin = vm.outreach.variant === OutreachVariant.Replied ? 'quoted by provider' : 'from public listings';
   const meta = [vm.price ? `${`${vm.price.amount} ${vm.price.currency}`.trim()} (${priceOrigin})` : null, `ranked #${vm.rank}`].filter(Boolean).join(' · ');
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 11.5, color: color.subtle, fontFamily: font.mono, letterSpacing: '.05em', marginBottom: 9 }}>RESEARCH DOSSIER · #{reportId.slice(0, 8)}</div>
+      <div style={{ fontSize: 11.5, color: color.subtle, fontFamily: font.mono, letterSpacing: '.05em', marginBottom: 9 }}>RESEARCH DOSSIER · {reportRef ?? `#${reportId.slice(0, 8)}`}</div>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
         <div>
           <h1 style={{ fontSize: fontSize.h1, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: '0 0 7px' }}>{vm.provider}</h1>
@@ -107,6 +110,33 @@ function Header({ vm, reportId }: { vm: DossierVM; reportId: string }) {
         {vm.methods.map((m) => (
           <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: fontWeight.medium, padding: '4px 10px', borderRadius: 7, background: METHOD[m].bg, color: METHOD[m].fg }}>{METHOD[m].icon} {METHOD[m].label}</span>
         ))}
+      </div>
+      {vm.reference && <ReferenceRow reference={vm.reference} />}
+    </div>
+  );
+}
+
+/**
+ * Carry-it-forward links: the provider's own website/socials (from discovery) and
+ * their email address when real outbound mail recorded one — so the customer can
+ * contact the provider directly without going through inqi. Styled like the AI
+ * summary tint block so it reads as a highlighted takeaway, not page chrome.
+ */
+function ReferenceRow({ reference }: { reference: NonNullable<DossierVM['reference']> }) {
+  const socials = reference.socials ?? [];
+  if (!reference.website && !socials.length && !reference.contactEmail) return null;
+  const linkStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: fontWeight.medium, padding: '4px 10px', borderRadius: 7, background: color.surface, border: `1px solid #cfe9da`, color: color.info, textDecoration: 'none' };
+  const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+  return (
+    <div data-testid="dossier-reference" style={{ display: 'flex', gap: 10, background: color.brandTint, border: `1px solid #cfe9da`, borderRadius: radius.lg, padding: '12px 14px', marginTop: 14 }}>
+      <span style={{ width: 22, height: 22, borderRadius: radius.sm, flex: 'none', background: color.brand, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.sm }}>↗</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 10.5, fontWeight: fontWeight.semibold, color: color.brandStrong, letterSpacing: '.04em', textTransform: 'uppercase', marginBottom: 6 }}>Contact them directly</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {reference.website && <a href={reference.website} target="_blank" rel="noreferrer" style={linkStyle}>🌐 {host(reference.website)}</a>}
+          {socials.map((s) => <a key={s} href={s} target="_blank" rel="noreferrer" style={linkStyle}>↗ {host(s)}</a>)}
+          {reference.contactEmail && <a href={`mailto:${reference.contactEmail}`} style={linkStyle}>✉ {reference.contactEmail}</a>}
+        </div>
       </div>
     </div>
   );
@@ -141,7 +171,7 @@ function SectionPending({ label }: { label: string }) {
 
 function Step({ n, title, result, accent, summary, children }: { n: number; title: string; result?: string; accent?: boolean; summary?: string; children: ReactNode }) {
   return (
-    <div style={CARD}>
+    <div id={`dossier-step-${n}`} style={CARD}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 16 }}>
         <span style={{ width: 26, height: 26, borderRadius: radius.sm, background: accent ? color.brand : color.ink, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.sm, fontWeight: fontWeight.semibold, fontFamily: font.mono }}>{n}</span>
         <h3 style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold, margin: 0 }}>{title}</h3>
@@ -150,6 +180,60 @@ function Step({ n, title, result, accent, summary, children }: { n: number; titl
       {/* The AI summary arrives with the provenance overlay — unfold it, don't jump. */}
       {summary && <Reveal><AiSummary text={summary} /></Reveal>}
       {children}
+    </div>
+  );
+}
+
+/** An inline [n] citation in the overview — clicking it scrolls to the numbered section card. */
+function Citation({ n }: { n: number }) {
+  return (
+    <button
+      type="button"
+      data-testid="overview-citation"
+      title={CITATION_SECTIONS[n]}
+      onClick={() => document.getElementById(`dossier-step-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 17, height: 17, padding: '0 4px', margin: '0 2px', border: 'none', borderRadius: radius.sm, background: color.brand, color: color.onSolid, fontSize: 10.5, fontWeight: fontWeight.semibold, fontFamily: font.mono, cursor: 'pointer', verticalAlign: 'text-top' }}
+    >{n}</button>
+  );
+}
+
+/**
+ * The general summary of the whole evaluation, rendered ABOVE the section cards.
+ * Every claim carries an inline [1]-[4] citation linking down to the section that
+ * evidences it; the legend below lists the cited sections. Arrives with the
+ * provenance overlay (cached server-side — regenerated only when a new reply or
+ * re-rank changes the underlying data).
+ */
+function OverviewCard({ text }: { text: string }) {
+  const cited = citedSections(text);
+  return (
+    <div data-testid="overview-summary" style={CARD}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12 }}>
+        <span style={{ width: 26, height: 26, borderRadius: radius.sm, background: color.brand, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.sm }}>✦</span>
+        <h3 style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold, margin: 0 }}>Summary</h3>
+        <span style={{ marginLeft: 'auto', fontSize: fontSize.sm, color: color.muted }}>how we evaluated this option</span>
+      </div>
+      <Reveal>
+        <div>
+          <div style={{ fontSize: 13, color: color.ink, lineHeight: 1.6 }}>
+            {splitCitations(text).map((p, i) => ('cite' in p ? <Citation key={i} n={p.cite} /> : <span key={i}>{p.text}</span>))}
+          </div>
+          {cited.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 10, borderTop: `1px solid ${color.surfaceSunken}` }}>
+              {cited.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => document.getElementById(`dossier-step-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', border: `1px solid ${color.line}`, borderRadius: radius.md, background: color.appBg, color: color.muted, fontSize: 11, cursor: 'pointer' }}
+                >
+                  <span style={{ fontFamily: font.mono, fontWeight: fontWeight.semibold, color: color.brandStrong }}>{n}</span> {CITATION_SECTIONS[n]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </Reveal>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ResearchDepth, ResearchMethod, OutreachVariant, DossierOrigin } from './enums';
 import { ProvenanceDepth } from '@inqi/shared';
-import { deriveDepth, deriveMethods, outreachVariant, assembleDossier, depthFromProvenance, groupExchanges, groupByChannel } from './dossier';
+import { deriveDepth, deriveMethods, outreachVariant, assembleDossier, depthFromProvenance, groupExchanges, groupByChannel, splitCitations, citedSections } from './dossier';
 import { ReportOption } from '../api/types';
 import { dossierReducer, initialDossierState } from '../state/dossier.reducer';
 import { ActionType } from '../state/actions';
@@ -120,5 +120,24 @@ describe('groupByChannel — one outreach section per provider contact', () => {
     const groups = groupByChannel([m('outbound', 'a'), m('inbound', 'b')]);
     expect(groups).toHaveLength(1);
     expect(groups[0].channel).toBeNull();
+  });
+});
+
+describe('splitCitations — overview [1]-[4] section references', () => {
+  it('splits text and citations in order', () => {
+    expect(splitCitations('Quoted 85 EUR [2] and rated 4.6 [3].')).toEqual([
+      { text: 'Quoted 85 EUR ' }, { cite: 2 }, { text: ' and rated 4.6 ' }, { cite: 3 }, { text: '.' },
+    ]);
+  });
+
+  it('handles leading/adjacent citations and keeps unknown brackets as plain text', () => {
+    expect(splitCitations('[1][4] done')).toEqual([{ cite: 1 }, { cite: 4 }, { text: ' done' }]);
+    expect(splitCitations('see [5] and [x]')).toEqual([{ text: 'see [5] and [x]' }]);
+    expect(splitCitations('')).toEqual([]);
+  });
+
+  it('citedSections: distinct sections in first-mention order', () => {
+    expect(citedSections('a [3] b [2] c [3] d [4]')).toEqual([3, 2, 4]);
+    expect(citedSections('no citations here')).toEqual([]);
   });
 });

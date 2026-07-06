@@ -289,6 +289,9 @@ export const AgentStage = {
   StartOutreach: 'start_outreach',
   OutreachInquiry: 'outreach_inquiry',
   GenerateReport: 'generate_report',
+  // Phase-run shadow stages (PhaseRun executions carried on AgentRun for activity/reaper).
+  BreadthSearch: 'breadth_search',
+  DepthSearch: 'depth_search',
 } as const;
 export type AgentStage = (typeof AgentStage)[keyof typeof AgentStage];
 
@@ -307,6 +310,8 @@ export const QueueJob = {
   ProcessReply: 'process_reply',
   InquirySettled: 'inquiry_settled',   // agentic reactor: react to an inquiry qualifying/failing
   SendNotification: 'send_notification', // customer notifications (report-ready / denial) — HP-13
+  PhaseStep: 'phase_step',             // generic phase-run step executor: { runId, expectedState }
+  AssembleFunnel: 'assemble_funnel',   // breadth run finished → build epic inquiries/waves from run.data: { runId }
 } as const;
 export type QueueJob = (typeof QueueJob)[keyof typeof QueueJob];
 

@@ -1,4 +1,4 @@
-import { MessageDirection, OutreachOutcome, ProvenanceDto, ProvenanceDepth, ProvenanceSummaries, isReserveVerdict } from '@inqi/shared';
+import { MessageDirection, OutreachOutcome, ProvenanceDto, ProvenanceDepth, ProvenanceReference, ProvenanceSummaries, isReserveVerdict } from '@inqi/shared';
 import { ResearchDepth, ResearchMethod, OutreachVariant } from './enums';
 import { ReportOption } from '../api/types';
 
@@ -56,9 +56,41 @@ export interface DossierVM {
   outreach: OutreachVM;
   scoring: ScoringVM;
   summaries?: ProvenanceSummaries; // HP-20: AI transparency summaries per section (customer provenance only)
+  /** Carry-it-forward links: the provider's site/socials + vendor email (real-mail mode). */
+  reference?: ProvenanceReference;
 }
 
 // ---- pure derivations (unit-tested) ---------------------------------------
+
+/** A slice of the overview summary: plain text, or an inline citation of dossier section 1-4. */
+export type OverviewPart = { text: string } | { cite: number };
+
+/** The dossier section each overview citation number refers to (matches the numbered step cards). */
+export const CITATION_SECTIONS: Record<number, string> = { 1: 'Web search', 2: 'Outreach', 3: 'Feedback scan', 4: 'Qualification & ranking' };
+
+/**
+ * Split the overview summary into text + inline `[1]`-`[4]` citations so the UI
+ * can render each citation as a link to its numbered section card. Unknown
+ * bracket numbers stay plain text — only sections 1-4 exist.
+ */
+export function splitCitations(text: string): OverviewPart[] {
+  const parts: OverviewPart[] = [];
+  let rest = text;
+  for (let m = rest.match(/\[([1-4])\]/); m && m.index != null; m = rest.match(/\[([1-4])\]/)) {
+    if (m.index > 0) parts.push({ text: rest.slice(0, m.index) });
+    parts.push({ cite: Number(m[1]) });
+    rest = rest.slice(m.index + m[0].length);
+  }
+  if (rest) parts.push({ text: rest });
+  return parts;
+}
+
+/** The distinct sections the overview cites, in first-mention order (drives the reference legend). */
+export function citedSections(text: string): number[] {
+  const seen: number[] = [];
+  for (const p of splitCitations(text)) if ('cite' in p && !seen.includes(p.cite)) seen.push(p.cite);
+  return seen;
+}
 
 /** Depth from which methods produced data. */
 export function deriveDepth({ hasWeb, hasOutreach, hasFeedback }: { hasWeb: boolean; hasOutreach: boolean; hasFeedback: boolean }): ResearchDepth {
@@ -155,6 +187,7 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
     },
     scoring: { feedbackScore: provenance.scoring.feedbackScore, priceScore: provenance.scoring.priceScore, blendedScore: provenance.scoring.blendedScore, rank: provenance.scoring.rank },
     summaries: provenance.summaries,
+    reference: provenance.reference,
   };
 }
 

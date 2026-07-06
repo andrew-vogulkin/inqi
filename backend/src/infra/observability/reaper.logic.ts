@@ -8,6 +8,8 @@ export interface ReapableRun {
   status: string;
   attempts: number;
   leaseUntil: Date | null;
+  /** Set when the run shadows a PhaseRun — the reaper routes it to the phase engine. */
+  phaseRunId?: string | null;
 }
 
 /**

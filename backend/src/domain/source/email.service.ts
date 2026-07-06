@@ -8,7 +8,7 @@ import { UsageService } from '../../infra/usage/usage.service';
 import { AI_PROVIDER, AiProvider, ChatMsg, ChatRole } from '../../infra/ai/ai.tokens';
 import { ErrorCode, NotFoundError } from '../../common/errors';
 import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
-import { Persona, getPersona, personaSystem, pickPersona } from '../agent/personas';
+import { FORCED_PERSONA_ID, Persona, assignPersona, getPersona, personaSystem } from '../agent/personas';
 import { signEmail } from './email-signature';
 import { MAIL_PROVIDER, MailProvider } from './mail.provider';
 import { EmailChannelRepository } from './email.repository';
@@ -73,7 +73,9 @@ export class EmailChannelService {
   /** The report's persona (assigned at report create) — every thread of a report speaks with one voice. */
   private async personaFor({ reportId, regionHint }: { reportId: string; regionHint: string | null }) {
     const report = await this.emails.findReport({ id: reportId });
-    return report.personaId ? getPersona({ id: report.personaId }) : pickPersona({ regionHint });
+    return report.personaId
+      ? getPersona({ id: report.personaId })
+      : assignPersona({ forcedId: FORCED_PERSONA_ID, regionHint });
   }
 
   /**

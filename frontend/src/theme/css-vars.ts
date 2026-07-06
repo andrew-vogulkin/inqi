@@ -50,6 +50,14 @@ h1, h2, h3 { color: var(--color-ink-soft); margin: 0; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   [data-sonar] * { animation: none !important; }
 }
+/* Horizontal scroller with an ALWAYS-visible scrollbar — macOS overlay scrollbars
+   hide until scrolled, which reads as "cannot scroll right" on wide content
+   (workflow diagrams). Applied via className to overflow-x containers. */
+.inqi-hscroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--color-line-strong) var(--color-surface-sunken); }
+.inqi-hscroll::-webkit-scrollbar { height: 10px; }
+.inqi-hscroll::-webkit-scrollbar-track { background: var(--color-surface-sunken); border-radius: 5px; }
+.inqi-hscroll::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 5px; border: 2px solid var(--color-surface-sunken); }
+.inqi-hscroll::-webkit-scrollbar-thumb:hover { background: var(--color-subtle); }
 `;
 }
 

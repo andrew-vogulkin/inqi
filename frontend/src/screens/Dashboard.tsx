@@ -77,7 +77,7 @@ function ReportRow({ report }: { report: ReportDto }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: space[2], marginBottom: 9 }}>
           <span style={{ fontSize: fontSize.lg, fontWeight: fontWeight.medium, letterSpacing: '-.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{report.rawRequest.slice(0, 80)}</span>
-          <MonoRef muted>#{report.id.slice(0, 8)}</MonoRef>
+          <MonoRef muted>{report.ref ?? `#${report.id.slice(0, 8)}`}</MonoRef>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <div style={{ display: 'flex', gap: 3 }}>

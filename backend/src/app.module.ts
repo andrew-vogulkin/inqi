@@ -21,6 +21,7 @@ import { WebhooksModule } from './edge/webhooks/webhooks.module';
 
 // Domain workers + seams not reached transitively
 import { OrchestratorWorkersModule } from './domain/orchestrator/orchestrator-workers.module';
+import { PhaseHandlersModule } from './domain/phases/phase-handlers.module';
 import { NotificationModule } from './domain/notifications/notification.module';
 import { EvalModule } from './domain/eval/eval.module';
 
@@ -35,7 +36,7 @@ import { EvalModule } from './domain/eval/eval.module';
     // Edge
     PublicModule, AuthModule, CapabilityTokenModule, WebhooksModule,
     // Domain
-    OrchestratorWorkersModule, NotificationModule, EvalModule,
+    OrchestratorWorkersModule, PhaseHandlersModule, NotificationModule, EvalModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

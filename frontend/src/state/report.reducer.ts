@@ -11,6 +11,7 @@ export interface TimelineItem { id: string; type: string; at: string; data: Reco
 export interface ReportState {
   status: AsyncStatus;
   reportId: string | null;
+  ref: string | null; // human-facing reference (RPT-YYMMDD-NN)
   personaId: string | null;
   reportState: string;
   rawRequest: string;
@@ -33,6 +34,7 @@ export interface ReportState {
 export const initialReportState: ReportState = {
   status: AsyncStatus.Idle,
   reportId: null,
+  ref: null,
   personaId: null,
   reportState: '',
   rawRequest: '',
@@ -122,6 +124,7 @@ export function reportReducer(state: ReportState, action: Action): ReportState {
         ...state,
         status: AsyncStatus.Ready,
         reportId: live.reportId,
+        ref: live.ref ?? null,
         personaId: live.personaId ?? null,
         reportState: live.state,
         rawRequest: live.rawRequest,

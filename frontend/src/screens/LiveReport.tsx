@@ -88,7 +88,7 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: fontSize.h1, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: '0 0 7px' }}>{report.rawRequest}</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: fontSize.sm, color: color.subtle, fontFamily: font.mono }}>#{(report.reportId ?? '').slice(0, 8)}</span>
+            <span style={{ fontSize: fontSize.sm, color: color.subtle, fontFamily: font.mono }}>{report.ref ?? `#${(report.reportId ?? '').slice(0, 8)}`}</span>
             {report.personaId && <PersonaChip personaId={report.personaId} streaming={streaming} />}
           </div>
         </div>
@@ -416,9 +416,35 @@ function sourceLabel(d: Record<string, unknown>): string {
   return `found ${kind}${name ? ` "${brief(name, 60)}"` : ''}${more}`;
 }
 
+/** Pipeline stage / phase key → the customer-facing activity noun. */
+const STAGE_NAME: Record<string, string> = {
+  pre_research: 'intake research',
+  send_questionnaire: 'questionnaire',
+  enrich_subject: 'scope enrichment',
+  broad_research: 'broad research',
+  build_funnel: 'candidate funnel',
+  start_outreach: 'outreach',
+  outreach_inquiry: 'provider outreach',
+  generate_report: 'report synthesis',
+  breadth_search: 'provider discovery',
+  depth_search: 'deep research',
+};
+const stageName = (s: unknown) => STAGE_NAME[String(s ?? '')] ?? String(s ?? 'work').replace(/_/g, ' ');
+/** Phase state names → readable ("SEARCH_LEADS" → "search leads"). */
+const humanState = (s: unknown) => String(s ?? '').toLowerCase().replace(/_/g, ' ');
+/** "deep research — Hillkoff": the phase noun plus WHO it works on, when known. */
+const phaseSubject = (d: Record<string, unknown>) => `${stageName(d.key)}${typeof d.name === 'string' && d.name ? ` — ${d.name}` : ''}`;
+
 const LABEL: Record<string, (d: Record<string, unknown>) => string> = {
   [EventType.ReportTransitioned]: (d) => `→ ${d.to}`,
   [EventType.AgentProgress]: (d) => String(d.message ?? d.stage ?? 'working…'),
+  [EventType.AgentStarted]: (d) => `started ${stageName(d.stage)}`,
+  [EventType.AgentStopped]: (d) => `${stageName(d.stage)} done`,
+  [EventType.AgentFailed]: (d) => `${stageName(d.stage)} hit a problem${d.error ? ` — ${brief(d.error, 60)}` : ''}`,
+  [EventType.AgentCancelled]: (d) => `${stageName(d.stage)} stopped (report closed)`,
+  [EventType.PhaseRunStarted]: (d) => `${phaseSubject(d)} started`,
+  [EventType.PhaseRunTransitioned]: (d) => `${phaseSubject(d)}: ${humanState(d.from)} → ${humanState(d.to)}`,
+  [EventType.PhaseRunFinished]: (d) => `${phaseSubject(d)} finished — ${humanState(d.state)}`,
   [EventType.WaveReleased]: (d) => `released wave ${d.wave} (${d.count} providers)`,
   [EventType.FunnelWidened]: (d) => `widened the search (+${d.added})`,
   [EventType.EpicCreated]: () => 'planned the outreach campaign',

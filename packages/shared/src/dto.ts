@@ -41,6 +41,8 @@ export interface SessionDto {
 /** A single report row (GET /reports, owner-scoped) — the root customer request. */
 export interface ReportDto {
   id: string;
+  /** Human-facing reference (RPT-YYMMDD-NN); null only on legacy/seed rows. */
+  ref?: string | null;
   rawRequest: string;
   state: string;
   stage?: string;            // HP-23: derived ReportStage (from state + qualifiedCount)
@@ -71,6 +73,8 @@ export interface ReportOption {
 /** Live-assembled report while the pipeline runs (GET /reports/:id/live). */
 export interface LiveReportDto {
   reportId: string;
+  /** Human-facing reference (RPT-YYMMDD-NN); null only on legacy/seed rows. */
+  ref?: string | null;
   personaId?: string | null; // the persona who ran/runs this research (1:1 per report)
   state: string;
   stage?: string;            // HP-23: derived ReportStage
@@ -288,5 +292,23 @@ export interface ProvenanceDto {
   researchPending?: boolean;
   /** AI transparency summaries — how inqi evaluated this option, per section + an overall ranking rationale. */
   summaries?: ProvenanceSummaries;
+  /**
+   * How the customer can carry this option forward themselves: the provider's
+   * website/socials (from discovery) and their email address when real outbound
+   * mail recorded one (empty in the simulated local driver).
+   */
+  reference?: ProvenanceReference;
 }
-export interface ProvenanceSummaries { web: string; outreach: string; feedback: string; ranking: string }
+
+export interface ProvenanceReference {
+  website: string | null;
+  socials: string[];
+  contactEmail: string | null;
+}
+/**
+ * AI transparency summaries per dossier section, plus `overview` — the general
+ * summary rendered above the sections, citing them inline as [1]=web search,
+ * [2]=outreach, [3]=feedback scan, [4]=qualification & ranking. Optional for
+ * cache back-compat: entries stored before the field existed lack it.
+ */
+export interface ProvenanceSummaries { overview?: string; web: string; outreach: string; feedback: string; ranking: string }

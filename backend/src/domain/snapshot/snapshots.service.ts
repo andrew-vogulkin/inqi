@@ -18,6 +18,8 @@ import { provenanceSummarySystem, buildProvenanceSummaryUser, provenanceSummaryS
 import { ProvenanceSummaries, MessageDirection, QuestionnaireQuestion } from '@inqi/shared';
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+/** [1]-[4] section citations belong in the overview ONLY — anywhere else they render as literal noise. */
+const stripCitations = (s: string) => s.replace(/\s*\[[1-4]\]/g, '').trim();
 const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
 const toStringArray = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 const toRecordArray = (v: unknown): Record<string, unknown>[] =>
@@ -309,6 +311,9 @@ export class SnapshotsService {
 
     const optionFinding = findings.find((f) => f.kind === FindingKind.Option && String((f.data as Record<string, unknown>)?.subjectProvider) === ref);
     const inquiry = optionFinding?.inquiryId ? await this.reports.findInquiryById({ id: optionFinding.inquiryId }) : null;
+    // Carry-it-forward reference: the provider's own links from discovery + the vendor
+    // address real outbound mail recorded (the relay address stays internal).
+    const contact = ((inquiry as { contact?: unknown } | null)?.contact ?? {}) as { website?: string; socials?: string[] };
     // Use the *raw* background finding (the compacted option.background drops themes/quotes/sentiment).
     const bgFinding = findings.find((f) => f.kind === FindingKind.SubjectProviderBackground && f.inquiryId === optionFinding?.inquiryId);
     const bg = { ...((bgFinding?.data as Record<string, unknown>) ?? {}), ...((inquiry?.background as Record<string, unknown>) ?? {}) } as Record<string, unknown>;
@@ -344,6 +349,7 @@ export class SnapshotsService {
       price: { amount: typeof opt.price === 'number' ? opt.price : null, currency: opt.currency ?? null },
     });
 
+    const contactEmail = msgs.find((m) => m.direction === MessageDirection.Outbound && m.toAddr)?.toAddr ?? null;
     return {
       web,
       feedback,
@@ -352,6 +358,7 @@ export class SnapshotsService {
       depth: contacted ? ProvenanceDepth.WebOutreachFeedback : hasFeedback ? ProvenanceDepth.WebFeedback : ProvenanceDepth.WebOnly,
       researchPending: inquiry?.researchPending ?? false,
       summaries,
+      reference: { website: contact.website ?? null, socials: contact.socials ?? [], contactEmail },
     };
   }
 
@@ -386,7 +393,9 @@ export class SnapshotsService {
         // Message count invalidates on every new email, not just the first reply.
         outreach: { outcome: ctx.outcome, responseMinutes, rounds, reply: lastInbound?.body ?? null },
       };
-      const fingerprint = createHash('sha256').update(JSON.stringify({ ...input, messageCount: msgs.length })).digest('hex');
+      // promptVersion invalidates the whole cache when the summary contract changes (v2 added `overview`);
+      // messageCount invalidates one entry on every new email — an outreach reply refreshes the summaries.
+      const fingerprint = createHash('sha256').update(JSON.stringify({ ...input, messageCount: msgs.length, promptVersion: 2 })).digest('hex');
       const cached = await this.reports.findProvenanceSummary({ reportId: ctx.reportId, inquiryId: ctx.inquiryId, ref: ctx.provider });
       const stored = (cached?.data ?? null) as { fingerprint?: string; summaries?: ProvenanceSummaries } | null;
       if (stored?.fingerprint === fingerprint && stored.summaries) return stored.summaries;
@@ -395,7 +404,10 @@ export class SnapshotsService {
         system: provenanceSummarySystem(), user: buildProvenanceSummaryUser(input), tier: ModelTier.Depth,
         validate: (raw) => provenanceSummarySchema.parse(raw),
       });
-      const summaries: ProvenanceSummaries = { web: r.web ?? '', outreach: r.outreach ?? '', feedback: r.feedback ?? '', ranking: r.ranking ?? '' };
+      const summaries: ProvenanceSummaries = {
+        overview: r.overview ?? '', // keeps its [1]-[4] citations — the UI links them to the section cards
+        web: stripCitations(r.web ?? ''), outreach: stripCitations(r.outreach ?? ''), feedback: stripCitations(r.feedback ?? ''), ranking: stripCitations(r.ranking ?? ''),
+      };
       if (ctx.epicId) {
         await this.reports.saveProvenanceSummary({
           id: cached?.id ?? null, reportId: ctx.reportId, epicId: ctx.epicId, inquiryId: ctx.inquiryId,
@@ -440,6 +452,7 @@ export class SnapshotsService {
       : null;
     return {
       reportId,
+      ref: report.ref ?? null,
       personaId: report.personaId ?? null,
       state: report.state,
       stage,
@@ -465,6 +478,8 @@ export class SnapshotsService {
 /** Live-report read shape (HP-08): the same ranked options the snapshot uses, plus run state. */
 export interface LiveReport {
   reportId: string;
+  /** Human-facing reference (RPT-YYMMDD-NN); null on legacy/seed rows. */
+  ref: string | null;
   personaId: string | null;
   state: string;
   stage: string;

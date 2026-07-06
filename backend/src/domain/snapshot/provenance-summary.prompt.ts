@@ -4,6 +4,8 @@ import { z } from 'zod';
 export { provenanceSummarySystem } from '../../infra/ai/prompts';
 
 export const provenanceSummarySchema = z.object({
+  // General summary shown above the sections; cites them as [1]-[4] (web/outreach/feedback/ranking).
+  overview: z.string().catch(''),
   web: z.string().catch(''),
   outreach: z.string().catch(''),
   feedback: z.string().catch(''),

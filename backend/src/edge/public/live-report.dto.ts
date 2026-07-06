@@ -30,6 +30,7 @@ export class LiveQuestionnaireDto {
 /** Live-assembled report read surface (HP-08). */
 export class LiveReportDto {
   @ApiProperty({ example: 'clz1abcd0000xy' }) reportId!: string;
+  @ApiProperty({ nullable: true, description: 'human-facing reference (date-coded + per-day counter)', example: 'RPT-260707-03' }) ref!: string | null;
   @ApiProperty({ description: 'current ReportState', example: 'OUTREACH' }) state!: string;
   @ApiProperty({ description: 'HP-23: derived ReportStage (from state + qualifiedCount)', example: 'Researching' }) stage!: string;
   @ApiProperty({ description: 'HP-23: inquiries qualified so far', example: 2 }) qualifiedCount!: number;

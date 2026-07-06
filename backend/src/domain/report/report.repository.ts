@@ -17,6 +17,11 @@ export class ReportRepository {
     return this.exec(tx).report.create({ data });
   }
 
+  /** How many refs were minted with this day-prefix (drives the per-day counter). */
+  countByRefPrefix({ prefix, tx }: { prefix: string; tx?: DbTx }) {
+    return this.exec(tx).report.count({ where: { ref: { startsWith: prefix } } });
+  }
+
   findWithRelations({ id, tx }: { id: string; tx?: DbTx }) {
     return this.exec(tx).report.findUniqueOrThrow({
       where: { id },

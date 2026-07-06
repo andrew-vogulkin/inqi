@@ -67,6 +67,30 @@ export function pickPersona({ regionHint, requestText, rng }: { regionHint?: str
   return PERSONAS[Math.min(PERSONAS.length - 1, Math.floor(roll * PERSONAS.length))];
 }
 
+/**
+ * TEMPORARY fleet pin: while the outbound sender identity is under email-provider
+ * (Postmark) approval, every persona assignment resolves to this one id so all
+ * outreach speaks and signs with a single approved voice. Set to `null` to restore
+ * region-aware routing. See README § Personas.
+ */
+export const FORCED_PERSONA_ID: string | null = 'marlowe';
+
+/**
+ * Assignment entry point: a forced persona id (the hardcoded {@link FORCED_PERSONA_ID}
+ * pin, passed by the call sites) wins fleet-wide; otherwise the normal region-aware
+ * routing applies. An unknown forced id is ignored (falls back to routing), never
+ * silently remapped.
+ */
+export function assignPersona({ forcedId, regionHint, requestText, rng }: {
+  forcedId?: string | null; regionHint?: string | null; requestText?: string | null; rng?: () => number;
+}): Persona {
+  if (forcedId) {
+    const pinned = byId.get(forcedId);
+    if (pinned) return pinned;
+  }
+  return pickPersona({ regionHint, requestText, rng });
+}
+
 /** System prompt: persona identity + hub + employer framing + writing voice. */
 export function personaSystem({ persona, task }: { persona: Persona; task: string }): string {
   return [
