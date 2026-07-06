@@ -1,0 +1,76 @@
+# inqi — production stack (single Alibaba Cloud ECS, Docker Compose).
+#
+# Front door is Caddy (auto-TLS via Let's Encrypt), which serves the SPA and
+# proxies /api + /socket.io to the backend so everything is same-origin (the SPA
+# calls a RELATIVE /api and Socket.io needs the WS upgrade — a split origin breaks
+# both). Postgres runs on-box on a named volume (custom image = pgvector + PostGIS).
+#
+# Web search (SearXNG) lives on the home-lab `orange` host over Tailscale. We join
+# the ECS *host* to the tailnet (tailscaled on the host, see deploy/README.md) and
+# pin orange's MagicDNS name to its tailnet IP via extra_hosts below, so the backend
+# container reaches https://orange.tail035fe2.ts.net:8443 with a valid cert while
+# still using compose DNS for `db`. (Cleaner than sharing a tailscale sidecar netns,
+# which fights compose DNS once MagicDNS is accepted.)
+#
+# Images are built from the repo root context and published by release.yml. Set
+# INQI_BACKEND_IMAGE / INQI_FRONTEND_IMAGE in .env (GHCR or ACR refs) or override
+# the `image:` lines. First deploy / DB init steps are in deploy/README.md.
+
+services:
+  db:
+    build:
+      context: ..
+      dockerfile: db/Dockerfile
+    image: ${INQI_DB_IMAGE:-inqi-db:local}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-inqi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-inqi}
+    volumes:
+      - inqi_pg:/var/lib/postgresql/data
+    # No published port — only reachable on the compose network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-inqi}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: ${INQI_BACKEND_IMAGE:?set INQI_BACKEND_IMAGE in .env}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+    # Reach orange's SearXNG over the tailnet by MagicDNS name (TLS SNI must match
+    # the cert) while routing to its tailnet IP. Update if orange's IP changes.
+    extra_hosts:
+      - "orange.tail035fe2.ts.net:100.94.153.122"
+    # No published port — Caddy proxies to backend:4000 on the compose network.
+
+  frontend:
+    image: ${INQI_FRONTEND_IMAGE:?set INQI_FRONTEND_IMAGE in .env}
+    restart: unless-stopped
+    depends_on: [backend]
+    # SPA deep-link fallback (stock nginx would 404 on /r/*, /d/* refreshes).
+    volumes:
+      - ./nginx-spa.conf:/etc/nginx/conf.d/default.conf:ro
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [frontend, backend]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      INQI_DOMAIN: ${INQI_DOMAIN:?set INQI_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  inqi_pg:
+  caddy_data:
+  caddy_config:

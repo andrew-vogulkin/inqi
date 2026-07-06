@@ -1,0 +1,451 @@
+// inqi schema — Postgres only. See DESIGN.md §2.
+// pgvector (subject similarity) + PostGIS (geo reuse) enabled via migration SQL.
+//
+// Hierarchy: Report (root customer request) 1:M Inquiry (one candidate under
+// investigation) 1:M Source (one typed channel record: email | websearch |
+// rating_feedback | whatsapp). Epic stays as the orchestration grouping for
+// wave-based outreach; a Report is carried end-to-end by one persona.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Versioned workflow (transition logic lives in DB; pinned per report)
+// ---------------------------------------------------------------------------
+model WorkflowDefinition {
+  id        String   @id @default(cuid())
+  key       String   // e.g. "report"
+  version   Int
+  status    String   @default("draft") // draft | active | archived
+  createdAt DateTime @default(now())
+
+  states      WorkflowState[]
+  transitions WorkflowTransition[]
+  reports     Report[]
+  phaseRuns   PhaseRun[]
+
+  @@unique([key, version])
+  @@index([key, status])
+}
+
+model WorkflowState {
+  id           String  @id @default(cuid())
+  definitionId String
+  name         String  // matches ReportState
+  isInitial    Boolean @default(false)
+  isTerminal   Boolean @default(false)
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, name])
+}
+
+model WorkflowTransition {
+  id           String  @id @default(cuid())
+  definitionId String
+  fromState    String
+  toState      String
+  event        String  // WorkflowEvent
+  guard        String? // registry handler name, nullable
+  action       String? // registry handler name, nullable (e.g. enqueue:pre_research)
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, fromState, event])
+  @@index([definitionId, fromState])
+}
+
+/// One execution of a phase workflow (PhaseKey: pre_research | breadth_search |
+/// depth_search), pinned to a WorkflowDefinition version and advanced step-by-step
+/// by the PhaseEngine. Append-only: a report accumulates runs (funnel + widens,
+/// re-research); `data` carries the run's working memory (cycle counters, query
+/// pool, candidates, gaps, notes) so every step is replayable.
+model PhaseRun {
+  id                String   @id @default(cuid())
+  key               String   // PhaseKey
+  workflowVersionId String   // pinned WorkflowDefinition.id
+  state             String   // current phase state (per-key state enum)
+  reportId          String
+  inquiryId         String?  // depth_search runs only
+  data              Json     @default("{}")
+  attempts          Int      @default(0) // per-STATE step attempts; the engine resets to 0 on advance
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workflow WorkflowDefinition @relation(fields: [workflowVersionId], references: [id])
+  report   Report             @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  inquiry  Inquiry?           @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([reportId, key])
+  @@index([inquiryId])
+  @@index([key, state])
+}
+
+// ---------------------------------------------------------------------------
+// Core aggregates
+// ---------------------------------------------------------------------------
+// Authenticated identity (Sign in with Google). Reports are linked to a Customer
+// by verified email. Role is owned by the DB: new accounts default to `customer`;
+// admins are marked manually (set role='admin', e.g. `db:promote-admin`). HP-10.
+model Customer {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  googleSub String?  @unique // Google subject id (stable per account)
+  role      String   @default("customer") // AuthRole: customer | admin
+  notificationsOptOut Boolean @default(false) // suppress customer notifications (HP-13)
+  credits   Int      @default(0) // maintained balance (HP-19); == Σ ledger, never negative
+  freeReportUsed Boolean @default(false) // HP-21: the one free (freemium) report has been granted
+  createdAt DateTime @default(now())
+
+  reports Report[]
+  ledger  CreditLedger[]
+}
+
+// Append-only credit ledger (HP-19). Balance = Σ(topup) − Σ(reserve) + Σ(refund);
+// `charge` finalizes a reservation (no balance effect). The (reportId, kind) unique
+// makes settlement idempotent: at most one reserve/charge/refund per report.
+model CreditLedger {
+  id         String   @id @default(cuid())
+  customerId String
+  kind       String   // CreditKind: topup | reserve | charge | refund
+  amount     Int      // always positive; the kind carries the sign
+  reason     String?  // e.g. admin note, settlement state
+  actor      String?  // admin email, or 'system'
+  reportId   String?  // set for reserve/charge/refund; null for topup
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  report   Report?  @relation(fields: [reportId], references: [id], onDelete: SetNull)
+
+  @@unique([reportId, kind])
+  @@index([customerId])
+}
+
+/// The root customer request ("Bangkok best bars"): workflow state, ownership,
+/// credits, and the persona that carries all interaction for this report.
+model Report {
+  id                String   @id @default(cuid())
+  /// Human-facing reference (RPT-YYMMDD-NN): date-coded + per-day counter. Unique;
+  /// nullable only for legacy/seed rows — creation always assigns one.
+  ref               String?  @unique
+  customerEmail     String
+  customerId        String?                        // owner once signed in (linked by verified email)
+  rawRequest        String
+  state             String   @default("RECEIVED") // ReportState
+  workflowVersionId String                         // pinned WorkflowDefinition.id
+  personaId         String?                        // the Inqi persona (code-defined, 8) owning every thread of this report
+  focus             String?                        // SearchFocus: price | quality — customer's ranking priority (steers depth research)
+
+  geoLat    Float?
+  geoLng    Float?
+  geoLabel  String?
+  budgetMin Int?
+  budgetMax Int?
+  deadline  DateTime?
+
+  denyReason String?
+  cancelRequested Boolean @default(false) // operator/customer cancel flag in-flight jobs observe (HP-09)
+  heldFromState   String?                 // state to resume to after an operator pause (HP-11)
+  freeReport      Boolean @default(false) // HP-21: this report is the customer's free (freemium) one
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deliveredAt DateTime? // stamped on the REPORT_DELIVERED transition (delivery-time measurement)
+
+  workflow      WorkflowDefinition @relation(fields: [workflowVersionId], references: [id])
+  customer      Customer?          @relation(fields: [customerId], references: [id])
+  subject       Subject?
+  questionnaire Questionnaire?
+  epics         Epic[]
+  inquiries     Inquiry[]
+  snapshot      ReportSnapshot?
+  agentRuns     AgentRun[]
+  events        EventOutbox[]
+  findings      Finding[]
+  usage         UsageRecord[]
+  ledger        CreditLedger[]
+  phaseRuns     PhaseRun[]
+
+  @@index([state])
+  @@index([customerId])
+}
+
+model Subject {
+  id         String  @id @default(cuid())
+  reportId   String  @unique
+  title      String
+  category   String? // item | service | rental | organisation | goods | trade
+  description String
+  attributes Json    @default("{}")
+  // similarity + geo reuse (vector/geometry columns added via migration SQL)
+  geoLat     Float?
+  geoLng     Float?
+  createdAt  DateTime @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model Questionnaire {
+  id           String    @id @default(cuid())
+  reportId     String    @unique
+  token        String    @unique // temp share link
+  questions    Json      // [{ id, prompt, type, options? }]
+  answers      Json?     // Record<questionId, answer>
+  confirmed    Boolean   @default(false) // customer confirmed subject is correct
+  expiresAt    DateTime
+  filledAt     DateTime?
+  reviewStatus String   @default("pending") // ethical+legal scoring gate before sharing
+  riskScore    Float?
+  reminderSentAt DateTime? // expiry-reminder sent marker — exactly-once (HP-13)
+  createdAt    DateTime  @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model Epic {
+  id                     String  @id @default(cuid())
+  reportId               String
+  definition             Json    // broad-research def: geo, time, price, economics
+  strategy               String  @default("escalating") // OutreachStrategy
+  targetQualifiedOptions Int     @default(3)
+  sharedContext          Json    @default("{}") // successful contact phrasing/contacts reused by agents
+  status                 String  @default("open") // open | done | stopped
+  priority               Int      @default(5)   // 1 (highest) .. 9 (lowest): drives queue order + rate limiting
+  releasedWaves          Int[]    @default([])  // waves already released — makes wave release/widen idempotent (HP-09)
+  createdAt              DateTime @default(now())
+
+  report    Report    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  inquiries Inquiry[]
+  findings  Finding[]
+
+  @@index([reportId])
+}
+
+/// One candidate under investigation ("G.O.D Bkk"): discovered in the funnel,
+/// contacted in waves, settled to qualified/failed. Channel data hangs off its
+/// Source rows; thread state (replyAddress/convState) lives on the email Source.
+model Inquiry {
+  id         String  @id @default(cuid())
+  reportId   String                  // direct root FK (Report 1:M Inquiry)
+  epicId     String                  // orchestration grouping (waves, shared context)
+  name       String                  // the candidate / subject-provider name
+  leadSource String?                 // LeadSource: where the lead came from (ai | fallback)
+  contact    Json     @default("{}") // discovered email/phone/url
+  wave       Int      @default(1)    // for escalating 1:3:9
+  status     String   @default("pending") // InquiryStatus: pending | researching | contacted | replied | qualified | unresponsive | failed | skipped
+  result     Json?    // parsed: price, availability, leadTime, notes
+  background    Json?    // quality-research digest: ratings, feedback, eligibility
+  qualityScore  Float?   // 0..1 eligibility/quality score used to rank options
+  researchPending Boolean @default(true) // a ResearchBackground job is still queued/running; cleared when the depth verdict persists
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  report    Report     @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  epic      Epic       @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  sources   Source[]
+  messages  Message[]
+  phaseRuns PhaseRun[]
+
+  @@index([reportId])
+  @@index([epicId, status])
+}
+
+/// One typed channel record under an Inquiry (SourceType): a web page found
+/// (websearch), a ratings/feedback digest (rating_feedback), or a conversation
+/// thread anchor (email / whatsapp — these carry replyAddress + convState and
+/// own the Message rows).
+model Source {
+  id            String  @id @default(cuid())
+  inquiryId     String
+  type          String  // SourceType: email | websearch | rating_feedback | whatsapp
+  url           String?
+  title         String?
+  snippet       String?
+  data          Json    @default("{}")
+  // thread-channel fields (email/whatsapp sources only)
+  replyAddress  String?   @unique // unique inbound address for this thread
+  convState     String?           // ConvState: idle | awaiting_reply | needs_action | closed
+  lastInboundAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  inquiry  Inquiry   @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@unique([inquiryId, type, url]) // dedupe websearch/rating rows per inquiry
+  @@index([inquiryId, type])
+}
+
+model Message {
+  id         String  @id @default(cuid())
+  sourceId   String          // the thread-channel Source carrying this message
+  inquiryId  String          // denormalized for thread reads/provenance (avoids the join)
+  direction  String  // outbound | inbound
+  status     String  @default("sent") // draft | sent | delivered | received | bounced
+  fromAddr   String?
+  toAddr     String?
+  subject    String?
+  body       String
+  externalId String?  @unique // counterparty Message-ID header (for threading + idempotency)
+  inReplyTo  String?           // Message-ID this message replies to
+  references String[] @default([]) // full chain of Message-IDs (RFC 5322 References)
+  parsed     Json?             // structured extraction: price, availability, intent
+  modelTier  String?           // tier that drafted an outbound message: breadth | depth
+  personaId  String?           // author denorm: the Inqi persona that sent this message
+  reviewStatus String @default("pending") // compliance gate: pending | passed | blocked
+  riskScore  Float?            // ethical+legal score 0..1 (higher = riskier)
+  riskTags   String[] @default([])
+  createdAt  DateTime @default(now())
+
+  source  Source  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([inquiryId])
+  @@index([externalId])
+}
+
+/// The final deliverable snapshot (token link, freemium gating). 1:1 with Report.
+model ReportSnapshot {
+  id         String  @id @default(cuid())
+  reportId   String  @unique
+  token      String  @unique // webview link
+  summary    String
+  options    Json    // [{ subjectProvider, price, availability, constraints, ... }]
+  timeline   Json    // actions taken, with timestamps
+  reusedFrom String? // ReportSnapshot.id if derived from prior research
+  freemium   Boolean @default(false) // HP-21: free/locked snapshot — payload redacted until unlocked
+  unlocked   Boolean @default(false) // HP-21: 1 credit charged → full options revealed
+  createdAt  DateTime @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Agent execution log + realtime outbox
+// ---------------------------------------------------------------------------
+model AgentRun {
+  id        String   @id @default(cuid())
+  reportId  String
+  stage     String   // AgentStage: pipeline stages + phase-run shadow stages (breadth_search | depth_search)
+  inquiryId String?
+  phaseRunId String?                  // set when this run shadows a PhaseRun (activity timeline + reaper routing)
+  status    String   @default("running") // running | done | failed | stopped | cancelled
+  error     String?
+  attempts    Int       @default(1)   // delivery attempt count (retry/backoff bookkeeping)
+  leaseUntil  DateTime?               // a running stage must finish/heartbeat before this, or the reaper recovers it
+  heartbeatAt DateTime?               // last liveness ping
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+
+  report Report       @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  events AgentEvent[]
+
+  @@index([reportId, stage])
+  @@index([status, leaseUntil])
+  @@index([phaseRunId])
+}
+
+model AgentEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  kind      String   // log | tool_call | progress | error
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+/// Durable, replayable event log → drives realtime fan-out via LISTEN/NOTIFY.
+model EventOutbox {
+  id        BigInt   @id @default(autoincrement())
+  type      String   // InqiEventType
+  reportId  String
+  epicId    String?
+  inquiryId String?
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId, id])
+}
+
+/// Dynamic report store. Agents append findings (options, subject-provider
+/// background, constraints, notes); the report is assembled from these on read.
+model Finding {
+  id           String  @id @default(cuid())
+  reportId     String
+  epicId       String
+  inquiryId    String?
+  kind         String  // option | subject_provider_background | constraint | note
+  data         Json    @default("{}")
+  qualityScore Float?
+  createdAt    DateTime @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  epic   Epic   @relation(fields: [epicId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@index([epicId])
+}
+
+/// Append-only cost ledger (HP-15): one row per AI call (tokens + model/tier) and
+/// one per counted outreach/agent action. Never mutated; rolled up to a $ summary.
+model UsageRecord {
+  id               String   @id @default(cuid())
+  reportId         String
+  kind             String   // UsageKind
+  model            String?  // configured alias for the tier (e.g. "qwen")
+  modelVersion     String?  // SERVED model identity the backend reported (exact checkpoint/version)
+  tier             String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  quantity         Int      @default(1)   // for counted actions
+  estimated        Boolean  @default(false) // usage block absent (e.g. local model) → tokens are 0/estimated
+  createdAt        DateTime @default(now())
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}
+
+/// Operator / system action log (HP-11 controls, HP-12 publishes). The durable
+/// audit sink HP-14 builds the full audit trail on.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String   // operator email, or 'system'
+  action     String   // AuditAction: cancel | pause | resume | publish_workflow
+  targetType String   // AuditTargetType: report | workflow | customer
+  targetId   String
+  reason     String?
+  data       Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+/// Self-evaluation + improvement loop. inqi scores its own runs and proposes
+/// workflow improvements (new versioned WorkflowDefinition) to apply over time.
+model SelfEval {
+  id                  String   @id @default(cuid())
+  reportId            String?
+  scope               String   // report | snapshot | workflow
+  scores              Json     @default("{}") // {coverage, quality, latency, cost}
+  suggestions         Json     @default("[]") // proposed improvements
+  proposedWorkflowKey String?
+  createdAt           DateTime @default(now())
+
+  @@index([reportId])
+}

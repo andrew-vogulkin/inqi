@@ -1,0 +1,14 @@
+{
+  "name": "inqi",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI-driven inquiry & research workflow",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "db:migrate": "pnpm --filter @inqi/backend prisma migrate dev",
+    "db:seed": "pnpm --filter @inqi/backend prisma db seed",
+    "db:up": "docker compose up -d db"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

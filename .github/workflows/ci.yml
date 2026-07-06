@@ -1,0 +1,89 @@
+name: CI
+
+# Build, type-check and test every PR and push against a real Postgres
+# (pgvector + PostGIS). Fully hermetic: no repo secrets, drivers run keyless
+# (no QWEN/Postmark/Google creds) so forks and untrusted PRs run green.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: CI only reads the repo.
+permissions:
+  contents: read
+
+# One run per ref; cancel superseded runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    env:
+      # Keyless / hermetic: matches the repo's "how to run/verify" line.
+      DATABASE_URL: postgresql://inqi:inqi@localhost:5432/inqi?schema=public
+      SIMULATE_REPLIES: 'true'
+      NODE_ENV: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The init.sql needs BOTH extensions; no public image ships both, so build
+      # the repo's db image and run it as the Postgres service for this job.
+      - name: Build Postgres image (pgvector + PostGIS)
+        run: docker build -t inqi-db ./db
+
+      - name: Start Postgres
+        run: |
+          docker run -d --name inqi-db -p 5432:5432 \
+            -e POSTGRES_USER=inqi -e POSTGRES_PASSWORD=inqi -e POSTGRES_DB=inqi \
+            inqi-db
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec inqi-db pg_isready -U inqi -d inqi >/dev/null 2>&1; then
+              echo "postgres ready"; exit 0
+            fi
+            echo "waiting for postgres ($i)…"; sleep 2
+          done
+          echo "postgres did not become ready" >&2; docker logs inqi-db; exit 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate
+        run: pnpm --filter @inqi/backend exec prisma generate
+
+      # `tsc`/`nest build` for every package = the type-check gate.
+      - name: Build (type-check)
+        run: pnpm -r build
+
+      # Integration prerequisites: schema → extensions/trigger → workflow seed.
+      - name: Prisma db push
+        run: pnpm --filter @inqi/backend exec prisma db push --skip-generate
+
+      - name: Apply init.sql (extensions + NOTIFY trigger)
+        run: docker exec -i inqi-db psql -U inqi -d inqi -v ON_ERROR_STOP=1 < backend/prisma/sql/init.sql
+
+      - name: Seed workflow versions + demo data
+        run: pnpm --filter @inqi/backend exec prisma db seed
+
+      - name: Test
+        run: pnpm -r --if-present test
+
+      - name: Postgres logs (on failure)
+        if: failure()
+        run: docker logs inqi-db || true
