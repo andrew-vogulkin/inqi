@@ -37,6 +37,9 @@ export interface DepthRunData {
   background: SubjectProviderBackground | null;
   gaps: string[];
   priorGapsKey: string;
+  /** Cited-source count as of the last gate + consecutive no-new-evidence cycles (progress stall). */
+  evidenceCount: number;
+  noProgressStreak: number;
   outcome: DepthOutcome | null;
   notes: string[];
 }
@@ -85,7 +88,7 @@ export class DepthSearchSteps implements OnModuleInit {
     const data: Omit<DepthRunData, 'name' | 'epicId' | 'regionHint' | 'subject' | 'webRoom' | 'matchNote' | 'focus' | 'knownFacts'> = {
       maxCycles: Math.max(1, this.config.research.depthCycles),
       maxToolCalls: this.config.research.depthMaxToolCalls,
-      cycle: 1, queries: [], leads: [], verdict: null, background: null, gaps: [], priorGapsKey: '', outcome: null, notes: [],
+      cycle: 1, queries: [], leads: [], verdict: null, background: null, gaps: [], priorGapsKey: '', evidenceCount: 0, noProgressStreak: 0, outcome: null, notes: [],
     };
     await this.engine.startRun({ key: PhaseKey.DepthSearch, reportId, inquiryId, data: { ...context, ...data } });
   }
@@ -153,17 +156,24 @@ export class DepthSearchSteps implements OnModuleInit {
   private async gate(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
     const result = await evaluateDepthVerdict({ ai: this.ai, name: d.name, subject: d.subject, matchNote: d.matchNote, verdict: d.verdict!, focus: d.focus, logger: this.logger });
-    const decision = decideDepthGate({ sufficient: result.sufficient, gaps: result.gaps, priorGapsKey: d.priorGapsKey });
+    const evidenceCount = d.verdict?.sources?.length ?? 0;
+    const decision = decideDepthGate({
+      sufficient: result.sufficient, gaps: result.gaps, priorGapsKey: d.priorGapsKey,
+      evidenceCount, priorEvidenceCount: d.evidenceCount, noProgressStreak: d.noProgressStreak,
+    });
     if (decision.event === DepthEvent.EVIDENCE_SUFFICIENT) {
       this.logger.log(`depth[${d.name}] gate: evidence sufficient after cycle ${d.cycle}`);
       return { event: decision.event, dataPatch: { outcome: decision.outcome } };
     }
     if (decision.event === DepthEvent.STALLED) {
-      this.logger.log(`depth[${d.name}] gate: stalled after cycle ${d.cycle} (${result.gaps.length ? 'same gaps twice' : 'no gaps named'}) — shipping the verdict`);
+      const reason = !result.gaps.length ? 'no gaps named'
+        : decision.gapsKey === d.priorGapsKey ? 'same gaps twice'
+        : `no new evidence for ${decision.noProgressStreak} cycles`;
+      this.logger.log(`depth[${d.name}] gate: stalled after cycle ${d.cycle} (${reason}) — shipping the verdict`);
       return { event: decision.event, dataPatch: { outcome: decision.outcome } };
     }
     this.logger.log(`depth[${d.name}] gate: insufficient after cycle ${d.cycle} — ${result.gaps.join('; ')}`);
-    return { event: decision.event, dataPatch: { gaps: result.gaps, priorGapsKey: decision.gapsKey, cycle: d.cycle + 1 } };
+    return { event: decision.event, dataPatch: { gaps: result.gaps, priorGapsKey: decision.gapsKey, cycle: d.cycle + 1, evidenceCount, noProgressStreak: decision.noProgressStreak } };
   }
 
   /** Persist the verdict (tx + settle + late-snapshot refresh) and record HOW the loop ended. */
