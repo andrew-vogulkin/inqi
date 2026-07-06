@@ -114,4 +114,18 @@ describe('decideDepthGate (step F, the loop decision — pure)', () => {
     const second = decideDepthGate({ sufficient: false, gaps: ['booking page unreachable'], priorGapsKey: first.gapsKey });
     expect(second).toMatchObject({ event: DepthEvent.GAPS_NAMED, outcome: null });
   });
+
+  it('re-worded gaps that gain NO new evidence stall once patience runs out', () => {
+    // The model keeps naming freshly-worded gaps (never an exact repeat) but the
+    // refine cycles cite no new sources → progress stalls after `stallPatience`.
+    const c1 = decideDepthGate({ sufficient: false, gaps: ['license?'], priorGapsKey: '', evidenceCount: 3, priorEvidenceCount: 3, noProgressStreak: 0 });
+    expect(c1).toMatchObject({ event: DepthEvent.GAPS_NAMED, noProgressStreak: 1 });
+    const c2 = decideDepthGate({ sufficient: false, gaps: ['insurance?'], priorGapsKey: c1.gapsKey, evidenceCount: 3, priorEvidenceCount: 3, noProgressStreak: c1.noProgressStreak });
+    expect(c2).toMatchObject({ event: DepthEvent.STALLED, outcome: DepthOutcome.Stalled });
+  });
+
+  it('a refine cycle that gains new evidence resets the no-progress streak', () => {
+    const decision = decideDepthGate({ sufficient: false, gaps: ['reviews?'], priorGapsKey: 'x', evidenceCount: 5, priorEvidenceCount: 3, noProgressStreak: 1 });
+    expect(decision).toMatchObject({ event: DepthEvent.GAPS_NAMED, noProgressStreak: 0 });
+  });
 });

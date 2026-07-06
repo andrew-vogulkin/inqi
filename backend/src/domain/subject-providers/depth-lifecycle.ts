@@ -98,16 +98,28 @@ export async function evaluateDepthVerdict({ ai, name, subject, matchNote, verdi
   }
 }
 
+/** Refine cycles that cite no NEW evidence before the loop stalls (see decideDepthGate). */
+export const DEPTH_STALL_PATIENCE = 2;
+
 /**
  * F. What the loop does with a gate result, pure: sufficient stops early; no
- * actionable gaps or the SAME gaps twice stop as stalled (the evidence isn't
- * out there — e.g. a genuinely unpublished price); fresh gaps refine.
+ * actionable gaps or the SAME gaps twice stop as stalled. The gate also stalls
+ * on NO PROGRESS — a model that keeps naming freshly-worded gaps while its refine
+ * cycles cite no new sources is chasing answers that aren't on the open web; we
+ * count consecutive no-evidence-gained cycles (`noProgressStreak`) and stall once
+ * `stallPatience` runs out, so re-worded gaps can't grind to the cycle cap.
  */
-export function decideDepthGate({ sufficient, gaps, priorGapsKey }: { sufficient: boolean; gaps: string[]; priorGapsKey: string }): {
-  event: DepthEvent; outcome: DepthOutcome | null; gapsKey: string;
-} {
+export function decideDepthGate({
+  sufficient, gaps, priorGapsKey,
+  evidenceCount = 0, priorEvidenceCount = 0, noProgressStreak = 0, stallPatience = DEPTH_STALL_PATIENCE,
+}: {
+  sufficient: boolean; gaps: string[]; priorGapsKey: string;
+  evidenceCount?: number; priorEvidenceCount?: number; noProgressStreak?: number; stallPatience?: number;
+}): { event: DepthEvent; outcome: DepthOutcome | null; gapsKey: string; noProgressStreak: number } {
   const gapsKey = gaps.map((g) => g.trim().toLowerCase()).sort().join('|');
-  if (sufficient) return { event: DepthEvent.EVIDENCE_SUFFICIENT, outcome: DepthOutcome.Sufficient, gapsKey };
-  if (!gaps.length || gapsKey === priorGapsKey) return { event: DepthEvent.STALLED, outcome: DepthOutcome.Stalled, gapsKey };
-  return { event: DepthEvent.GAPS_NAMED, outcome: null, gapsKey };
+  if (sufficient) return { event: DepthEvent.EVIDENCE_SUFFICIENT, outcome: DepthOutcome.Sufficient, gapsKey, noProgressStreak: 0 };
+  if (!gaps.length || gapsKey === priorGapsKey) return { event: DepthEvent.STALLED, outcome: DepthOutcome.Stalled, gapsKey, noProgressStreak };
+  const streak = evidenceCount > priorEvidenceCount ? 0 : noProgressStreak + 1;
+  if (streak >= stallPatience) return { event: DepthEvent.STALLED, outcome: DepthOutcome.Stalled, gapsKey, noProgressStreak: streak };
+  return { event: DepthEvent.GAPS_NAMED, outcome: null, gapsKey, noProgressStreak: streak };
 }
