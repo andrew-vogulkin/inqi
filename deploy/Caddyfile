@@ -1,0 +1,19 @@
+# inqi front door. Auto-TLS via Let's Encrypt for {$INQI_DOMAIN} (needs the A
+# record pointing here and ports 80/443 open). Serves the SPA and keeps the API +
+# realtime socket same-origin so the relative /api client and Socket.io both work.
+
+{$INQI_DOMAIN} {
+	encode zstd gzip
+
+	# API + realtime → backend. reverse_proxy passes through the WebSocket upgrade
+	# for /socket.io transparently.
+	@backend path /api/* /socket.io/*
+	handle @backend {
+		reverse_proxy backend:4000
+	}
+
+	# Everything else → the SPA (nginx does the /index.html deep-link fallback).
+	handle {
+		reverse_proxy frontend:80
+	}
+}
