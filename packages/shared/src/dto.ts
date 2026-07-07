@@ -199,7 +199,7 @@ export interface ReportBoardDto {
   personaId?: string | null;
   customerEmail: string;
   subject?: { title?: string; description?: string } | null;
-  questionnaire?: { confirmed: boolean; answers?: Record<string, string> | null } | null;
+  questionnaire?: { confirmed: boolean; questions?: QuestionnaireQuestion[]; answers?: Record<string, string> | null } | null;
   epics: BoardEpicDto[];
 }
 

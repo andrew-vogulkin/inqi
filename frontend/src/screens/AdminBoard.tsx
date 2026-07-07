@@ -175,6 +175,20 @@ function EpicDetail({ board, epic, index, onClose }: { board: AdminBoardState; e
         </LineageStep>
         <LineageStep n={3} title="Confirmed scope · questionnaire">
           <span style={{ fontSize: fontSize.sm, color: color.inkSoft, background: color.surfaceSunken, padding: '4px 10px', borderRadius: 7 }}>{board.lineage.confirmedScope}</span>
+          {board.scope && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+              {board.scope.questions.map((q) => {
+                const a = board.scope!.answers[q.id];
+                const deferred = !a || a === 'Decide for me';
+                return (
+                  <div key={q.id} style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                    <div style={{ color: color.subtle }}>{q.prompt}</div>
+                    <div style={{ color: deferred ? color.muted : color.inkSoft, fontStyle: deferred ? 'italic' : 'normal', marginTop: 1 }}>{a || '—'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </LineageStep>
       </div>
 

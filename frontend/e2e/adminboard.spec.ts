@@ -6,7 +6,13 @@ const ADMIN = JSON.stringify({ token: 't', customer: { id: 'a1', email: 'ops@x.i
 const listBody = JSON.stringify([{ id: 'i1', rawRequest: 'a road bike, 56cm, Amsterdam', state: 'OUTREACH', customerEmail: 'c@x.io', createdAt: new Date().toISOString() }]);
 const boardBody = JSON.stringify({
   id: 'i1', rawRequest: 'a road bike, 56cm, Amsterdam', state: 'OUTREACH', customerEmail: 'c@x.io',
-  subject: { title: 'Road bike, 56cm' }, questionnaire: { confirmed: true },
+  subject: { title: 'Road bike, 56cm' },
+  questionnaire: { confirmed: true,
+    questions: [
+      { id: 'terrain', type: 'select', prompt: 'What terrain will you ride?', options: ['Road', 'Gravel'] },
+      { id: 'budget', type: 'select', prompt: 'Budget range?' },
+    ],
+    answers: { terrain: 'Gravel' } }, // budget deliberately left for us to decide
   epics: [{ id: 'e1', strategy: 'escalating', status: 'open', targetQualifiedOptions: 3, releasedWaves: [1], inquiries: [
     { id: 's1', epicId: 'e1', name: 'Velohaus', wave: 1, status: 'contacted', researchPending: true },
     { id: 's2', epicId: 'e1', name: 'Fietsfabriek', wave: 1, status: 'qualified', researchPending: false },
@@ -45,6 +51,10 @@ test('epic detail shows lineage and an inquiry routes to FE-11', async ({ page }
   await page.getByTestId('epic-card').first().click();
   await expect(page.getByText('User request')).toBeVisible();
   await expect(page.getByText('Scope confirmed by the customer')).toBeVisible();
+  // the confirmed-scope Q&A is exposed for the operator (prompt + the customer's answer)
+  await expect(page.getByText('What terrain will you ride?')).toBeVisible();
+  await expect(page.getByText('Gravel', { exact: true })).toBeVisible();
+  await expect(page.getByText('Budget range?')).toBeVisible(); // unanswered question still listed
   await page.getByTestId('inquiry-row').first().click();
   await expect(page).toHaveURL(/#\/admin\/i\/s1/);
 });

@@ -24,6 +24,24 @@ describe('adminBoardReducer — load', () => {
     expect(epicInquiries(s, 'e1').map((x) => x.id)).toEqual(['s1', 's2']);
     expect(s.lineage).toMatchObject({ userRequest: 'a road bike', initialResearch: 'Road bike, 56cm', confirmedScope: 'Scope confirmed by the customer' });
     expect(epicProgress(s, 'e1')).toEqual({ qualified: 1, target: 3 });
+    expect(s.scope).toBeNull(); // no questions on this board → nothing to expose
+  });
+
+  it('exposes the confirmed-scope Q&A when the questionnaire carries questions', () => {
+    const withQ: ReportBoardDto = { ...board, questionnaire: {
+      confirmed: true,
+      questions: [
+        { id: 'guest_count', type: 'select', prompt: 'How many guests?', options: ['<50', '50-150'] },
+        { id: 'budget', type: 'select', prompt: 'Budget range?' },
+      ],
+      answers: { guest_count: '50-150' }, // budget deliberately unanswered
+    } };
+    const s = adminBoardReducer(initialAdminBoardState, { type: ActionType.AdminBoardLoaded, board: withQ });
+    expect(s.scope).toEqual({
+      confirmed: true,
+      questions: [expect.objectContaining({ id: 'guest_count' }), expect.objectContaining({ id: 'budget' })],
+      answers: { guest_count: '50-150' },
+    });
   });
 });
 
