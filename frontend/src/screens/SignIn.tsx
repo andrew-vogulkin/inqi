@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, ClipboardEvent, KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { CSSProperties, FormEvent, ClipboardEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AuthRole } from '@inqi/shared';
 import { AuthState } from '../conventions/enums';
 import { Route, navigate, readReturnTo } from '../conventions/routes';
@@ -20,6 +20,7 @@ export function SignIn() {
   const authState = useSelector((s) => s.session.authState);
   const pendingEmail = useSelector((s) => s.session.pendingEmail);
   const error = useSelector((s) => s.session.error);
+  const session = useSelector((s) => s.session.session);
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [resent, setResent] = useState(false);
@@ -27,6 +28,19 @@ export function SignIn() {
   const busy = authState === AuthState.SigningIn;
   // The code step shows once step 1 was accepted — including after a wrong-code error.
   const codeStep = pendingEmail !== null && (authState === AuthState.CodeSent || authState === AuthState.Error);
+
+  // Redirect off Sign in once the session is COMMITTED to the store — driven by state,
+  // not fired imperatively inside verifyCode. If we navigate before the dispatch commits,
+  // the guarded destination (e.g. /admin) renders while the store still reads signed-out
+  // and the route guard bounces us right back to /signin?returnTo=… (a commit race that
+  // bit iOS Safari; desktop happened to win it). HP-24: resume the deep link we were
+  // bounced from, else the role-aware home (operators → console, customers → dashboard).
+  useLayoutEffect(() => {
+    if (!session) return;
+    const returnTo = readReturnTo();
+    if (returnTo) window.location.hash = returnTo;
+    else navigate({ route: session.customer.role === AuthRole.Admin ? Route.Admin : Route.Dashboard });
+  }, [session]);
 
   // The async glue (call api → dispatch result → route). No business logic here.
   async function requestCode() {
@@ -46,17 +60,13 @@ export function SignIn() {
     if (!pendingEmail || code.length !== OTP_LENGTH || busy) return;
     dispatch({ type: ActionType.SignInStarted });
     try {
-      const session = await authApi.verifyEmail({ email: pendingEmail, code });
-      // Persist the token SYNCHRONOUSLY before navigating: the destination screen's
-      // first authed request must not race the async persist effect (that race sends
-      // a token-less call → 401 → bounce back to Sign in; hit on iOS Safari).
-      setStoredSession(session);
-      dispatch({ type: ActionType.SignedIn, session });
-      // HP-24: resume the deep link the user was bounced from (notification links included),
-      // else land on the role-aware home — operators to the console, customers to the dashboard.
-      const returnTo = readReturnTo();
-      if (returnTo) window.location.hash = returnTo;
-      else navigate({ route: session.customer.role === AuthRole.Admin ? Route.Admin : Route.Dashboard });
+      const sess = await authApi.verifyEmail({ email: pendingEmail, code });
+      // Make the token readable synchronously (the api layer reads it for the Bearer
+      // header) and commit the session. Navigation is handled by the redirect effect
+      // above — once the store reflects the session — so the guarded destination never
+      // renders signed-out and can't bounce back to Sign in.
+      setStoredSession(sess);
+      dispatch({ type: ActionType.SignedIn, session: sess });
     } catch (e) {
       dispatch({ type: ActionType.SignInFailed, message: e instanceof ApiError ? e.message : 'Sign-in failed. Please try again.' });
     }
