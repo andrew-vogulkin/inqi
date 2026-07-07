@@ -17,9 +17,12 @@ export const specializeSchema = z.object({ attributes: z.record(z.unknown()) });
 export const critiqueSchema = draftSchema; // refined title/category/summary
 export const disambiguateSchema = z.object({ interpretation: z.string().min(1), ambiguous: z.boolean() });
 
+const CATEGORIES = Object.values(SubjectCategory).join(' | ');
+const CATEGORY_RULE = `The category MUST be EXACTLY one of: ${CATEGORIES}. Do not invent other category words.`;
+
 const SUBJECT_RULES =
   'You normalise a customer request into a searchable SUBJECT: a concise title, a category, and a one-line summary. '
-  + 'Keep the title specific and free of filler; pick the single best category; never invent facts the request does not support.';
+  + `Keep the title specific and free of filler; pick the single best category; never invent facts the request does not support. ${CATEGORY_RULE}`;
 
 export function enrichBasicSystem(): string { return SUBJECT_RULES; }
 export function enrichBasicUser({ rawRequest, enriched }: { rawRequest: string; enriched?: { title?: string; category?: string; summary?: string } }): string {
