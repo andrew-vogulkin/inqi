@@ -42,7 +42,7 @@ export const SUBJECT_IN = 'SUBJECT_IN';
 export const SUBJECT_OUT = 'SUBJECT_OUT';
 
 /** Registered if-else predicates (referenced by id in a state's config; no free expressions). */
-export const PREDICATES = ['low-confidence', 'is-ambiguous', 'category-is-service', 'has-reference-set'] as const;
+export const PREDICATES = ['low-confidence', 'has-draft', 'category-is-service', 'has-reference-set'] as const;
 export type Predicate = (typeof PREDICATES)[number];
 
 const OPERATORS: OperatorSpec[] = [

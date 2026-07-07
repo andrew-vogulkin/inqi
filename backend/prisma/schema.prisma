@@ -44,6 +44,8 @@ model WorkflowState {
   name         String  // matches ReportState
   isInitial    Boolean @default(false)
   isTerminal   Boolean @default(false)
+  handler      String? // operator id for composable phases (subject_build); defaults to `name`
+  config       Json?   // operator params the composer tunes, e.g. { maxQueries: 3, predicate: "low-confidence" }
 
   definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
 
