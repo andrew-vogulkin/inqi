@@ -50,4 +50,13 @@ describe('compareSubjectGraphs — the gate', () => {
     expect(cmp.gains).toEqual(['short']);
     expect(cmp.accept).toBe(true);
   });
+
+  it('rejects a tie — a candidate that matches the baseline with no gain is not worth drafting', async () => {
+    // Same graph both sides → same passes, no regressions, no gains.
+    const cmp = await compareSubjectGraphs({ baseline: DEFAULT_GRAPH as unknown as SubjectBuildGraph, candidate: DEFAULT_GRAPH as unknown as SubjectBuildGraph, cases: SUBJECT_CASES, deps: deps(goodAi) });
+    expect(cmp.candidate.passed).toBe(cmp.baseline.passed);
+    expect(cmp.regressions).toEqual([]);
+    expect(cmp.gains).toEqual([]);
+    expect(cmp.accept).toBe(false); // no gain → reject
+  });
 });

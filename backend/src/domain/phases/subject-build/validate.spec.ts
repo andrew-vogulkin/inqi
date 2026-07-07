@@ -84,4 +84,23 @@ describe('validateSubjectBuildGraph', () => {
     const res = validateSubjectBuildGraph(g([IN, { name: 'enrich-basic' }, OUT], [{ from: SUBJECT_IN, to: 'enrich-basic', event: 'READY' }]));
     expect(res.errors.join(' ')).toMatch(new RegExp(`${SUBJECT_OUT} is unreachable`));
   });
+
+  // Regression: a live-composed candidate whose transition targets a state that
+  // isn't declared. Such an edge lands on an IN→OUT path, so the typed-I/O pass
+  // used to deref an undefined state (`opOf(undefined)`) and THROW. The validator
+  // must reject cleanly instead — a malformed candidate is rejected, never a crash.
+  it('rejects (does not throw) a transition to an undeclared state on the IN→OUT path', () => {
+    const graph = g(
+      [IN, { name: 'enrich-basic' }, OUT], // 'ghost' is intentionally absent from states
+      [
+        { from: SUBJECT_IN, to: 'enrich-basic', event: 'READY' },
+        { from: 'enrich-basic', to: 'ghost', event: 'DRAFTED' },
+        { from: 'ghost', to: SUBJECT_OUT, event: 'DRAFTED' },
+      ],
+    );
+    let res!: ReturnType<typeof validateSubjectBuildGraph>;
+    expect(() => { res = validateSubjectBuildGraph(graph); }).not.toThrow();
+    expect(res.valid).toBe(false);
+    expect(res.errors.join(' ')).toMatch(/targets an unknown state/);
+  });
 });

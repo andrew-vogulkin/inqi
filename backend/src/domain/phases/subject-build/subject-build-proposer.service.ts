@@ -47,7 +47,10 @@ export class SubjectBuildProposerService implements OnModuleInit {
         },
       });
       if (result.outcome === 'invalid') this.logger.log(`subject_build proposal invalid: ${result.errors.slice(0, 3).join('; ')}`);
-      else if (result.outcome === 'rejected') this.logger.log(`subject_build proposal rejected — did not beat baseline (regressions ${result.comparison.regressions.join(', ') || 'none'})`);
+      else if (result.outcome === 'rejected') {
+        const { comparison: cmp } = result;
+        this.logger.log(`subject_build proposal rejected — no strict win over baseline (baseline ${cmp.baseline.passed}/${cmp.baseline.total} → candidate ${cmp.candidate.passed}/${cmp.candidate.total}; gains ${cmp.gains.join(', ') || 'none'}; regressions ${cmp.regressions.join(', ') || 'none'})`);
+      }
     } catch (e) {
       this.logger.warn(`subject_build proposal errored: ${(e as Error).message}`);
     }
