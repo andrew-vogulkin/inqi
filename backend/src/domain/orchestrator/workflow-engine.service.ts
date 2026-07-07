@@ -7,6 +7,7 @@ import { ConflictError, DomainError, ErrorCode } from '../../common/errors';
 import { CreditsService } from '../credits/credits.service';
 import { settlementActionForState } from '../credits/credits.balance';
 import { lifecycleEventForState, notificationForLifecycle } from '../report/report-lifecycle';
+import { shouldPropose } from '../phases/subject-build/subject-build.trigger';
 import { Actions, Guards } from './workflow-registry';
 
 /**
@@ -98,6 +99,16 @@ export class WorkflowEngine {
         await this.boss.enqueue({ job: QueueJob.SendNotification, data: { reportId, kind } });
       } catch (err) {
         this.logger.error(`lifecycle notification ${kind} failed to enqueue for report ${reportId}: ${(err as Error).message}`);
+      }
+    }
+
+    // subject_build self-improvement: a small chance, per delivery, to enqueue a
+    // candidate proposal (compose → rehearse → draft for operator review). Best-effort.
+    if (trans.toState === ReportState.REPORT_DELIVERED && shouldPropose({ roll: Math.random() })) {
+      try {
+        await this.boss.enqueue({ job: QueueJob.ProposeSubjectBuild, data: {} });
+      } catch (err) {
+        this.logger.warn(`subject_build proposal enqueue failed for report ${reportId}: ${(err as Error).message}`);
       }
     }
 

@@ -313,6 +313,7 @@ export const QueueJob = {
   NotifyAdminsFreemium: 'notify_admins_freemium', // ops tracking: a free (freemium) report was run → alert admins: { reportId }
   PhaseStep: 'phase_step',             // generic phase-run step executor: { runId, expectedState }
   AssembleFunnel: 'assemble_funnel',   // breadth run finished → build epic inquiries/waves from run.data: { runId }
+  ProposeSubjectBuild: 'propose_subject_build', // 5%-on-delivery: compose+rehearse a subject_build candidate → draft for operator review
 } as const;
 export type QueueJob = (typeof QueueJob)[keyof typeof QueueJob];
 
