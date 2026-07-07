@@ -59,10 +59,12 @@ export function validateSubjectBuildGraph(graph: SubjectBuildGraph): ValidationR
     // Rules 2 & 3: typed-I/O reachability — each operator's reads must be produced upstream.
     const available = new Set<string>(IN_PROVIDES);
     for (const name of path) {
-      const spec = PALETTE[opOf(byName.get(name)!)];
+      const st = byName.get(name);
+      if (!st) break; // transition targeted an unknown state (already reported at rule 4) — reject, don't deref
+      const spec = PALETTE[opOf(st)];
       if (!spec) break; // already reported
       const missing = spec.reads.filter((r) => !available.has(r));
-      if (missing.length) errors.push(`operator "${opOf(byName.get(name)!)}" reads ${missing.join(', ')} not produced upstream (path ${path.join(' → ')})`);
+      if (missing.length) errors.push(`operator "${opOf(st)}" reads ${missing.join(', ')} not produced upstream (path ${path.join(' → ')})`);
       spec.writes.forEach((w) => available.add(w));
     }
     // Rule invariant: SUBJECT_OUT's required fields written somewhere on the path.

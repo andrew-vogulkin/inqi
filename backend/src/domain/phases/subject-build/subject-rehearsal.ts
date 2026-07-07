@@ -55,13 +55,14 @@ export interface RehearsalComparison {
   candidate: SubjectScorecard;
   regressions: string[];   // case ids the candidate broke that the baseline passed
   gains: string[];         // case ids the candidate fixed that the baseline failed
-  accept: boolean;         // no regressions AND at least as many passes (a strict win or a tie-up)
+  accept: boolean;         // a STRICT win: no regressions AND at least one gain
 }
 
 /**
  * Baseline-vs-candidate gate: a candidate composition is acceptable only if it
- * breaks NO case the baseline passed, and passes at least as many overall. Both
- * graphs run over the same cases + deps so the comparison is apples-to-apples.
+ * breaks NO case the baseline passed AND fixes at least one the baseline failed
+ * (a strict win — a tie is rejected so operators only review genuine gains).
+ * Both graphs run over the same cases + deps so the comparison is apples-to-apples.
  */
 export async function compareSubjectGraphs({ baseline, candidate, cases, deps }: {
   baseline: SubjectBuildGraph; candidate: SubjectBuildGraph; cases: SubjectCase[]; deps: RehearsalDeps;
@@ -73,5 +74,5 @@ export async function compareSubjectGraphs({ baseline, candidate, cases, deps }:
 
   const regressions = [...bPass].filter((id) => !cPass.has(id));
   const gains = [...cPass].filter((id) => !bPass.has(id));
-  return { baseline: b, candidate: c, regressions, gains, accept: regressions.length === 0 && c.passed >= b.passed };
+  return { baseline: b, candidate: c, regressions, gains, accept: regressions.length === 0 && gains.length > 0 };
 }
