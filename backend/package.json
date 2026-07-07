@@ -7,6 +7,7 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "test": "jest",
+    "test:int": "jest -c jest.int.config.js --runInBand",
     "prisma": "prisma",
     "db:promote-admin": "tsx prisma/promote-admin.ts"
   },
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@nestjs/cli": "^10.4.0",
     "@nestjs/testing": "^10.3.0",
+    "@testcontainers/postgresql": "^12.0.4",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.0",
     "@types/node": "^22.0.0",

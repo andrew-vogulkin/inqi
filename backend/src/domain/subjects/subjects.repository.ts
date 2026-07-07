@@ -87,7 +87,7 @@ export class SubjectsRepository {
                    ELSE NULL END AS "distanceMeters",
               EXTRACT(EPOCH FROM (now() - r."createdAt")) / 86400.0 AS "ageDays"
        FROM "Subject" s
-       JOIN "Report" r ON r."reportId" = s."reportId"
+       JOIN "ReportSnapshot" r ON r."reportId" = s."reportId"
        WHERE s."reportId" <> $2
          AND s.embedding IS NOT NULL
        ORDER BY distance ASC
