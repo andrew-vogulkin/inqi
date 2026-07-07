@@ -9,6 +9,12 @@ export interface PageReadResult {
   /** Visible page text, whitespace-collapsed and truncated to the configured budget. */
   text: string;
   truncated: boolean;
+  /** HTTP status of the navigation response (undefined if none). */
+  status?: number;
+  /** True when the page served a bot-challenge / login wall instead of content — `text` is not real content. */
+  blocked?: boolean;
+  /** Why it was classified as blocked (e.g. "bot challenge (Cloudflare)", "login wall"). */
+  blockReason?: string;
 }
 
 export interface PageReader {

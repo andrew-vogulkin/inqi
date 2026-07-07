@@ -1,4 +1,4 @@
-import { EventType, InquiryStatus, ReportState, InqiEvent } from '@inqi/shared';
+import { EventType, InquiryStatus, ReportState, InqiEvent, QuestionnaireQuestion } from '@inqi/shared';
 import { AsyncStatus, ReportEventType } from '../conventions/enums';
 import { ReportBoardDto, SourceDto } from '../api/types';
 import { Action, ActionType } from './actions';
@@ -20,6 +20,8 @@ export interface AdminBoardState {
   inquiriesById: Record<string, InquiryVM>;
   findingsById: Record<string, FindingVM>;
   lineage: { userRequest: string; initialResearch: string; confirmedScope: string };
+  // The customer's confirmed scope Q&A (read-only), shown under lineage step 3.
+  scope: { questions: QuestionnaireQuestion[]; answers: Record<string, string>; confirmed: boolean } | null;
   events: BoardEventItem[]; // agent activity stream
   cursor: string;
   seen: Record<string, true>;
@@ -35,6 +37,7 @@ export const initialAdminBoardState: AdminBoardState = {
   inquiriesById: {},
   findingsById: {},
   lineage: { userRequest: '', initialResearch: '', confirmedScope: '' },
+  scope: null,
   events: [],
   cursor: '0',
   seen: {},
@@ -64,7 +67,7 @@ export function epicProgress(state: AdminBoardState, epicId: string): { qualifie
 
 const gt = (a: string, b: string) => BigInt(a) > BigInt(b);
 
-function buildFromBoard(board: ReportBoardDto): Pick<AdminBoardState, 'epicsById' | 'epicOrder' | 'inquiriesById' | 'lineage' | 'title' | 'reportState' | 'reportId'> {
+function buildFromBoard(board: ReportBoardDto): Pick<AdminBoardState, 'epicsById' | 'epicOrder' | 'inquiriesById' | 'lineage' | 'scope' | 'title' | 'reportState' | 'reportId'> {
   const epicsById: Record<string, EpicVM> = {};
   const epicOrder: string[] = [];
   const inquiriesById: Record<string, InquiryVM> = {};
@@ -79,6 +82,7 @@ function buildFromBoard(board: ReportBoardDto): Pick<AdminBoardState, 'epicsById
     epicOrder.push(e.id);
   }
   const q = board.questionnaire;
+  const questions = q?.questions ?? [];
   return {
     reportId: board.id,
     title: board.rawRequest,
@@ -91,6 +95,8 @@ function buildFromBoard(board: ReportBoardDto): Pick<AdminBoardState, 'epicsById
       initialResearch: board.subject?.title || board.subject?.description || 'Pre-research in progress…',
       confirmedScope: q?.confirmed ? 'Scope confirmed by the customer' : 'Awaiting customer confirmation',
     },
+    // Read-only scope Q&A for the operator — the questions with the customer's answers.
+    scope: questions.length ? { questions, answers: q?.answers ?? {}, confirmed: !!q?.confirmed } : null,
   };
 }
 
