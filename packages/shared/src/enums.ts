@@ -310,6 +310,7 @@ export const QueueJob = {
   ProcessReply: 'process_reply',
   InquirySettled: 'inquiry_settled',   // agentic reactor: react to an inquiry qualifying/failing
   SendNotification: 'send_notification', // customer notifications (report-ready / denial) — HP-13
+  NotifyAdminsFreemium: 'notify_admins_freemium', // ops tracking: a free (freemium) report was run → alert admins: { reportId }
   PhaseStep: 'phase_step',             // generic phase-run step executor: { runId, expectedState }
   AssembleFunnel: 'assemble_funnel',   // breadth run finished → build epic inquiries/waves from run.data: { runId }
 } as const;

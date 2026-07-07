@@ -32,6 +32,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     await this.boss.work<{ reportId: string; kind: NotificationKind }>({ job: QueueJob.SendNotification, handler: (j) => this.handle(j.data) });
+    await this.boss.work<{ reportId: string }>({ job: QueueJob.NotifyAdminsFreemium, handler: (j) => this.notifyAdminsOfFreemium(j.data) });
     this.sweepTimer = setInterval(() => { void this.sweepReminders(); }, this.config.notifications.sweepIntervalMs);
   }
 
@@ -51,6 +52,39 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     await this.channel.send({ to: inq.customerEmail, subject, body });
     await this.outbox.emit({ type: EventType.NotificationSent, reportId, data: { kind, to: inq.customerEmail } });
     this.logger.log(`notification ${kind} sent to ${inq.customerEmail}`);
+  }
+
+  /**
+   * Ops tracking (not customer-facing): a customer just ran their free (freemium)
+   * report — email every admin so free-tier usage can be tracked. Fans out to all
+   * `role=admin` customers; each recipient is sent independently (Postmark rewrites
+   * each `to` to the approval-window override inbox with the real address tagged).
+   * Not emitted into the report's activity timeline — admin addresses stay internal.
+   */
+  private async notifyAdminsOfFreemium({ reportId }: { reportId: string }): Promise<void> {
+    const inq = await this.repo.findReport({ id: reportId });
+    if (!inq) return;
+    const admins = await this.repo.findAdminEmails();
+    if (!admins.length) { this.logger.warn(`freemium report ${inq.ref ?? reportId} run, but no admin recipients configured`); return; }
+    const ref = inq.ref ?? reportId;
+    const subject = `Free report run: ${ref} — ${this.brief(inq.rawRequest)}`;
+    const body = [
+      'A customer just ran their free (freemium) report.',
+      '',
+      `Customer: ${inq.customerEmail}`,
+      `Ref:      ${ref}`,
+      `Request:  ${inq.rawRequest}`,
+      '',
+      `View: ${this.reportUrl(reportId)}`,
+    ].join('\n');
+    for (const to of admins) await this.channel.send({ to, subject, body });
+    this.logger.log(`freemium-report admin alert for ${ref} sent to ${admins.length} admin(s)`);
+  }
+
+  /** One-line request preview for an email subject. */
+  private brief(text: string, max = 60): string {
+    const t = text.trim().replace(/\s+/g, ' ');
+    return t.length > max ? `${t.slice(0, max - 1)}…` : t;
   }
 
   /** Per-kind template context; null → skip the send (nothing sensible to say). */

@@ -56,6 +56,9 @@ export class ReportService {
     const kind = notificationForLifecycle(ReportLifecycleEvent.Created);
     if (kind) await this.boss.enqueue({ job: QueueJob.SendNotification, data: { reportId: inq.id, kind } });
 
+    // Ops tracking (HP-21): a free (freemium) report was just run — alert the admins.
+    if (inq.freeReport) await this.boss.enqueue({ job: QueueJob.NotifyAdminsFreemium, data: { reportId: inq.id } });
+
     await this.wf.advance({ reportId: inq.id, event: WorkflowEvent.START_PRE_RESEARCH }); // kicks off pre-research (post-commit)
     return inq;
   }
