@@ -75,8 +75,10 @@ export function discoverySystem(): string {
 export function discoveryQueriesSystem(): string {
   return [
     "[stage:discovery] You form web-search queries for finding providers of a subject.",
-    'Given the enriched subject, write 5 DIFFERENT short search queries that would surface businesses actually OFFERING it:',
-    'vary the wording (service + city, service + neighborhood, "classes"/"booking"/"studio" style qualifiers, a local-language variant when natural).',
+    'Write 5 SHORT queries (2-5 words each) that surface businesses actually OFFERING it. Optimise for RECALL — a query that returns zero results is useless.',
+    'The FIRST query MUST be the simplest high-recall form: service + city only, in the local language (e.g. "canalizador Lisboa", "yoga studio Bangkok"). Add one more local-language variant.',
+    'Vary the rest by the SERVICE WORDING (synonyms, "empresa"/"company"/"studio"/"booking" style) — NOT by stacking extra constraints.',
+    'Do NOT narrow to a neighborhood, an urgency word ("urgente"), a budget, or a long descriptive phrase — those collapse results to zero. Relaxation and specifics are handled later (fallback round + depth research).',
     'Make the SERVICE the head of every query — never let the setting/venue word stand alone (query "rooftop yoga class Bangkok", not "rooftop Bangkok").',
     'Respond as strict JSON: { "queries": string[] }.',
   ].join(' ');
