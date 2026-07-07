@@ -1,5 +1,5 @@
 import { FindingKind, ProvenanceDepth, OutreachOutcome } from '@inqi/shared';
-import { SnapshotsService } from './snapshots.service';
+import { SnapshotsService, pickContactWebsite } from './snapshots.service';
 
 interface MockMessage { direction: string; subject?: string | null; body: string; createdAt: Date }
 
@@ -56,6 +56,34 @@ describe('SnapshotsService.provenance (HP-20)', () => {
 
   it('404s for an unknown option ref', async () => {
     await expect(svcWith({ inquiryStatus: 'replied' }).provenance({ reportId: 'i1', ref: 'Nope' })).rejects.toThrow();
+  });
+});
+
+describe('pickContactWebsite — prefer a direct artifact/service page over the homepage', () => {
+  const SITE = 'https://unicorncards.co.uk/';
+
+  it('picks the vendor-domain product page cited in the sources', () => {
+    const sources = [
+      { url: 'https://www.trustpilot.com/review/unicorncards.co.uk' }, // third-party — ignored
+      { url: 'https://unicorncards.co.uk/products/charizard-holo-1st-ed' }, // direct product page
+    ];
+    expect(pickContactWebsite({ website: SITE, sources })).toBe('https://unicorncards.co.uk/products/charizard-holo-1st-ed');
+  });
+
+  it('matches vendor subdomains (shop.unicorncards.co.uk)', () => {
+    const sources = [{ url: 'https://shop.unicorncards.co.uk/collections/pokemon' }];
+    expect(pickContactWebsite({ website: SITE, sources })).toBe('https://shop.unicorncards.co.uk/collections/pokemon');
+  });
+
+  it('falls back to the general site when sources only have the homepage or third-party pages', () => {
+    expect(pickContactWebsite({ website: SITE, sources: [{ url: 'https://unicorncards.co.uk/' }] })).toBe(SITE);
+    expect(pickContactWebsite({ website: SITE, sources: [{ url: 'https://ebay.com/itm/12345' }] })).toBe(SITE);
+    expect(pickContactWebsite({ website: SITE, sources: [] })).toBe(SITE);
+  });
+
+  it('a null website stays null (no vendor domain to anchor to), and junk urls are tolerated', () => {
+    expect(pickContactWebsite({ website: null, sources: [{ url: 'https://x/y' }] })).toBeNull();
+    expect(pickContactWebsite({ website: SITE, sources: [{ url: 'not-a-url' }, { url: 42 }] })).toBe(SITE);
   });
 });
 

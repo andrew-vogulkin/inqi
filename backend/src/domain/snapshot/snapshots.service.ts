@@ -25,6 +25,31 @@ const toStringArray = (v: unknown): string[] => (Array.isArray(v) ? v.map(String
 const toRecordArray = (v: unknown): Record<string, unknown>[] =>
   Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? { url: x } : (x as Record<string, unknown>))) : [];
 
+const hostname = (u: string): string | null => {
+  try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch { return null; }
+};
+
+/**
+ * "Contact them directly" should point at the DIRECT artifact/service page when the
+ * research found one, not the bare homepage. Among the cited web sources, pick the
+ * first URL that lives on the vendor's OWN domain (same host, incl. subdomains) with a
+ * non-root path (a product/service/listing page) — that's what the customer actually
+ * wants to reach. Third-party pages (reviews, marketplaces) are ignored: the section is
+ * for reaching the vendor. Falls back to the general site link when discovery only saw
+ * the homepage. `null` website in → `null` out (no vendor domain to anchor to).
+ */
+export function pickContactWebsite({ website, sources }: { website: string | null; sources: { url?: unknown }[] }): string | null {
+  if (!website) return null;
+  const siteHost = hostname(website);
+  if (!siteHost) return website;
+  const sameSite = (h: string | null): boolean => !!h && (h === siteHost || h.endsWith(`.${siteHost}`) || siteHost.endsWith(`.${h}`));
+  const deepPath = (u: string): boolean => { try { return new URL(u).pathname.replace(/\/+$/, '').length > 1; } catch { return false; } };
+  const direct = sources
+    .map((s) => (typeof s.url === 'string' ? s.url : ''))
+    .find((u) => u && sameSite(hostname(u)) && deepPath(u));
+  return direct ?? website;
+}
+
 /**
  * HP-21 freemium redaction: reveal only the **#5-ranked** option (or the lowest-ranked
  * if there are fewer than 5); the better-ranked options become **locked stubs** carrying
@@ -350,6 +375,8 @@ export class SnapshotsService {
     });
 
     const contactEmail = msgs.find((m) => m.direction === MessageDirection.Outbound && m.toAddr)?.toAddr ?? null;
+    // Prefer a direct product/service page from the research over the bare homepage.
+    const website = pickContactWebsite({ website: contact.website ?? null, sources: web });
     return {
       web,
       feedback,
@@ -358,7 +385,7 @@ export class SnapshotsService {
       depth: contacted ? ProvenanceDepth.WebOutreachFeedback : hasFeedback ? ProvenanceDepth.WebFeedback : ProvenanceDepth.WebOnly,
       researchPending: inquiry?.researchPending ?? false,
       summaries,
-      reference: { website: contact.website ?? null, socials: contact.socials ?? [], contactEmail },
+      reference: { website, socials: contact.socials ?? [], contactEmail },
     };
   }
 
