@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ReportState } from '@inqi/shared';
+import { AuthRole, ReportState } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for notifications (reads + the exactly-once reminder claim). */
@@ -13,7 +13,13 @@ export class NotificationRepository {
   }
 
   findReport({ id, tx }: { id: string; tx?: DbTx }) {
-    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, customerEmail: true, state: true, denyReason: true, rawRequest: true } });
+    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, ref: true, customerEmail: true, state: true, denyReason: true, rawRequest: true } });
+  }
+
+  /** Admin recipients for ops alerts (e.g. a free report was run). Empty = no admins configured. */
+  async findAdminEmails({ tx }: { tx?: DbTx } = {}): Promise<string[]> {
+    const rows = await this.exec(tx).customer.findMany({ where: { role: AuthRole.Admin }, select: { email: true } });
+    return rows.map((r) => r.email);
   }
 
   /** The questionnaire's capability token + expiry (for the needs-you email). */

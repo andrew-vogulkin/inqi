@@ -46,4 +46,16 @@ describe('ReportService.create — credits before the free slot, charge only on 
     await expect(svc.create({ dto, viewer })).rejects.toThrow(PaymentRequiredError);
     expect(reports.create).not.toHaveBeenCalled();
   });
+
+  it('a freemium report also enqueues the admin tracking alert (ops)', async () => {
+    const { svc, boss } = makeService({ balance: 0, freeSlot: true });
+    await svc.create({ dto, viewer });
+    expect(boss.enqueue).toHaveBeenCalledWith(expect.objectContaining({ job: 'notify_admins_freemium', data: { reportId: 'r1' } }));
+  });
+
+  it('a paid report does NOT alert admins (only free-tier runs are tracked)', async () => {
+    const { svc, boss } = makeService({ balance: 5, freeSlot: true });
+    await svc.create({ dto, viewer });
+    expect(boss.enqueue).not.toHaveBeenCalledWith(expect.objectContaining({ job: 'notify_admins_freemium' }));
+  });
 });
