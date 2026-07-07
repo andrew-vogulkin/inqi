@@ -19,7 +19,14 @@ export interface StepCtx {
   report: Report;
   inquiry: Inquiry | null;
   log: StageLogger;
+  /** For composable phases: the current state's operator id (`WorkflowState.handler`, defaults to the state name). */
+  handler?: string | null;
+  /** For composable phases: the current state's operator params (`WorkflowState.config`). */
+  config?: Record<string, unknown> | null;
 }
+
+/** A per-key catch-all handler registers under this state; used when no exact (key,state) match exists. */
+export const WILDCARD_STATE = '*';
 
 export interface StepHandler {
   execute(ctx: StepCtx): Promise<StepOutcome>;
@@ -39,6 +46,8 @@ export class PhaseStepRegistry {
   }
 
   find({ key, state }: { key: string; state: string }): StepHandler | null {
-    return this.handlers.get(`${key}:${state}`) ?? null;
+    // Exact (key,state) wins; a composable phase (subject_build) registers one
+    // catch-all under WILDCARD_STATE because its state names are author-defined.
+    return this.handlers.get(`${key}:${state}`) ?? this.handlers.get(`${key}:${WILDCARD_STATE}`) ?? null;
   }
 }
