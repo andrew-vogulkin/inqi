@@ -150,7 +150,12 @@ export function SignIn() {
           <p data-testid="signin-error" style={{ color: color.warn, marginTop: space[3], fontSize: fontSize.sm, textAlign: 'left' }}>{error}</p>
         )}
 
-        {!codeStep && <p style={{ fontSize: fontSize.sm, color: color.subtle, margin: `${space[5]}px 0 0` }}>First report is free. No card required.</p>}
+        {!codeStep && (
+          <>
+            <p style={{ fontSize: fontSize.sm, color: color.subtle, margin: `${space[5]}px 0 0` }}>New here? We&rsquo;ll create your account automatically — no separate sign-up.</p>
+            <p style={{ fontSize: fontSize.sm, color: color.subtle, margin: `${space[2]}px 0 0` }}>First report is free. No card required.</p>
+          </>
+        )}
       </div>
     </div>
   );
