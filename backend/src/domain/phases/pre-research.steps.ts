@@ -10,6 +10,14 @@ import { QuestionnaireGenerator } from '../questionnaire/questionnaire-generator
 import { QuestionnaireQuestion } from '../questionnaire/questionnaire.types';
 import { feasibilitySystem, FeasibilityVerdict, buildFeasibilityUser, feasibilitySchema } from '../orchestrator/prompts/feasibility.prompt';
 import { PhaseStepRegistry, StepCtx, StepOutcome } from './phase-step.tokens';
+import { initSubjectBuildData } from './subject-build/draft';
+import { DEFAULT_GRAPH } from './subject-build/operators';
+import { SubjectBuildGraph } from './subject-build/validate';
+import { SubjectStepDeps } from './subject-build/subject-build.dispatch';
+import { interpretSubjectBuild } from './subject-build/subject-build.interpreter';
+
+/** The composable subject-build phase key (its state names are author-defined). */
+const SUBJECT_BUILD_KEY = 'subject_build';
 
 /** run.data carried between pre_research steps. */
 interface PreResearchRunData {
@@ -78,13 +86,43 @@ export class PreResearchSteps {
   }
 
   /** Create the Subject (idempotent — a step retry must not trip the unique reportId). */
-  private async subject({ run, report }: StepCtx): Promise<StepOutcome> {
+  private async subject({ run, report, log }: StepCtx): Promise<StepOutcome> {
     const existing = await this.db.subject.findUnique({ where: { reportId: report.id }, select: { id: true } });
-    if (!existing) {
-      const { enriched } = (run.data ?? {}) as PreResearchRunData;
+    if (existing) return { event: PreResearchEvent.SUBJECT_CREATED }; // idempotent redelivery
+
+    const { enriched } = (run.data ?? {}) as PreResearchRunData;
+    const graph = await this.loadSubjectBuildGraph();
+    const deps: SubjectStepDeps = {
+      ai: this.ai,
+      findReuse: async () => null, // draft-based reuse not wired yet; reuse-lookup degrades to NO_REUSE
+      persist: async ({ title, description, category }) => {
+        await this.subjects.createFromReport({ reportId: report.id, rawRequest: report.rawRequest, enriched: { title, category, summary: description } });
+      },
+    };
+
+    const result = await interpretSubjectBuild({ graph, data: initSubjectBuildData({ rawRequest: report.rawRequest, enriched }), deps });
+    if (result.created) {
+      await log({ message: `Subject built via ${result.path.join(' → ')}`, data: { steps: result.data.stepCount } });
+    } else {
+      // Graceful degrade: a failed/short composition never blocks the report — fall back to the naive subject.
+      this.logger.warn(`subject_build did not persist for report ${report.id} (path ${result.path.join(' → ')}) — naive fallback`);
       await this.subjects.createFromReport({ reportId: report.id, rawRequest: report.rawRequest, enriched });
     }
     return { event: PreResearchEvent.SUBJECT_CREATED };
+  }
+
+  /** The active subject_build graph (author-composed), or the seeded default (IN → enrich-basic → OUT). */
+  private async loadSubjectBuildGraph(): Promise<SubjectBuildGraph> {
+    const def = await this.db.workflowDefinition.findFirst({
+      where: { key: SUBJECT_BUILD_KEY, status: 'active' },
+      orderBy: { version: 'desc' },
+      include: { states: true, transitions: true },
+    });
+    if (!def) return DEFAULT_GRAPH as unknown as SubjectBuildGraph;
+    return {
+      states: def.states.map((s) => ({ name: s.name, handler: s.handler ?? undefined, config: (s.config as SubjectBuildGraph['states'][number]['config']) ?? undefined, isInitial: s.isInitial, isTerminal: s.isTerminal })),
+      transitions: def.transitions.map((t) => ({ from: t.fromState, to: t.toState, event: t.event })),
+    };
   }
 
   /** The questionnaire agent researches the topic and generates the scope questions (static fallback inside). */
