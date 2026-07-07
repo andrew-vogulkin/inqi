@@ -1,5 +1,5 @@
-import { OutreachStrategy } from '@inqi/shared';
-import { OutreachActionKind, SynthesisGate, assignWaves, decideNextAction, decideSynthesisGate, planSize } from './planning';
+import { InquiryStatus, OutreachStrategy } from '@inqi/shared';
+import { OutreachActionKind, SynthesisGate, assignWaves, decideNextAction, decideSynthesisGate, pendingUnreleasedWaves, planSize } from './planning';
 
 const cands = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `P${i}`, country: 'X' }));
 
@@ -26,6 +26,27 @@ describe('assignWaves', () => {
   });
   it('one_by_one → ascending waves', () => {
     expect(assignWaves({ candidates: cands(3), strategy: OutreachStrategy.ONE_BY_ONE }).map((x) => x.wave)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('pendingUnreleasedWaves', () => {
+  const inq = (status: string, wave: number) => ({ status, wave });
+
+  it('returns the distinct waves that still hold pending inquiries', () => {
+    const inquiries = [inq(InquiryStatus.Pending, 2), inq(InquiryStatus.Pending, 2), inq(InquiryStatus.Pending, 3), inq(InquiryStatus.Qualified, 1)];
+    expect(pendingUnreleasedWaves({ inquiries, releasedWaves: [1] }).sort()).toEqual([2, 3]);
+  });
+
+  it('EXCLUDES a wave already released — a pending inquiry left behind after release is NOT releasable', () => {
+    // The wedge: wave 3 released, but two inquiries sit `pending` (ambiguous verdict / a
+    // send that never settled them). Without the exclusion the reactor loops on Release(3).
+    const inquiries = [inq(InquiryStatus.Qualified, 1), inq(InquiryStatus.Pending, 3), inq(InquiryStatus.Pending, 3)];
+    expect(pendingUnreleasedWaves({ inquiries, releasedWaves: [1, 2, 3] })).toEqual([]);
+  });
+
+  it('non-pending inquiries never count as a releasable wave', () => {
+    const inquiries = [inq(InquiryStatus.Contacted, 2), inq(InquiryStatus.Failed, 2), inq(InquiryStatus.Qualified, 3)];
+    expect(pendingUnreleasedWaves({ inquiries, releasedWaves: [] })).toEqual([]);
   });
 });
 

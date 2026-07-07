@@ -202,7 +202,7 @@ export class ConfigService {
    * `leaseMs`; the reaper sweeps every `reaperIntervalMs` and retries a stuck
    * stage up to `maxAttempts` times before dead-lettering it to a failure state.
    */
-  get resilience(): { leaseMs: number; reaperIntervalMs: number; maxAttempts: number; replyTimeoutMinutes: number } {
+  get resilience(): { leaseMs: number; reaperIntervalMs: number; maxAttempts: number; replyTimeoutMinutes: number; outreachStallMs: number } {
     return {
       leaseMs: Number(process.env.STAGE_LEASE_MS ?? 30_000),
       reaperIntervalMs: Number(process.env.REAPER_INTERVAL_MS ?? 10_000),
@@ -210,6 +210,9 @@ export class ConfigService {
       // A contacted inquiry silent this long is marked UNRESPONSIVE by the reaper (not
       // failed — the thread stays open) so the report stops waiting on it.
       replyTimeoutMinutes: Number(process.env.REPLY_TIMEOUT_MINUTES ?? 240),
+      // A report resting at OUTREACH this long with no research still in flight is
+      // wedged (a lost/stale reactor kick) — the stalled-outreach sweep re-kicks it.
+      outreachStallMs: Number(process.env.OUTREACH_STALL_MS ?? 120_000),
     };
   }
 
