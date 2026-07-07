@@ -5,6 +5,7 @@ import { Route, navigate, readReturnTo } from '../conventions/routes';
 import { OTP_LENGTH, otpDigits, applyDigit, applyBackspace, applyPaste } from '../conventions/otp';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
 import { authApi, ApiError } from '../api';
+import { setStoredSession } from '../conventions/session-storage';
 import { SonarMark } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
@@ -46,6 +47,10 @@ export function SignIn() {
     dispatch({ type: ActionType.SignInStarted });
     try {
       const session = await authApi.verifyEmail({ email: pendingEmail, code });
+      // Persist the token SYNCHRONOUSLY before navigating: the destination screen's
+      // first authed request must not race the async persist effect (that race sends
+      // a token-less call → 401 → bounce back to Sign in; hit on iOS Safari).
+      setStoredSession(session);
       dispatch({ type: ActionType.SignedIn, session });
       // HP-24: resume the deep link the user was bounced from (notification links included),
       // else land on the role-aware home — operators to the console, customers to the dashboard.
