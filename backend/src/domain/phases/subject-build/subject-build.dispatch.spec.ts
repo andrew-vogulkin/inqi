@@ -1,0 +1,49 @@
+import { initSubjectBuildData } from './draft';
+import { MAX_OPERATORS } from './validate';
+import { runSubjectStep, SubjectStepDeps } from './subject-build.dispatch';
+import { Ai } from './operators.runtime';
+
+const okAi: Ai = { isConfigured: () => true, structured: async ({ validate }) => validate({ title: 'A venue', category: 'organisation', summary: 'Outdoor', confidence: 0.8 }) as never };
+const deps = (over: Partial<SubjectStepDeps> = {}): SubjectStepDeps => ({ ai: okAi, findReuse: async () => null, persist: async () => undefined, ...over });
+const base = () => initSubjectBuildData({ rawRequest: 'a wedding venue in Tagaytay' });
+
+describe('runSubjectStep', () => {
+  it('SUBJECT_IN emits READY', async () => {
+    expect(await runSubjectStep({ operatorId: 'SUBJECT_IN', config: undefined, data: base(), deps: deps() })).toEqual({ event: 'READY' });
+  });
+
+  it('runs an operator, merges the draft, and bumps stepCount', async () => {
+    const res = await runSubjectStep({ operatorId: 'enrich-basic', config: undefined, data: base(), deps: deps() });
+    expect(res.event).toBe('DRAFTED');
+    expect(res.data?.draft.title).toBe('A venue');
+    expect(res.data?.stepCount).toBe(1);
+  });
+
+  it('SUBJECT_OUT persists the Subject when the invariant holds', async () => {
+    let persisted: unknown;
+    const data = { ...base(), draft: { title: 'Hillcreek', summary: 'A venue', category: 'organisation' } };
+    const res = await runSubjectStep({ operatorId: 'SUBJECT_OUT', config: undefined, data, deps: deps({ persist: async (f) => { persisted = f; } }) });
+    expect(res.event).toBe('SUBJECT_CREATED');
+    expect(persisted).toEqual({ title: 'Hillcreek', description: 'A venue', category: 'organisation' });
+  });
+
+  it('SUBJECT_OUT fails cleanly (no persist) when the invariant is not met', async () => {
+    let called = false;
+    const res = await runSubjectStep({ operatorId: 'SUBJECT_OUT', config: undefined, data: { ...base(), draft: { title: 'X' } }, deps: deps({ persist: async () => { called = true; } }) });
+    expect(res.event).toBe('STEP_FAILED');
+    expect(called).toBe(false);
+  });
+
+  it('enforces the runtime ≤5 operator cap (a loop cannot escape it)', async () => {
+    const res = await runSubjectStep({ operatorId: 'self-critique', config: undefined, data: { ...base(), stepCount: MAX_OPERATORS }, deps: deps() });
+    expect(res.event).toBe('STEP_FAILED');
+    expect(res.data?.notes?.join(' ')).toMatch(new RegExp(`cap ${MAX_OPERATORS} reached`));
+  });
+
+  it('routes if-else on its predicate and fails an unknown operator', async () => {
+    const branch = await runSubjectStep({ operatorId: 'if-else', config: { predicate: 'has-draft' }, data: { ...base(), draft: { title: 'X' } }, deps: deps() });
+    expect(branch.event).toBe('THEN');
+    const unknown = await runSubjectStep({ operatorId: 'no-such-op', config: undefined, data: base(), deps: deps() });
+    expect(unknown.event).toBe('STEP_FAILED');
+  });
+});

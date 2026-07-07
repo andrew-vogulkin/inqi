@@ -93,8 +93,11 @@ export async function opDisambiguate({ data, ai }: { data: SubjectBuildData; ai:
   } catch { return { event: 'CLEAR', note: 'disambiguate skipped (AI failed)' }; }
 }
 
+/** A near-identical prior subject found by reuse-lookup. */
+export interface SubjectDraftReuse { snapshotId: string; summary?: string }
+
 /** reuse-lookup: adapt a near-identical prior subject. `findReuse` wraps the (fixed) findReusableCandidates + decideReuse. */
-export async function opReuseLookup({ data, findReuse }: { data: SubjectBuildData; findReuse: (draft: SubjectDraft) => Promise<{ snapshotId: string; summary?: string } | null> }): Promise<OperatorOutcome> {
+export async function opReuseLookup({ data, findReuse }: { data: SubjectBuildData; findReuse: (draft: SubjectDraft) => Promise<SubjectDraftReuse | null> }): Promise<OperatorOutcome> {
   try {
     const hit = await findReuse(data.draft);
     if (!hit) return { event: 'NO_REUSE' };
