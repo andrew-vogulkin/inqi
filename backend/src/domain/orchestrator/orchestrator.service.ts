@@ -13,7 +13,7 @@ import { SnapshotsService } from '../snapshot/snapshots.service';
 import { PhaseEngine } from '../phases/phase-engine.service';
 import { ConflictError } from '../../common/errors';
 import { ReportLifecycleEvent, notificationForLifecycle } from '../report/report-lifecycle';
-import { OutreachActionKind, SynthesisGate, decideNextAction, decideSynthesisGate, planSize } from './planning';
+import { OutreachActionKind, SynthesisGate, decideNextAction, decideSynthesisGate, pendingUnreleasedWaves, planSize } from './planning';
 import { WorkflowEngine } from './workflow-engine.service';
 import { OrchestratorRepository } from './orchestrator.repository';
 import { OutreachControlService } from './outreach-control.service';
@@ -249,7 +249,10 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     // holds the funnel — the inbound webhook triggers evaluation when (if) a reply
     // arrives, and a delivered report re-evaluates itself then.
     const inFlight = subs.filter((s) => s.researchPending && !SETTLED_FOR_FLOW.includes(s.status as InquiryStatus)).length;
-    const pendingWaves = [...new Set(subs.filter((s) => s.status === InquiryStatus.Pending).map((s) => s.wave))];
+    // Only waves not YET released are releasable — a `Pending` inquiry whose wave already
+    // went out (ambiguous verdict / a send that never settled it) must not read as a fresh
+    // wave, or the reactor loops on a no-op Release and the report wedges at OUTREACH.
+    const pendingWaves = pendingUnreleasedWaves({ inquiries: subs, releasedWaves: epic.releasedWaves ?? [] });
 
     // HP-23: the report's stage is derived from qualified count. While the workflow
     // state holds at OUTREACH, crossing a readiness threshold (Researching → Partially
@@ -337,8 +340,29 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
         await this.recoverStage({ reportId: r.reportId, error: 'lease expired (reaped)' });
       }
       await this.reapSilentThreads();
+      await this.reapStalledOutreach();
     } catch (e) {
       this.logger.error(`reaper sweep failed: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Liveness net for the agentic reactor. The reactor is edge-triggered on
+   * InquirySettled; a settlement observed with a stale read (e.g. a `researchPending`
+   * clear not yet visible) can decide Wait on what is really the FINAL settlement,
+   * leaving the report resting at OUTREACH with no further trigger. This sweep re-kicks
+   * the reactor for OUTREACH reports untouched past `outreachStallMs` with no research
+   * still in flight: a no-op if the reactor is genuinely mid-flight, otherwise it
+   * releases the next wave / widens / finishes (delivering a partial report) as it
+   * should have. Idempotent — onInquirySettled no-ops off OUTREACH.
+   */
+  private async reapStalledOutreach(): Promise<void> {
+    const idleSince = new Date(Date.now() - this.config.resilience.outreachStallMs);
+    const stalled = await this.repo.findStalledOutreachReports({ idleSince });
+    for (const r of stalled) {
+      const epic = await this.repo.findLatestEpic({ reportId: r.id });
+      this.logger.warn(`reaper: report ${r.id} wedged at OUTREACH (idle, no research in flight) — re-kicking the reactor`);
+      await this.boss.enqueue({ job: QueueJob.InquirySettled, data: { reportId: r.id, epicId: epic.id } });
     }
   }
 

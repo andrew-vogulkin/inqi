@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AgentRunStatus, InquiryStatus } from '@inqi/shared';
+import { AgentRunStatus, InquiryStatus, ReportState } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for orchestrator pipeline stages (report + epic + inquiry writes). */
@@ -50,6 +50,24 @@ export class OrchestratorRepository {
 
   updateInquiry({ id, data, tx }: { id: string; data: Prisma.InquiryUncheckedUpdateInput; tx?: DbTx }) {
     return this.exec(tx).inquiry.update({ where: { id }, data });
+  }
+
+  /**
+   * Reports wedged at OUTREACH: untouched since `idleSince` with NO depth research still
+   * in flight. The reactor is edge-triggered on inquiry settlement, so a lost/stale kick
+   * can leave such a report resting at OUTREACH forever — the stalled-outreach sweep
+   * re-kicks the reactor for these. (Failed/skipped/unresponsive inquiries never owe a
+   * verdict, so they don't count as in-flight.)
+   */
+  findStalledOutreachReports({ idleSince, tx }: { idleSince: Date; tx?: DbTx }) {
+    return this.exec(tx).report.findMany({
+      where: {
+        state: ReportState.OUTREACH,
+        updatedAt: { lt: idleSince },
+        inquiries: { none: { researchPending: true, status: { notIn: [InquiryStatus.Failed, InquiryStatus.Skipped, InquiryStatus.Unresponsive] } } },
+      },
+      select: { id: true },
+    });
   }
 
   /** Contacted inquiries that have heard nothing since `olderThan` — reply-timeout candidates for the reaper. */

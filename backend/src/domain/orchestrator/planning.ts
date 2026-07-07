@@ -1,4 +1,4 @@
-import { OutreachStrategy } from '@inqi/shared';
+import { InquiryStatus, OutreachStrategy } from '@inqi/shared';
 import { DiscoveredProvider } from '../subject-providers/discovery.tokens';
 
 /** Escalating wave sizes (1:3:9). */
@@ -37,6 +37,23 @@ export function assignWaves({ candidates, strategy }: { candidates: DiscoveredPr
     if (remaining > 0) remaining -= 1;
     return { ...c, wave };
   });
+}
+
+/**
+ * The reactor's *releasable* wave set: waves that still hold `Pending` inquiries AND
+ * have not been released yet. A wave already in `releasedWaves` is excluded — releasing
+ * it again is a no-op (`claimWave` is idempotent), so an inquiry left `Pending` after
+ * its wave was released (e.g. an ambiguous research verdict, or a send that never
+ * settled it) must NOT read as releasable, or the reactor wedges forever on a Release
+ * that can never progress. With the wave excluded, the reactor falls through to widen
+ * or finish (delivering a partial report) instead of hanging.
+ */
+export function pendingUnreleasedWaves({ inquiries, releasedWaves }: {
+  inquiries: { status: string; wave: number }[];
+  releasedWaves: number[];
+}): number[] {
+  const released = new Set(releasedWaves);
+  return [...new Set(inquiries.filter((i) => i.status === InquiryStatus.Pending && !released.has(i.wave)).map((i) => i.wave))];
 }
 
 /** The agentic reactor's action kinds (convention #1: no bare string comparisons). */
