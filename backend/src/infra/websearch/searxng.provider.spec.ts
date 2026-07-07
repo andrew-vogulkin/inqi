@@ -2,7 +2,8 @@ import { ConfigService } from '../config/config.service';
 import { SearxngWebSearchProvider } from './searxng.provider';
 
 function svc(): SearxngWebSearchProvider {
-  const config = { webSearch: { baseUrl: 'https://searx.test:8443', timeoutMs: 5000, maxResults: 8 } } as unknown as ConfigService;
+  // minSpacingMs/emptyRetryMs = 0 keeps the throttle + retry no-delay in unit tests.
+  const config = { webSearch: { baseUrl: 'https://searx.test:8443', timeoutMs: 5000, maxResults: 8, maxConcurrency: 4, minSpacingMs: 0, emptyRetryMs: 0 } } as unknown as ConfigService;
   return new SearxngWebSearchProvider(config);
 }
 
@@ -44,6 +45,24 @@ describe('WebSearchService', () => {
       // URLSearchParams encodes the space (as +); decoded it round-trips to the literal value.
       expect(calledUrl(fetchFn)).toContain('categories=social+media');
       expect(new URL(calledUrl(fetchFn)).searchParams.get('categories')).toBe('social media');
+    });
+
+    it('retries ONCE when the first result set is empty (a rate-limited miss), then serves the hit', async () => {
+      // SearXNG returns 200-with-empty when its engines are throttled; the spaced retry lands.
+      const fn = jest.fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ results: [] }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ results: [{ title: 'T', url: 'u', content: 'C' }] }) });
+      (global as unknown as { fetch: typeof fetch }).fetch = fn as unknown as typeof fetch;
+      const out = await svc().webSearch({ query: 'canalizador Lisboa', category: 'general' });
+      expect(fn).toHaveBeenCalledTimes(2);
+      expect(out).toEqual([{ title: 'T', url: 'u', content: 'C' }]);
+    });
+
+    it('retries at most once — a genuinely empty query returns [] after two tries', async () => {
+      const fetchFn = mockFetch({ results: [] });
+      const out = await svc().webSearch({ query: 'nothing here', category: 'general' });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      expect(out).toEqual([]);
     });
 
     it('passes optional time_range/language/pageno and caps at maxResults', async () => {

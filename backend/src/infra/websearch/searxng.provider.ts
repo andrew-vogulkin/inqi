@@ -8,6 +8,8 @@ import {
   WebSearchArgs, TranslateArgs, CurrencyConvertArgs,
 } from './websearch.tools';
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Subset of a SearXNG `format=json` response we read. */
 interface SearxResponse {
   // `map` results additionally carry latitude/longitude/address (OSM/Photon places).
@@ -26,6 +28,12 @@ interface SearxResponse {
 @Injectable()
 export class SearxngWebSearchProvider implements WebSearchProvider {
   private readonly logger = new Logger(SearxngWebSearchProvider.name);
+  // Concurrency gate (see `searx`): breadth/depth fire ~10 queries at once and
+  // SearXNG's rate-limited public engines then return 200-with-empty for most of
+  // the burst. We cap in-flight requests and space out their starts so each is served.
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+  private lastStart = 0;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -61,13 +69,20 @@ export class SearxngWebSearchProvider implements WebSearchProvider {
 
   /** General/map/social-media web search → normalized hits (capped at maxResults). */
   async webSearch(args: WebSearchArgs): Promise<WebResult[]> {
-    const res = await this.searx({
+    const params = {
       q: args.query,
       categories: args.category, // URLSearchParams encodes the space in "social media"
       ...(args.time_range ? { time_range: args.time_range } : {}),
       ...(args.language ? { language: args.language } : {}),
       ...(args.pageno ? { pageno: String(args.pageno) } : {}),
-    });
+    };
+    let res = await this.searx(params);
+    // A rate-limited burst returns 200 + no results; one spaced retry usually lands
+    // (concurrency has cleared by now), so a real hit isn't lost to a throttled miss.
+    if (!res.results?.length) {
+      await sleep(this.config.webSearch.emptyRetryMs);
+      res = await this.searx(params);
+    }
     return (res.results ?? []).slice(0, this.config.webSearch.maxResults).map((r) => ({
       title: r.title ?? '',
       url: r.url ?? '',
@@ -105,8 +120,38 @@ export class SearxngWebSearchProvider implements WebSearchProvider {
     return args ?? {};
   }
 
-  /** One GET to the SearXNG JSON API with a bounded timeout. */
+  /**
+   * One GET to SearXNG, run through the concurrency gate: at most `maxConcurrency`
+   * requests in flight, and each start spaced `minSpacingMs` from the last, so a
+   * fan-out of queries is served instead of throttled to empty.
+   */
   private async searx(params: Record<string, string>): Promise<SearxResponse> {
+    await this.acquire();
+    try {
+      return await this.searxOnce(params);
+    } finally {
+      this.release();
+    }
+  }
+
+  /** Wait for a concurrency slot, then pace this request start behind the previous one. */
+  private async acquire(): Promise<void> {
+    if (this.active >= this.config.webSearch.maxConcurrency) {
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
+    this.active++;
+    const gap = this.lastStart + this.config.webSearch.minSpacingMs - Date.now();
+    if (gap > 0) await sleep(gap);
+    this.lastStart = Date.now();
+  }
+
+  private release(): void {
+    this.active--;
+    this.waiters.shift()?.();
+  }
+
+  /** One GET to the SearXNG JSON API with a bounded timeout. */
+  private async searxOnce(params: Record<string, string>): Promise<SearxResponse> {
     const url = new URL('/search', this.config.webSearch.baseUrl);
     url.search = new URLSearchParams({ ...params, format: 'json' }).toString();
     const ctrl = new AbortController();

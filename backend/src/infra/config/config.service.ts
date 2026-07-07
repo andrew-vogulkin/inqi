@@ -316,11 +316,18 @@ export class ConfigService {
    * origin (the provider appends `/search?format=json`); results are capped to
    * `maxResults` and each request is bounded by `timeoutMs`.
    */
-  get webSearch(): { baseUrl: string; timeoutMs: number; maxResults: number } {
+  get webSearch(): { baseUrl: string; timeoutMs: number; maxResults: number; maxConcurrency: number; minSpacingMs: number; emptyRetryMs: number } {
     return {
       baseUrl: process.env.WEBSEARCH_BASE_URL ?? 'https://orange.tail035fe2.ts.net:8443',
       timeoutMs: Number(process.env.WEBSEARCH_TIMEOUT_MS ?? 10_000),
       maxResults: Number(process.env.WEBSEARCH_MAX_RESULTS ?? 8),
+      // SearXNG fronts rate-limited public engines: a burst of parallel queries
+      // (breadth/depth fire ~10 at once) mostly comes back 200-with-empty. Cap
+      // concurrency + space out request starts so each query is actually served,
+      // and retry once (after `emptyRetryMs`) when a result set comes back empty.
+      maxConcurrency: Number(process.env.WEBSEARCH_MAX_CONCURRENCY ?? 2),
+      minSpacingMs: Number(process.env.WEBSEARCH_MIN_SPACING_MS ?? 350),
+      emptyRetryMs: Number(process.env.WEBSEARCH_EMPTY_RETRY_MS ?? 800),
     };
   }
 
