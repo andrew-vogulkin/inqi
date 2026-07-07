@@ -24,9 +24,9 @@ export const discoverySchema = z.object({
 });
 export type DiscoveryResult = z.infer<typeof discoverySchema>;
 
-/** Step 0 output — the model-formed search queries (5 diverse angles on the subject). */
+/** Step 0 output — the model-formed search queries (~10 high-recall angles on the subject). */
 export const discoveryQueriesSchema = z.object({
-  queries: z.array(z.string().min(3)).min(3).max(6),
+  queries: z.array(z.string().min(3)).min(3).max(12),
 });
 
 /** Step 2 output — the qualification filter: names that plausibly PROVIDE the subject. */
@@ -37,7 +37,7 @@ export const discoveryFilterSchema = z.object({
 /** Fallback-round output — the relaxed constraint + broader queries. */
 export const discoveryFallbackSchema = z.object({
   relaxed: z.string().min(1),
-  queries: z.array(z.string().min(3)).min(3).max(6),
+  queries: z.array(z.string().min(3)).min(3).max(12),
 });
 
 // System prompt text lives centrally (inspectable + dynamic-ready); re-exported here.

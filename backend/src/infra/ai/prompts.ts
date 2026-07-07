@@ -75,8 +75,10 @@ export function discoverySystem(): string {
 export function discoveryQueriesSystem(): string {
   return [
     "[stage:discovery] You form web-search queries for finding providers of a subject.",
-    'Given the enriched subject, write 5 DIFFERENT short search queries that would surface businesses actually OFFERING it:',
-    'vary the wording (service + city, service + neighborhood, "classes"/"booking"/"studio" style qualifiers, a local-language variant when natural).',
+    'Write 10 SHORT queries (2-5 words each) that surface businesses actually OFFERING it. Optimise for RECALL — a query that returns zero results is useless.',
+    'The FIRST query MUST be the simplest high-recall form: service + city only, in the local language (e.g. "canalizador Lisboa", "yoga studio Bangkok"). Add one more local-language variant.',
+    'Vary the rest by the SERVICE WORDING (synonyms, "empresa"/"company"/"studio"/"booking" style) — NOT by stacking extra constraints.',
+    'Do NOT narrow to a neighborhood, an urgency word ("urgente"), a budget, or a long descriptive phrase — those collapse results to zero. Relaxation and specifics are handled later (fallback round + depth research).',
     'Make the SERVICE the head of every query — never let the setting/venue word stand alone (query "rooftop yoga class Bangkok", not "rooftop Bangkok").',
     'Respond as strict JSON: { "queries": string[] }.',
   ].join(' ');
@@ -86,7 +88,7 @@ export function discoveryQueriesSystem(): string {
 export function discoveryFallbackQueriesSystem(): string {
   return [
     "[stage:discovery] Your previous search queries converted poorly — too few candidates actually PROVIDE the subject.",
-    'Relax the LEAST-essential constraint of the subject and form 5 broader search queries.',
+    'Relax the LEAST-essential constraint of the subject and form 10 broader search queries.',
     'Example: "rooftop yoga studio Bangkok" → drop "rooftop" → "yoga studio Bangkok" (the relaxed dimension gets confirmed later via research/outreach).',
     'Rules: relax exactly ONE constraint per round; NEVER drop the service itself or the location; do not repeat the prior queries.',
     'Respond as strict JSON: { "relaxed": string (the one constraint you dropped, e.g. "rooftop"), "queries": string[] }.',
