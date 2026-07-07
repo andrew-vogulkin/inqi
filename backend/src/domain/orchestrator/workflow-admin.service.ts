@@ -4,6 +4,20 @@ import { ConflictError, ErrorCode, NotFoundError } from '../../common/errors';
 import { AuditService } from '../../infra/observability/audit.service';
 import { WorkflowAdminRepository } from './workflow-admin.repository';
 import { GraphState, GraphTransition, WorkflowGraph, diffVersions, validateWorkflowGraph } from './workflow-graph';
+import { SubjectBuildGraph, validateSubjectBuildGraph } from '../phases/subject-build/validate';
+
+const SUBJECT_BUILD_KEY = 'subject_build';
+
+/** Map a stored definition (with per-state handler/config) to the subject_build validator's shape. */
+function toSubjectBuildGraph(def: { states: { name: string; isInitial: boolean; isTerminal: boolean }[]; transitions: { fromState: string; toState: string; event: string }[] }): SubjectBuildGraph {
+  return {
+    states: def.states.map((s) => {
+      const row = s as { name: string; isInitial: boolean; isTerminal: boolean; handler?: string | null; config?: unknown };
+      return { name: row.name, isInitial: row.isInitial, isTerminal: row.isTerminal, handler: row.handler ?? undefined, config: (row.config as SubjectBuildGraph['states'][number]['config']) ?? undefined };
+    }),
+    transitions: def.transitions.map((t) => ({ from: t.fromState, to: t.toState, event: t.event })),
+  };
+}
 
 /** Map a definition's DB rows to the pure-graph shape. */
 function toGraph(def: { states: { name: string; isInitial: boolean; isTerminal: boolean }[]; transitions: { fromState: string; toState: string; event: string }[] }): WorkflowGraph {
@@ -61,6 +75,14 @@ export class WorkflowAdminService {
     const validation = validateWorkflowGraph(toGraph(def));
     if (!validation.valid) {
       throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish an invalid workflow graph', details: { errors: validation.errors } });
+    }
+    // Composable phases get an extra, operator-aware gate (typed I/O, the persist
+    // invariant, the ≤5 cap) before a candidate composition can go live.
+    if (def.key === SUBJECT_BUILD_KEY) {
+      const sb = validateSubjectBuildGraph(toSubjectBuildGraph(def));
+      if (!sb.valid) {
+        throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish an invalid subject_build composition', details: { errors: sb.errors } });
+      }
     }
     await this.repo.publish({ id, key: def.key });
     await this.audit.record({ actor, action: AuditAction.PublishWorkflow, targetType: AuditTargetType.Workflow, targetId: id, data: { key: def.key, version: def.version } });
