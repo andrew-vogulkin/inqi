@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Browser, chromium } from 'playwright';
 import { ConfigService } from '../config/config.service';
 import { PageReader, PageReadResult } from './browser.tokens';
+import { detectPageBlock } from './page-block';
 
 /** Resource types that never carry readable text — blocked to keep page reads fast. */
 const BLOCKED_RESOURCES = new Set(['image', 'media', 'font', 'stylesheet']);
@@ -41,12 +42,16 @@ export class PlaywrightPageReader implements PageReader, OnModuleDestroy {
     try {
       const page = await context.newPage();
       await page.route('**/*', (route) => (BLOCKED_RESOURCES.has(route.request().resourceType()) ? route.abort() : route.continue()));
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: pageTimeoutMs });
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: pageTimeoutMs });
       const title = await page.title();
       const raw = await page.evaluate(() => document.body?.innerText ?? '');
       const text = raw.replace(/\s+/g, ' ').trim();
       const truncated = text.length > pageMaxChars;
-      return { url, title, text: truncated ? text.slice(0, pageMaxChars) : text, truncated };
+      const status = response?.status();
+      // A bot-challenge / login wall serves a page, but its "text" is not real content —
+      // flag it so the depth agent reads it as unreadable, not as an empty/absent site.
+      const block = detectPageBlock({ status, finalUrl: page.url(), title, text });
+      return { url, title, text: truncated ? text.slice(0, pageMaxChars) : text, truncated, status, blocked: block.blocked, blockReason: block.reason };
     } finally {
       await context.close().catch(() => undefined);
     }

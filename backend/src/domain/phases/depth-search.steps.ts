@@ -7,6 +7,7 @@ import { WEB_SEARCH, WebSearchProvider } from '../../infra/websearch/websearch.t
 import { UsageService } from '../../infra/usage/usage.service';
 import { SubjectProvidersService } from '../subject-providers/subject-providers.service';
 import { SubjectProviderBackground } from '../subject-providers/background.tokens';
+import { reconcileDepthVerdict } from '../subject-providers/depth-reconcile';
 import {
   DepthSubject, decideDepthGate, evaluateDepthVerdict, formDepthQueries, searchDepthLeads,
 } from '../subject-providers/depth-lifecycle';
@@ -130,7 +131,7 @@ export class DepthSearchSteps implements OnModuleInit {
           ? buildDepthRefineUser({ name: d.name, regionHint: d.regionHint, subject: d.subject, prior: d.verdict, cycle: d.cycle, gaps: d.gaps })
           : buildDepthResearchUser({ name: d.name, regionHint: d.regionHint, subject: d.subject, matchNote: d.matchNote, searchLeads: d.leads, knownFacts: d.knownFacts }),
         tier: ModelTier.Depth,
-        tools: this.subjectProviders.researchTools(),
+        tools: this.subjectProviders.researchTools({ leads: d.leads, knownFacts: d.knownFacts }),
         maxToolCalls: d.maxToolCalls,
         validate: (raw) => depthResearchSchema.parse(raw),
         onToolCall: (c) => this.logger.log(`depth[${d.name}] c${d.cycle} tool ${c.name}(${JSON.stringify(c.args).slice(0, 120)})`),
@@ -179,7 +180,9 @@ export class DepthSearchSteps implements OnModuleInit {
   /** Persist the verdict (tx + settle + late-snapshot refresh) and record HOW the loop ended. */
   private async persist(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
-    const background = d.background ?? this.mapVerdict(d.verdict!);
+    // Don't let a blocked re-verification (bot-challenge site / empty search) read as
+    // "does not exist" and drop a provider breadth already found — keep it as a caution option.
+    const background = reconcileDepthVerdict({ background: d.background ?? this.mapVerdict(d.verdict!), knownFacts: d.knownFacts });
     await this.subjectProviders.persistDepthVerdict({ reportId: ctx.run.reportId, inquiryId: ctx.run.inquiryId!, background, webRoom: d.webRoom });
     const event = d.outcome === DepthOutcome.Sufficient
       ? DepthEvent.PERSISTED_SUFFICIENT

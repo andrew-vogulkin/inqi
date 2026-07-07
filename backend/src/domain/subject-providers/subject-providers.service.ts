@@ -12,9 +12,19 @@ import { FlatSourceInput, SourcesService } from '../source/sources.service';
 import { SubjectProvidersRepository } from './subject-providers.repository';
 import { BACKGROUND_RESEARCH_SOURCE, BackgroundResearchSource, BackgroundSource, SubjectProviderBackground } from './background.tokens';
 import { KnownFacts } from './background.prompt';
+import { RESEARCH_QUALIFY_MIN_SCORE } from './depth-reconcile';
 
 const WEB_SEARCH_TOOL_NAME = 'web_search';
 const OPEN_URL_TOOL_NAME = 'open_url';
+
+const safeHost = (u: string): string => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+/** The breadth snippet for a blocked url — exact match first, then same-host. */
+function snippetForUrl(url: string, leads?: { url: string; snippet?: string | null }[]): string | undefined {
+  if (!leads?.length) return undefined;
+  const host = safeHost(url);
+  const hit = leads.find((l) => l.url === url) ?? (host ? leads.find((l) => safeHost(l.url) === host) : undefined);
+  return hit?.snippet ?? undefined;
+}
 
 /** Everything a depth_search run needs pinned into its run.data at start. */
 export interface DepthRunContext {
@@ -137,8 +147,6 @@ export class SubjectProvidersService {
     }
   }
 
-  /** Research-verdict settlement thresholds: eligible + at least this score → qualified. */
-  private static readonly RESEARCH_QUALIFY_MIN_SCORE = 0.35;
 
   /**
    * Settle the inquiry from the depth verdict (web evidence alone):
@@ -161,7 +169,7 @@ export class SubjectProvidersService {
     // mismatch — kept in the report RATED LOWER (its qualityScore reflects the mismatches),
     // never dropped on the score floor. The mismatches ride along for the dossier.
     const reserve = isReserveVerdict(verdict);
-    const eligible = reserve || (isEligibleVerdict(verdict) && background.qualityScore >= SubjectProvidersService.RESEARCH_QUALIFY_MIN_SCORE);
+    const eligible = reserve || (isEligibleVerdict(verdict) && background.qualityScore >= RESEARCH_QUALIFY_MIN_SCORE);
     const ineligible = isIneligibleVerdict(verdict);
     if (!eligible && !ineligible) {
       // Ambiguous — leave the inquiry OPEN (outreach / the reply-wait sweep may settle
@@ -202,8 +210,12 @@ export class SubjectProvidersService {
     await this.boss.enqueue({ job: QueueJob.InquirySettled, data: { reportId, epicId: inquiry.epicId } });
   }
 
-  /** The depth agent's tool set: real web search + a real-browser page reader. */
-  researchTools(): ToolSet {
+  /**
+   * The depth agent's tool set: real web search + a real-browser page reader.
+   * Optional discovery context (breadth's leads + known facts) lets a blocked
+   * open_url fall back to the snippet we already have instead of reading as absence.
+   */
+  researchTools(ctx?: { leads?: { url: string; snippet?: string | null }[]; knownFacts?: KnownFacts | null }): ToolSet {
     const webSearchDef = this.web.tools.find((t) => (t as { function?: { name?: string } }).function?.name === WEB_SEARCH_TOOL_NAME);
     return {
       definitions: [...(webSearchDef ? [webSearchDef] : []), OPEN_URL_TOOL],
@@ -213,6 +225,16 @@ export class SubjectProvidersService {
             const { url } = (args ?? {}) as { url?: string };
             if (!url) return JSON.stringify({ error: 'open_url requires a url' });
             const page = await this.pageReader.read({ url });
+            if (page.blocked) {
+              // The site exists but is behind a bot-challenge / login wall. Tell the agent
+              // NOT to record this as absence, and hand back the discovery snippet we have.
+              const evidence = snippetForUrl(url, ctx?.leads) || (ctx?.knownFacts?.facts ?? []).join(' ') || undefined;
+              return JSON.stringify({
+                url, blocked: true, reason: page.blockReason,
+                note: 'This page could not be read directly (bot-challenge or login wall). The provider still EXISTS — do NOT record "no website" or absence. Rely on the discovery evidence below.',
+                discoveryEvidence: evidence,
+              });
+            }
             return JSON.stringify(page);
           }
           return await this.web.executeTool({ name, args }); // web_search etc. — returns error JSON on failure
