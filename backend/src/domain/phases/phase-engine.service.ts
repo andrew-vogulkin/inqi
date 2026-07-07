@@ -39,8 +39,8 @@ const CANCELLED_STATE: string = BreadthState.CANCELLED;
 @Injectable()
 export class PhaseEngine implements OnModuleInit {
   private readonly logger = new Logger(PhaseEngine.name);
-  /** (definitionId) → state name → isTerminal. Definitions are immutable once active — cache freely. */
-  private readonly terminalCache = new Map<string, Map<string, boolean>>();
+  /** (definitionId) → state name → info (terminal + composable-phase operator/params). Definitions are immutable once active — cache freely. */
+  private readonly stateCache = new Map<string, Map<string, PhaseStateInfo>>();
 
   constructor(
     private readonly db: PrismaService,
@@ -151,7 +151,8 @@ export class PhaseEngine implements OnModuleInit {
 
     try {
       const log = this.stepLogger({ run });
-      const outcome = await this.usageCtx.run({ reportId: run.reportId, stage: run.key }, () => handler.execute({ run, report: run.report, inquiry: run.inquiry ?? null, log }));
+      const info = await this.stateInfo({ definitionId: run.workflowVersionId, state: run.state });
+      const outcome = await this.usageCtx.run({ reportId: run.reportId, stage: run.key }, () => handler.execute({ run, report: run.report, inquiry: run.inquiry ?? null, log, handler: info?.handler ?? run.state, config: info?.config }));
       await this.tolerantAdvance({ runId, event: outcome.event, dataPatch: outcome.dataPatch });
     } catch (e) {
       const error = String((e as Error)?.message ?? e);
@@ -234,16 +235,23 @@ export class PhaseEngine implements OnModuleInit {
     return def.id;
   }
 
-  private async definitionStates({ definitionId }: { definitionId: string }): Promise<Map<string, boolean>> {
-    const cached = this.terminalCache.get(definitionId);
+  private async definitionStates({ definitionId }: { definitionId: string }): Promise<Map<string, PhaseStateInfo>> {
+    const cached = this.stateCache.get(definitionId);
     if (cached) return cached;
     const rows = await this.db.workflowState.findMany({ where: { definitionId } });
-    const map = new Map(rows.map((r) => [r.name, r.isTerminal]));
-    this.terminalCache.set(definitionId, map);
+    const map = new Map(rows.map((r) => [r.name, { isTerminal: r.isTerminal, handler: r.handler ?? null, config: (r.config as Record<string, unknown> | null) ?? null }]));
+    this.stateCache.set(definitionId, map);
     return map;
   }
 
   private async isTerminal({ definitionId, state }: { definitionId: string; state: string }): Promise<boolean> {
-    return (await this.definitionStates({ definitionId })).get(state) ?? false;
+    return (await this.definitionStates({ definitionId })).get(state)?.isTerminal ?? false;
+  }
+
+  /** The current state's operator id + params for a composable phase (null for a plain step). */
+  private async stateInfo({ definitionId, state }: { definitionId: string; state: string }): Promise<PhaseStateInfo | null> {
+    return (await this.definitionStates({ definitionId })).get(state) ?? null;
   }
 }
+
+interface PhaseStateInfo { isTerminal: boolean; handler: string | null; config: Record<string, unknown> | null }

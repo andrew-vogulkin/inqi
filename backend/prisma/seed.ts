@@ -6,6 +6,7 @@ import {
 } from '@inqi/shared';
 import { WorkflowAction } from '../src/domain/orchestrator/workflow-registry';
 import { PHASE_GRAPHS } from '../src/domain/phases/phase-graphs';
+import { DEFAULT_GRAPH as SUBJECT_BUILD_V1 } from '../src/domain/phases/subject-build/operators';
 import { rankOptions, RankableOption } from '../src/domain/snapshot/ranking';
 
 const db = new PrismaClient();
@@ -13,7 +14,7 @@ const db = new PrismaClient();
 // inqi workflow — stored in DB so it can be versioned. A shipped version is
 // immutable; new behaviour folds into the current working version (v2) while v1
 // stays byte-identical for any report still pinned to it.
-type State = { name: string; isInitial?: boolean; isTerminal?: boolean };
+type State = { name: string; isInitial?: boolean; isTerminal?: boolean; handler?: string; config?: unknown };
 
 const WORKFLOW_KEY = 'report';
 
@@ -93,7 +94,7 @@ async function installVersion({ key, version, status, states, transitions }: { k
   const def = await db.workflowDefinition.create({
     data: {
       key, version, status,
-      states: { create: states.map((s) => ({ name: s.name, isInitial: !!s.isInitial, isTerminal: !!s.isTerminal })) },
+      states: { create: states.map((s) => ({ name: s.name, isInitial: !!s.isInitial, isTerminal: !!s.isTerminal, handler: s.handler ?? null, config: (s.config as Prisma.InputJsonValue) ?? Prisma.JsonNull })) },
       transitions: { create: transitions.map((t) => ({ fromState: t.from, toState: t.to, event: t.event, guard: t.guard ?? null, action: t.action ?? null })) },
     },
   });
@@ -204,6 +205,14 @@ async function main() {
   for (const graph of PHASE_GRAPHS) {
     await installVersion({ key: graph.key, version: 1, status: WorkflowStatus.Active, states: graph.states, transitions: graph.transitions });
   }
+
+  // subject_build — the composable SUBJECT slot the AI experiments on. v1 reproduces
+  // today's behaviour (IN → enrich-basic → OUT); interpreted, not engine-run.
+  await installVersion({
+    key: 'subject_build', version: 1, status: WorkflowStatus.Active,
+    states: SUBJECT_BUILD_V1.states.map((s) => ({ ...s })),
+    transitions: SUBJECT_BUILD_V1.transitions.map((t) => ({ from: t.from, to: t.to, event: t.event })),
+  });
 
   const customers = await seedCustomers();
   const active = await db.workflowDefinition.findFirst({ where: { key: WORKFLOW_KEY, status: WorkflowStatus.Active }, select: { id: true } });
