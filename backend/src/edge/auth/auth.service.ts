@@ -88,6 +88,22 @@ export class AuthService {
     return { token, customer: { id: customer.id, email: customer.email, name: customer.name, role } };
   }
 
+  /**
+   * Prolong an active session: re-issue a fresh full-TTL token for the current
+   * principal. The guard already proved the presented token is valid + unexpired,
+   * so this is a sliding renewal (call it before the token lapses). Role is re-read
+   * from the DB, so a promotion/demotion takes effect on the next refresh.
+   */
+  async refresh({ user }: { user: AuthUser }): Promise<SignInResult> {
+    const customer = await this.customers.findById({ id: user.sub });
+    if (!customer) {
+      throw new UnauthorizedError({ code: ErrorCode.AuthInvalidToken, message: 'account no longer exists' });
+    }
+    const role = customer.role as AuthRole;
+    const token = this.session.sign({ sub: customer.id, email: customer.email, role });
+    return { token, customer: { id: customer.id, email: customer.email, name: customer.name, role } };
+  }
+
   /** The current principal (from the verified session) — used by GET /auth/me. */
   me({ user }: { user: AuthUser }): AuthUser {
     return user;

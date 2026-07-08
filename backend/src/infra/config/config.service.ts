@@ -233,11 +233,16 @@ export class ConfigService {
     };
   }
 
-  /** Session JWT signing secret + lifetime. Dev default is clearly non-production. */
+  /**
+   * Session JWT signing secret + lifetime. Tokens expire after `ttlHours` (8h
+   * default); an active client prolongs its session before then via POST
+   * /auth/refresh, which re-issues a fresh full-TTL token. Dev secret is
+   * clearly non-production.
+   */
   get session(): { secret: string; ttlHours: number } {
     return {
       secret: process.env.SESSION_SECRET ?? 'dev-insecure-session-secret-change-me',
-      ttlHours: Number(process.env.SESSION_TTL_HOURS ?? 24 * 7),
+      ttlHours: Number(process.env.SESSION_TTL_HOURS ?? 8),
     };
   }
 

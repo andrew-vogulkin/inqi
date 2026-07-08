@@ -8,7 +8,11 @@ function build(mfa: MfaCfg) {
   const mail = { sent: [] as Array<{ to?: string | null; subject: string; body: string }> , async send(args: never) { this.sent.push(args); return { externalId: 'x' }; } };
   const config = { mfa } as never;
   const prisma = { async $transaction(fn: (tx: unknown) => unknown) { return fn({}); } } as never;
-  const customers = { async upsertByEmail({ email }: { email: string }) { return { id: 'c1', email, name: null, role: 'customer' }; } } as never;
+  const customers = {
+    async upsertByEmail({ email }: { email: string }) { return { id: 'c1', email, name: null, role: 'customer' }; },
+    // refresh re-reads the customer (role is DB-authoritative): return a promoted admin with a name.
+    async findById({ id }: { id: string }) { return { id, email: 'ada@example.com', name: 'Ada', role: 'admin' }; },
+  } as never;
   const reports = { async linkOwnerByEmail() { return { count: 0 }; } } as never;
   const session = { sign: () => 'signed-token' } as never;
   const svc = new AuthService(prisma, config, customers, reports, session, new MfaCodeStore(), mail as never);
@@ -50,6 +54,17 @@ describe('AuthService MFA transport', () => {
       // the emailed code works (re-issue first, since the failed attempt above consumed an attempt but not the code)
       const res = await svc.verifyEmailSignIn({ email: 'ada@example.com', code: code! });
       expect(res.token).toBe('signed-token');
+    });
+  });
+
+  describe('refresh (session prolongation)', () => {
+    const cfg: MfaCfg = { transport: 'mock', mockCode: '123456', codeTtlMs: 600_000 };
+
+    it('re-issues a token and re-reads the role from the DB', async () => {
+      const { svc } = build(cfg);
+      const res = await svc.refresh({ user: { sub: 'c1', email: 'ada@example.com', role: 'customer' } as never });
+      expect(res.token).toBe('signed-token');                 // a fresh token was signed
+      expect(res.customer).toEqual({ id: 'c1', email: 'ada@example.com', name: 'Ada', role: 'admin' }); // role from DB, not the stale token
     });
   });
 });

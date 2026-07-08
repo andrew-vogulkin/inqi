@@ -30,6 +30,15 @@ export class AuthController {
     return this.auth.verifyEmailSignIn({ email: dto.email, code: dto.code });
   }
 
+  @Post('refresh')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Prolong the session — re-issue a fresh full-TTL token for the current principal (call before the current token expires)' })
+  @ApiCreatedResponse({ type: SessionDto })
+  refresh(@CurrentUser() user: AuthUser) {
+    return this.auth.refresh({ user });
+  }
+
   @Get('me')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
