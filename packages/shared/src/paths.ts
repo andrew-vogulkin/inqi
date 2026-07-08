@@ -13,6 +13,7 @@ export const Paths = {
   // auth — two-step email sign-in (email → MFA code)
   authEmailStart: () => '/auth/email',
   authEmailVerify: () => '/auth/email/verify',
+  authRefresh: () => '/auth/refresh',
   authMe: () => '/auth/me',
 
   // reports — authenticated intake + dashboards (HP-08/10/19)

@@ -5,6 +5,7 @@ import { SessionService } from './session.service';
 const svc = (ttlHours = 24) =>
   new SessionService({ session: { secret: 'test-secret', ttlHours } } as unknown as ConfigService);
 const claims = { sub: 'c1', email: 'a@b.com', role: AuthRole.Customer };
+const payloadOf = (token: string) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { iat: number; exp: number };
 
 describe('SessionService', () => {
   it('round-trips claims through sign/verify', () => {
@@ -32,5 +33,22 @@ describe('SessionService', () => {
     const token = svc().sign(claims);
     const other = new SessionService({ session: { secret: 'different', ttlHours: 24 } } as unknown as ConfigService);
     expect(() => other.verify(token)).toThrow(/signature/i);
+  });
+
+  it('stamps an 8-hour expiry from the issue time', () => {
+    const p = payloadOf(svc(8).sign(claims));
+    expect(p.exp - p.iat).toBe(8 * 3600);
+  });
+
+  it('prolongs the session — a token re-signed later carries a later, full-TTL expiry', () => {
+    const s = svc(8);
+    const spy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000_000);
+    const first = payloadOf(s.sign(claims));
+    spy.mockReturnValue(1_000_000_000_000 + 5 * 60_000); // 5 minutes later
+    const second = payloadOf(s.sign(claims));
+    spy.mockRestore();
+    expect(second.iat).toBeGreaterThan(first.iat);
+    expect(second.exp).toBeGreaterThan(first.exp);        // prolonged
+    expect(second.exp - second.iat).toBe(8 * 3600);       // still a full 8h window
   });
 });

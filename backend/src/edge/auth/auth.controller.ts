@@ -15,10 +15,10 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('email')
-  @ApiOperation({ summary: 'Step 1 — request a verification code for this email (mock transport: code is 123456)' })
+  @ApiOperation({ summary: 'Step 1 — request a verification code for this email (mock transport: code 123456; email transport sends a one-time code)' })
   @ApiBody({ type: EmailStartDto })
   @ApiCreatedResponse({ type: EmailStartResultDto })
-  start(@Body() dto: EmailStartDto): EmailStartResultDto {
+  start(@Body() dto: EmailStartDto): Promise<EmailStartResultDto> {
     return this.auth.startEmailSignIn({ email: dto.email });
   }
 
@@ -28,6 +28,15 @@ export class AuthController {
   @ApiCreatedResponse({ type: SessionDto })
   verify(@Body() dto: EmailVerifyDto) {
     return this.auth.verifyEmailSignIn({ email: dto.email, code: dto.code });
+  }
+
+  @Post('refresh')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Prolong the session — re-issue a fresh full-TTL token for the current principal (call before the current token expires)' })
+  @ApiCreatedResponse({ type: SessionDto })
+  refresh(@CurrentUser() user: AuthUser) {
+    return this.auth.refresh({ user });
   }
 
   @Get('me')

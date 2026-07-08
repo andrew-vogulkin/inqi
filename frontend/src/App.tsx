@@ -4,7 +4,9 @@ import { LayoutMode, AccessScreen, ButtonVariant } from './conventions/enums';
 import { Route, RouteMatch, ROUTE_META, matchRoute, hrefFor, navigate, redirectToSignIn } from './conventions/routes';
 import { resolveAccess } from './conventions/guard';
 import { color, space, fontSize, fontWeight } from './theme/tokens';
-import { setUnauthorizedHandler } from './api';
+import { setUnauthorizedHandler, authApi } from './api';
+import { setStoredSession } from './conventions/session-storage';
+import { refreshDelayForToken, decodeExpMs, shouldRefreshNow, MIN_REFRESH_DELAY_MS } from './conventions/session-keeper';
 import { useAppDispatch, useSelector } from './state/store';
 import { ActionType } from './state/actions';
 import { Card, Button, ToastHost } from './ui';
@@ -130,6 +132,36 @@ export function App() {
     setUnauthorizedHandler(() => { dispatch({ type: ActionType.SignedOut }); redirectToSignIn(); });
     return () => setUnauthorizedHandler(null);
   }, [dispatch]);
+
+  // Session prolongation: while signed in, renew the token shortly before its ~8h
+  // TTL lapses (and eagerly on tab focus once it's near expiry) via POST /auth/refresh,
+  // so an active user is never bounced to Sign in mid-session. A refresh that fails
+  // with 401 falls through to the handler above (dead session → Sign in). Dispatching
+  // the fresh session re-keys this effect, which reschedules from the new expiry.
+  const token = session?.token;
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const renew = async () => {
+      try {
+        const next = await authApi.refresh();
+        if (cancelled) return;
+        setStoredSession(next);                                   // token live immediately for in-flight requests
+        dispatch({ type: ActionType.SessionRestored, session: next }); // sync state → reschedules via re-run
+      } catch {
+        // 401 is handled by the unauthorized flow; for a transient error, retry at the floor.
+        if (!cancelled) timer = setTimeout(renew, MIN_REFRESH_DELAY_MS);
+      }
+    };
+    timer = setTimeout(renew, refreshDelayForToken({ token, now: Date.now() }));
+    const onVisible = () => {
+      const expMs = decodeExpMs(token);
+      if (document.visibilityState === 'visible' && expMs != null && shouldRefreshNow({ expMs, now: Date.now() })) renew();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { cancelled = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [token, dispatch]);
 
   let body: ReactNode;
   if (!match || match.route === Route.Home) {
