@@ -217,12 +217,20 @@ export class ConfigService {
   }
 
   /**
-   * Two-step email sign-in. The MFA transport is MOCKED for now: every sign-in
-   * expects this fixed code (a real deployment swaps in a per-attempt code sent
-   * over email and this getter disappears with it).
+   * Two-step email sign-in MFA.
+   * - `transport: 'mock'` (default) — every sign-in accepts the fixed `mockCode`;
+   *   nothing is emailed. Keeps tests + local tooling deterministic.
+   * - `transport: 'email'` (MFA_TRANSPORT=email) — a per-attempt random code is
+   *   issued, emailed via MAIL_PROVIDER, and required on verify (the mock code no
+   *   longer works). `codeTtlMs` bounds its lifetime; `from` is the sender address.
    */
-  get mfa(): { mockCode: string } {
-    return { mockCode: process.env.MFA_MOCK_CODE ?? '123456' };
+  get mfa(): { transport: 'mock' | 'email'; mockCode: string; codeTtlMs: number; from?: string } {
+    return {
+      transport: process.env.MFA_TRANSPORT?.toLowerCase() === 'email' ? 'email' : 'mock',
+      mockCode: process.env.MFA_MOCK_CODE ?? '123456',
+      codeTtlMs: Number(process.env.MFA_CODE_TTL_MS ?? 10 * 60_000),
+      from: process.env.POSTMARK_FROM,
+    };
   }
 
   /** Session JWT signing secret + lifetime. Dev default is clearly non-production. */

@@ -1,12 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AuthRole } from '@inqi/shared';
 import { PrismaService } from '../../infra/persistence/prisma.service';
 import { ConfigService } from '../../infra/config/config.service';
 import { ErrorCode, UnauthorizedError } from '../../common/errors';
 import { CustomerService } from '../../domain/customer/customer.service';
 import { ReportService } from '../../domain/report/report.service';
+import { MAIL_PROVIDER, MailProvider } from '../../domain/source/mail.provider';
 import { AuthUser } from './auth.tokens';
 import { SessionService } from './session.service';
+import { MfaCodeStore } from './mfa-code.store';
 
 export interface SignInResult {
   token: string;
@@ -35,20 +37,40 @@ export class AuthService {
     private readonly customers: CustomerService,
     private readonly reports: ReportService,
     private readonly session: SessionService,
+    private readonly mfaCodes: MfaCodeStore,
+    @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
   ) {}
 
-  /** Step 1: issue the verification code (mock transport — nothing is actually emailed yet). */
-  startEmailSignIn({ email }: { email: string }): { sent: boolean } {
+  /**
+   * Step 1: issue the verification code. `email` transport emails a per-attempt
+   * random code (via MAIL_PROVIDER); `mock` transport just logs the fixed code.
+   */
+  async startEmailSignIn({ email }: { email: string }): Promise<{ sent: boolean }> {
     const normalized = email.trim().toLowerCase();
-    // Mock MFA: the code is fixed via config; a real transport would email a one-time code here.
-    this.logger.log(`MFA code issued for ${normalized} (mock transport — code is ${this.config.mfa.mockCode})`);
+    const mfa = this.config.mfa;
+    if (mfa.transport === 'email') {
+      const code = this.mfaCodes.issue({ email: normalized, ttlMs: mfa.codeTtlMs, now: Date.now() });
+      await this.mail.send({
+        from: mfa.from ?? 'no-reply@monkeycode.io',
+        to: normalized,
+        subject: 'Your inqi sign-in code',
+        body: `Your inqi verification code is ${code}.\n\nIt expires in ${Math.round(mfa.codeTtlMs / 60_000)} minutes. If you didn't request this, you can ignore this email.`,
+      });
+      this.logger.log(`MFA code emailed to ${normalized} (transport=email)`);
+      return { sent: true };
+    }
+    this.logger.log(`MFA code issued for ${normalized} (mock transport — code is ${mfa.mockCode})`);
     return { sent: true };
   }
 
   /** Step 2: verify the code, link the account, issue the session. */
   async verifyEmailSignIn({ email, code }: { email: string; code: string }): Promise<SignInResult> {
     const normalized = email.trim().toLowerCase();
-    if (code !== this.config.mfa.mockCode) {
+    const mfa = this.config.mfa;
+    const ok = mfa.transport === 'email'
+      ? this.mfaCodes.verify({ email: normalized, code: code.trim(), now: Date.now() })
+      : code === mfa.mockCode;
+    if (!ok) {
       throw new UnauthorizedError({ code: ErrorCode.AuthInvalidCode, message: 'verification code does not match' });
     }
     // Upsert the identity and claim their prior reports as one unit — a sign-in

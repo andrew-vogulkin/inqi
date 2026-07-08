@@ -29,6 +29,6 @@ import { LocalMailProvider } from './local-mail.provider';
       inject: [ConfigService, AI_PROVIDER],
     },
   ],
-  exports: [SourcesService, EmailChannelService],
+  exports: [SourcesService, EmailChannelService, MAIL_PROVIDER],
 })
 export class SourcesModule {}

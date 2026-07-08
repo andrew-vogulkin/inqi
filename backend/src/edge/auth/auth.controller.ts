@@ -15,10 +15,10 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('email')
-  @ApiOperation({ summary: 'Step 1 — request a verification code for this email (mock transport: code is 123456)' })
+  @ApiOperation({ summary: 'Step 1 — request a verification code for this email (mock transport: code 123456; email transport sends a one-time code)' })
   @ApiBody({ type: EmailStartDto })
   @ApiCreatedResponse({ type: EmailStartResultDto })
-  start(@Body() dto: EmailStartDto): EmailStartResultDto {
+  start(@Body() dto: EmailStartDto): Promise<EmailStartResultDto> {
     return this.auth.startEmailSignIn({ email: dto.email });
   }
 
