@@ -13,6 +13,9 @@ export const authApi = {
     request<{ sent: boolean }>({ method: HttpMethod.Post, path: Paths.authEmailStart(), body: { email }, auth: false }),
   verifyEmail: ({ email, code }: { email: string; code: string }) =>
     request<SessionDto>({ method: HttpMethod.Post, path: Paths.authEmailVerify(), body: { email, code }, auth: false }),
+  // Prolong the session — re-issue a fresh full-TTL token for the current principal.
+  // Authed (sends the current Bearer); a dead token 401s → handled by the app 401 flow.
+  refresh: () => request<SessionDto>({ method: HttpMethod.Post, path: Paths.authRefresh() }),
   me: () => request<{ sub: string; email: string; role: string }>({ method: HttpMethod.Get, path: Paths.authMe() }),
 };
 
