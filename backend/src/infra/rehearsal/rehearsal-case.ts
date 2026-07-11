@@ -20,6 +20,19 @@ export interface CaseExpectations {
   maxOptions?: number;
 }
 
+/** Per-phase expectations for the NARROW drivers (docs/research-phase-evolution.md item 3). */
+export interface BreadthExpectations {
+  minCandidates?: number;
+  /** Names the discovery must surface (case-insensitive substring). */
+  mustSurface?: string[];
+}
+export interface DepthExpectations {
+  /** The inquiry the depth driver investigates (one provider per case). */
+  fixture?: { provider: string; regionHint?: string | null; knownFacts?: { website?: string | null } };
+  minSources?: number;
+  qualityAtLeast?: number;
+}
+
 export interface RehearsalCase {
   /** Stable id — also the cassette filename and the run label. */
   id: string;
@@ -29,6 +42,9 @@ export interface RehearsalCase {
   /** Why this case exists (what regression / behaviour it pins). */
   note: string;
   expectations: CaseExpectations;
+  /** Optional per-phase expectations — cases without them are full-pipeline only. */
+  breadth?: BreadthExpectations;
+  depth?: DepthExpectations;
 }
 
 /** Reject a malformed case early — a golden set must be trustworthy. */

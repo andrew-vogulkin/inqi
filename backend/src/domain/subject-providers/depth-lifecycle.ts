@@ -53,8 +53,8 @@ export async function formDepthQueries({ ai, name, regionHint, subject, matchNot
 }
 
 /** C. Run every query, merge + dedupe hits into one lead pool. Best-effort per query. */
-export async function searchDepthLeads({ web, name, queries, logger }: {
-  web: WebSearchProvider; name: string; queries: string[]; logger: Logger;
+export async function searchDepthLeads({ web, name, queries, logger, cap = DEPTH_MAX_LEADS }: {
+  web: WebSearchProvider; name: string; queries: string[]; logger: Logger; cap?: number;
 }): Promise<DepthSearchLead[]> {
   const settled = await Promise.all(queries.map(async (query) => {
     try {
@@ -71,7 +71,7 @@ export async function searchDepthLeads({ web, name, queries, logger }: {
       if (seen.has(url)) continue;
       seen.add(url);
       leads.push({ url, title: title ?? null, snippet: content ? content.slice(0, LEAD_SNIPPET_CHARS) : null });
-      if (leads.length >= DEPTH_MAX_LEADS) return leads;
+      if (leads.length >= cap) return leads;
     }
   }
   return leads;

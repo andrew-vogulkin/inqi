@@ -43,6 +43,10 @@ export interface DepthRunData {
   noProgressStreak: number;
   outcome: DepthOutcome | null;
   notes: string[];
+  // Stage-1 tunables (docs/research-phase-evolution.md) — pinned by the engine when
+  // the active definition's state configs set them; absent = today's constants.
+  leadsCap?: number;
+  stallPatience?: number;
 }
 
 /**
@@ -112,7 +116,7 @@ export class DepthSearchSteps implements OnModuleInit {
   /** C. All queries run into one lead pool that seeds the agent's first cycle. */
   private async searchLeads(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
-    const leads = await searchDepthLeads({ web: this.web, name: d.name, queries: d.queries, logger: this.logger });
+    const leads = await searchDepthLeads({ web: this.web, name: d.name, queries: d.queries, logger: this.logger, cap: d.leadsCap });
     return { event: DepthEvent.LEADS_READY, dataPatch: { leads } };
   }
 
@@ -160,7 +164,7 @@ export class DepthSearchSteps implements OnModuleInit {
     const evidenceCount = d.verdict?.sources?.length ?? 0;
     const decision = decideDepthGate({
       sufficient: result.sufficient, gaps: result.gaps, priorGapsKey: d.priorGapsKey,
-      evidenceCount, priorEvidenceCount: d.evidenceCount, noProgressStreak: d.noProgressStreak,
+      evidenceCount, priorEvidenceCount: d.evidenceCount, noProgressStreak: d.noProgressStreak, stallPatience: d.stallPatience,
     });
     if (decision.event === DepthEvent.EVIDENCE_SUFFICIENT) {
       this.logger.log(`depth[${d.name}] gate: evidence sufficient after cycle ${d.cycle}`);

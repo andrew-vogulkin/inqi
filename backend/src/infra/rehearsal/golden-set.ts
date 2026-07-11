@@ -25,6 +25,8 @@ const CASES: RehearsalCase[] = [
     focus: SearchFocus.Quality,
     note: 'Hillcreek Gardens sits behind a Cloudflare bot-wall and SearXNG returns empty; it must still qualify (depth false-negative regression).',
     expectations: { mustQualify: ['Hillcreek Gardens'], minOptions: 1 },
+    breadth: { minCandidates: 1 },
+    depth: { fixture: { provider: 'Hillcreek Gardens', regionHint: 'Tagaytay, Philippines', knownFacts: { website: 'https://hillcreekgardens.ph' } }, minSources: 1 },
   },
   {
     id: 'porsche-global',
@@ -48,6 +50,7 @@ const CASES: RehearsalCase[] = [
     focus: SearchFocus.Quality,
     note: 'A well-served local trade — must produce at least one option.',
     expectations: { minOptions: 1 },
+    breadth: { minCandidates: 2 },
   },
   {
     id: 'pikachu-card',
@@ -55,6 +58,7 @@ const CASES: RehearsalCase[] = [
     focus: SearchFocus.Price,
     note: 'A common collectible item — must produce at least one option.',
     expectations: { minOptions: 1 },
+    breadth: { minCandidates: 2 },
   },
   {
     id: 'dog-groomer-berlin',

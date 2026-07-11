@@ -5,6 +5,7 @@ import { AuditService } from '../../infra/observability/audit.service';
 import { WorkflowAdminRepository } from './workflow-admin.repository';
 import { GraphState, GraphTransition, WorkflowGraph, ambiguousTransitions, diffVersions, validateWorkflowGraph } from './workflow-graph';
 import { SubjectBuildGraph, validateSubjectBuildGraph } from '../phases/subject-build/validate';
+import { validatePhaseTunables } from '../phases/phase-tunables';
 
 const SUBJECT_BUILD_KEY = 'subject_build';
 
@@ -90,6 +91,11 @@ export class WorkflowAdminService {
       const ambiguous = ambiguousTransitions(toGraph(def).transitions);
       if (ambiguous.length) {
         throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish an engine-run workflow with ambiguous transitions (same state + event twice)', details: { ambiguous } });
+      }
+      // Stage-1 evolution: state-config genes must be registered tunables within bounds.
+      const tunables = validatePhaseTunables({ key: def.key, states: def.states as { name: string; config?: unknown }[] });
+      if (!tunables.valid) {
+        throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish out-of-bounds phase tunables', details: { errors: tunables.errors } });
       }
     }
     await this.repo.publish({ id, key: def.key });
