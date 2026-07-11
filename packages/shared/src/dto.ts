@@ -54,6 +54,16 @@ export interface ReportDto {
   createdAt: string;
 }
 
+/**
+ * One page of the admin report search (GET /admin/reports) — the operator report
+ * picker. Rows are newest-first; `q` matched the ref / customer email / request text.
+ */
+export interface ReportSearchResultDto {
+  rows: ReportDto[];
+  /** Pass back as `cursor` to fetch the next (older) page; null = no more rows. */
+  nextCursor: string | null;
+}
+
 /** A ranked report option. A freemium-locked row carries ONLY id/locked/rank. */
 export interface ReportOption {
   subjectProvider: string;

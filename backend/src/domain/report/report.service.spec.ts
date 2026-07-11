@@ -59,3 +59,39 @@ describe('ReportService.create — credits before the free slot, charge only on 
     expect(boss.enqueue).not.toHaveBeenCalledWith(expect.objectContaining({ job: 'notify_admins_freemium' }));
   });
 });
+
+/** Admin report search (the operator picker): cursor pagination over the repository. */
+function makeSearchService(rowCount: number) {
+  const rows = Array.from({ length: rowCount }, (_, i) => ({ id: `r${i + 1}` }));
+  const reports = { searchAdmin: jest.fn(async ({ take }: { take: number }) => rows.slice(0, take + 1)) };
+  const svc = new ReportService({} as never, reports as never, {} as never, {} as never, {} as never, {} as never);
+  return { svc, reports };
+}
+
+describe('ReportService.search — cursor pagination for the operator picker', () => {
+  it('defaults to a 10-row page (the "last 10 reports" default view)', async () => {
+    const { svc, reports } = makeSearchService(3);
+    await svc.search({});
+    expect(reports.searchAdmin).toHaveBeenCalledWith({ q: undefined, take: 10, cursorId: undefined });
+  });
+
+  it('a short page (fewer rows than the limit) has no next cursor', async () => {
+    const { svc } = makeSearchService(3);
+    const page = await svc.search({ limit: 10 });
+    expect(page.rows).toHaveLength(3);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('a full page trims the +1 probe row and points the cursor at its own last row', async () => {
+    const { svc } = makeSearchService(11);
+    const page = await svc.search({ limit: 10 });
+    expect(page.rows).toHaveLength(10);
+    expect(page.nextCursor).toBe('r10'); // the last VISIBLE row — not the probe row
+  });
+
+  it('threads q + cursor through to the repository', async () => {
+    const { svc, reports } = makeSearchService(1);
+    await svc.search({ q: 'RPT-260711', limit: 5, cursor: 'r42' });
+    expect(reports.searchAdmin).toHaveBeenCalledWith({ q: 'RPT-260711', take: 5, cursorId: 'r42' });
+  });
+});

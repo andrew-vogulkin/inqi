@@ -97,6 +97,18 @@ export function readReturnTo(): string | null {
   return rt && rt.startsWith('/') && !rt.startsWith('//') ? rt : null; // same-app hash paths only
 }
 
+/**
+ * A returnTo target is honored only if the just-signed-in role can actually open it.
+ * Signing out of an admin page leaves `?returnTo=/admin` in the sign-in URL — a
+ * customer signing in next must land on their own home, not a 403.
+ */
+export function allowedReturnTo({ returnTo, isAdmin }: { returnTo: string | null; isAdmin: boolean }): string | null {
+  if (!returnTo) return null;
+  const match = matchRoute(returnTo);
+  if (!match) return null;
+  return ROUTE_META[match.route].adminOnly && !isAdmin ? null : returnTo;
+}
+
 function matchPattern(pattern: string, path: string): Record<string, string> | null {
   const ps = pattern.split('/').filter(Boolean);
   const xs = path.split('/').filter(Boolean);

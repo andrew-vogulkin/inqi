@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { AsyncStatus } from '../conventions/enums';
-import { color, space, fontSize, fontWeight, radius } from '../theme/tokens';
+import { color, fontSize, fontWeight, radius } from '../theme/tokens';
 import { reportsApi } from '../api';
 import { ReportDto } from '../api/types';
 import { Skeleton, EmptyState } from '../ui';
@@ -8,6 +8,7 @@ import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
 import { AdminBoardState } from '../state/adminBoard.reducer';
+import { ReportPicker } from './ReportPicker';
 
 /** Read `?id=` from the current hash (the frame's report selection). */
 function selectedIdFromHash(): string | null {
@@ -17,48 +18,44 @@ function selectedIdFromHash(): string | null {
 
 /**
  * Top-level admin screens that are inherently per-report (Run controls, Cost per
- * report) reach this frame from the sidebar with no id. It lists the reports,
- * auto-selects the most recent (or `?id=`), loads its board into state, and renders
- * the child with the resolved report + board. A pill switcher changes the selection.
+ * report) reach this frame from the sidebar with no id. The report picker resolves
+ * the selection (`?id=`, else the most recent report), loads its board into state,
+ * and renders the child with the resolved report + board. The picker popup searches
+ * by ref / customer / request text and scrolls through older pages.
  */
 export function AdminReportFrame({ title, basePath, children }: { title: string; basePath: string; children: (ctx: { reportId: string; board: AdminBoardState }) => ReactNode }) {
   const dispatch = useAppDispatch();
   const board = useSelector((s) => s.adminBoard);
-  const [tabs, setTabs] = useState<ReportDto[]>([]);
   const [picked, setPicked] = useState<string | null>(selectedIdFromHash());
-  const activeId = picked ?? tabs[0]?.id ?? null;
+  const [defaultId, setDefaultId] = useState<string | null>(null);
+  const [noReports, setNoReports] = useState(false);
+  const activeId = picked ?? defaultId;
 
-  useEffect(() => { reportsApi.list().then((rows) => setTabs(Array.isArray(rows) ? rows : [])).catch(() => undefined); }, []);
   useEffect(() => { if (activeId) reportsApi.detail({ id: activeId }).then((b) => dispatch({ type: ActionType.AdminBoardLoaded, board: b })).catch(() => undefined); }, [activeId, dispatch]);
   useRealtime({ kind: 'admin' });
 
-  function pick(id: string) {
-    setPicked(id);
-    window.location.hash = `${basePath}?id=${id}`;
+  function pick(report: ReportDto) {
+    setPicked(report.id);
+    window.location.hash = `${basePath}?id=${report.id}`;
   }
 
   const ready = board.status === AsyncStatus.Ready && board.reportId === activeId;
 
   return (
     <div>
-      <h1 style={{ fontSize: 21, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: '0 0 4px' }}>{title}</h1>
-      <p style={{ fontSize: fontSize.base, color: color.muted, margin: '0 0 16px' }}>Select a report to inspect.</p>
-
-      {tabs.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
-          {tabs.map((t) => {
-            const on = t.id === activeId;
-            return (
-              <button key={t.id} onClick={() => pick(t.id)}
-                style={{ fontSize: 12.5, padding: '7px 12px', borderRadius: radius.md, border: `1px solid ${on ? color.brand : color.lineStrong}`, background: on ? color.brandTint : color.surface, color: on ? color.brandStrong : color.inkSoft, fontWeight: fontWeight.medium, cursor: 'pointer' }}>
-                {t.rawRequest.slice(0, 34)}
-              </button>
-            );
-          })}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 18 }}>
+        <div>
+          <h1 style={{ fontSize: 21, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: '0 0 4px' }}>{title}</h1>
+          <p style={{ fontSize: fontSize.base, color: color.muted, margin: 0 }}>Select a report to inspect.</p>
         </div>
-      )}
+        <ReportPicker
+          activeId={activeId}
+          onPick={pick}
+          onDefault={(r) => { if (r) setDefaultId(r.id); else setNoReports(true); }}
+        />
+      </div>
 
-      {!activeId && tabs.length === 0
+      {noReports && !activeId
         ? <EmptyState title="No reports yet" hint="Reports appear here as customers submit them." />
         : ready
           ? children({ reportId: activeId as string, board })

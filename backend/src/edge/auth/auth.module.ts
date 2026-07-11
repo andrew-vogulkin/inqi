@@ -7,6 +7,7 @@ import { SnapshotsModule } from '../../domain/snapshot/snapshots.module';
 import { OrchestratorWorkersModule } from '../../domain/orchestrator/orchestrator-workers.module';
 import { SourcesModule } from '../../domain/source/sources.module';
 import { AdminReportsController } from './admin-reports.controller';
+import { AdminReportSearchController } from './admin-report-search.controller';
 import { AdminThreadController } from './admin-thread.controller';
 import { AuthedSnapshotsController } from './authed-snapshots.controller';
 import { WorkflowsController } from './workflows.controller';
@@ -26,7 +27,7 @@ import { AdminGuard } from './admin.guard';
  */
 @Module({
   imports: [ReportModule, KanbanModule, CustomerModule, CreditsModule, SnapshotsModule, OrchestratorWorkersModule, SourcesModule],
-  controllers: [AuthController, AdminReportsController, AdminThreadController, AuthedSnapshotsController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController],
+  controllers: [AuthController, AdminReportsController, AdminReportSearchController, AdminThreadController, AuthedSnapshotsController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController],
   providers: [AuthService, SessionService, MfaCodeStore, AuthGuard, AdminGuard],
   // HP-24: the former capability-token / public read surfaces now sit behind AuthGuard too.
   exports: [SessionService, AuthGuard],

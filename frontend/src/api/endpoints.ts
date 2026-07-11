@@ -4,7 +4,7 @@ import {
   SessionDto, ReportDto, LiveReportDto, ReportSnapshotDto, CreditsDto,
   QuestionnaireDto, CostSummaryDto, WorkflowVersionDto, ReportBoardDto, ThreadMessageDto,
   AuditResultDto, WorkflowInspectDto, VersionDiffResultDto, PublishResultDto,
-  CustomerDirectoryDto, ProvenanceDto, UnlockResultDto,
+  CustomerDirectoryDto, ProvenanceDto, UnlockResultDto, ReportSearchResultDto,
 } from './types';
 
 /** Auth — two-step email sign-in: request a code, then verify it (mock transport: 123456). */
@@ -60,6 +60,9 @@ export const adminApi = {
     request<{ customerId: string; balance: number }>({ method: HttpMethod.Post, path: Paths.customerCredits(customerId), body: { amount, note } }),
   // HP-22: customer directory/search for the operator top-up (FE-16).
   searchCustomers: ({ q }: { q: string }) => request<CustomerDirectoryDto[]>({ method: HttpMethod.Get, path: Paths.adminCustomers(), query: { q } }),
+  // Operator report picker: newest-first, cursor-paginated; q matches ref / email / request text.
+  searchReports: ({ q, cursor, limit }: { q?: string; cursor?: string; limit?: number } = {}) =>
+    request<ReportSearchResultDto>({ method: HttpMethod.Get, path: Paths.adminReports(), query: { q: q || undefined, cursor, limit } }),
   cost: ({ reportId }: { reportId: string }) => request<CostSummaryDto>({ method: HttpMethod.Get, path: Paths.reportCost(reportId) }),
   // FE-14 audit trail. `types` is a comma list of AuditEntryType buckets; omitted = All.
   audit: ({ reportId, types }: { reportId?: string; types?: string } = {}) =>

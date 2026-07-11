@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Route, hrefFor } from '../conventions/routes';
+import { Route, hrefFor, navigate } from '../conventions/routes';
 import { color, space, fontSize, fontWeight, radius } from '../theme/tokens';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
@@ -21,7 +21,9 @@ export function CustomerShell({ children }: { children: ReactNode; active?: Rout
           </a>
           <span style={{ flex: 1 }} />
           {session
-            ? <span style={{ fontSize: fontSize.sm, color: color.muted }}>{session.customer.email} · <a href={hrefFor({ route: Route.SignIn })} onClick={(e) => { e.preventDefault(); dispatch({ type: ActionType.SignedOut }); }}>sign out</a></span>
+            // Navigate BEFORE the session clears — a signed-out guarded route would
+            // bounce with ?returnTo=… and strand the next sign-in on it.
+            ? <span style={{ fontSize: fontSize.sm, color: color.muted }}>{session.customer.email} · <a href={hrefFor({ route: Route.SignIn })} onClick={(e) => { e.preventDefault(); navigate({ route: Route.SignIn }); dispatch({ type: ActionType.SignedOut }); }}>sign out</a></span>
             : <a href={hrefFor({ route: Route.SignIn })} style={{ fontSize: fontSize.sm }}>Sign in</a>}
         </div>
       </header>

@@ -78,7 +78,9 @@ export function AdminShell({ children, active }: { children: ReactNode; active: 
           <span style={{ width: 28, height: 28, borderRadius: '50%', background: color.ink, color: color.onSolid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.sm, fontWeight: fontWeight.semibold, flex: 'none' }}>{email[0]?.toUpperCase() ?? 'A'}</span>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 12.5, fontWeight: fontWeight.medium, color: color.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
-            <div style={{ fontSize: fontSize.xs, color: color.subtle }}>Operator · <a href={hrefFor({ route: Route.SignIn })} onClick={(e) => { e.preventDefault(); dispatch({ type: ActionType.SignedOut }); }} style={{ color: color.subtle }}>sign out</a></div>
+            {/* Navigate BEFORE the session clears — if the guard sees a signed-out /admin
+                first, it bounces with ?returnTo=/admin and strands the next sign-in. */}
+            <div style={{ fontSize: fontSize.xs, color: color.subtle }}>Operator · <a href={hrefFor({ route: Route.SignIn })} onClick={(e) => { e.preventDefault(); navigate({ route: Route.SignIn }); dispatch({ type: ActionType.SignedOut }); }} style={{ color: color.subtle }}>sign out</a></div>
           </div>
           <button onClick={() => navigate({ route: Route.Dashboard })} title="Exit to customer app" style={{ fontSize: fontSize.md, color: color.subtle, flex: 'none', background: 'transparent', border: 'none', cursor: 'pointer' }}>⇲</button>
         </div>

@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, ClipboardEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AuthRole } from '@inqi/shared';
 import { AuthState } from '../conventions/enums';
-import { Route, navigate, readReturnTo } from '../conventions/routes';
+import { Route, navigate, readReturnTo, allowedReturnTo } from '../conventions/routes';
 import { OTP_LENGTH, otpDigits, applyDigit, applyBackspace, applyPaste } from '../conventions/otp';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
 import { authApi, ApiError } from '../api';
@@ -34,12 +34,14 @@ export function SignIn() {
   // the guarded destination (e.g. /admin) renders while the store still reads signed-out
   // and the route guard bounces us right back to /signin?returnTo=… (a commit race that
   // bit iOS Safari; desktop happened to win it). HP-24: resume the deep link we were
-  // bounced from, else the role-aware home (operators → console, customers → dashboard).
+  // bounced from — but only where THIS role may go (a stale returnTo=/admin from a
+  // previous operator session must not 403 a customer) — else the role-aware home.
   useLayoutEffect(() => {
     if (!session) return;
-    const returnTo = readReturnTo();
+    const isAdmin = session.customer.role === AuthRole.Admin;
+    const returnTo = allowedReturnTo({ returnTo: readReturnTo(), isAdmin });
     if (returnTo) window.location.hash = returnTo;
-    else navigate({ route: session.customer.role === AuthRole.Admin ? Route.Admin : Route.Dashboard });
+    else navigate({ route: isAdmin ? Route.Admin : Route.Dashboard });
   }, [session]);
 
   // The async glue (call api → dispatch result → route). No business logic here.
