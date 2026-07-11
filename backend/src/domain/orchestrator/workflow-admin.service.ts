@@ -49,7 +49,12 @@ export class WorkflowAdminService {
     const graph = toGraph(def);
     return {
       id: def.id, key: def.key, version: def.version, status: def.status,
-      states: graph.states, transitions: graph.transitions,
+      // handler/config ride along so the diagram can show operator bindings + tuned genes.
+      states: def.states.map((st) => {
+        const row = st as { name: string; isInitial: boolean; isTerminal: boolean; handler?: string | null; config?: unknown };
+        return { name: row.name, isInitial: row.isInitial, isTerminal: row.isTerminal, handler: row.handler ?? null, config: (row.config as Record<string, unknown> | null) ?? null };
+      }),
+      transitions: graph.transitions,
       validation: validateWorkflowGraph(graph),
     };
   }
