@@ -22,6 +22,8 @@ export class WorkflowStateDto {
   @ApiProperty({ example: 'PRE_RESEARCH' }) name!: string;
   @ApiProperty({ example: true }) isInitial!: boolean;
   @ApiProperty({ example: false }) isTerminal!: boolean;
+  @ApiProperty({ required: false, nullable: true, example: null, description: 'Operator binding (subject_build)' }) handler?: string | null;
+  @ApiProperty({ required: false, nullable: true, type: 'object', additionalProperties: true, example: { poolCap: 12 }, description: 'Per-state params: tunable genes / layer / predicate' }) config?: Record<string, unknown> | null;
 }
 
 /** Graph-validation verdict for a workflow version. */

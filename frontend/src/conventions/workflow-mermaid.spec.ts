@@ -32,4 +32,29 @@ describe('toMermaidSource — workflow graph → stateDiagram-v2', () => {
     expect(source).toContain('classDef terminal');
     expect(source).toContain('class DONE,CANCELLED terminal');
   });
+
+  it('aliases hyphenated names to parse-safe ids (subject_build operators)', () => {
+    const { source } = toMermaidSource({
+      states: [s('SUBJECT_IN', { initial: true }), s('enrich-web-grounded'), s('SUBJECT_OUT', { terminal: true })],
+      transitions: [t('SUBJECT_IN', 'READY', 'enrich-web-grounded'), t('enrich-web-grounded', 'DRAFTED', 'SUBJECT_OUT')],
+    });
+    expect(source).toContain('state "enrich-web-grounded" as enrich_web_grounded');
+    expect(source).toContain('SUBJECT_IN --> enrich_web_grounded: READY');
+    expect(source).not.toMatch(/ enrich-web-grounded -->/); // raw hyphenated id never used as a node
+  });
+
+  it('renders per-state config (genes / layer) as an attached note', () => {
+    const { source } = toMermaidSource({
+      states: [
+        { ...s('SEARCH', { initial: true }), config: { poolCap: 12 } },
+        { ...s('CHECKPOINT'), config: { dryRoundsToStop: 3, maxCycles: 4, predicate: 'low-confidence', nested: { ignored: true } } },
+        s('DONE', { terminal: true }),
+      ],
+      transitions: [t('SEARCH', 'POOL_READY', 'CHECKPOINT'), t('CHECKPOINT', 'TARGET_MET', 'DONE')],
+    });
+    expect(source).toContain('note right of SEARCH');
+    expect(source).toContain('poolCap=12');
+    expect(source).toContain('dryRoundsToStop=3 · maxCycles=4 · predicate=low-confidence');
+    expect(source).not.toContain('nested'); // non-scalars stay out of the drawing
+  });
 });

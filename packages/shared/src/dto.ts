@@ -237,7 +237,15 @@ export interface WorkflowVersionDto {
   pinnedReports: number;
   createdAt?: string;
 }
-export interface GraphStateDto { name: string; isInitial: boolean; isTerminal: boolean }
+export interface GraphStateDto {
+  name: string;
+  isInitial: boolean;
+  isTerminal: boolean;
+  /** Operator binding (subject_build states may alias an operator id). */
+  handler?: string | null;
+  /** Per-state params: stage-1 tunable genes (poolCap, dryRoundsToStop, …) and subject_build layer/predicate. */
+  config?: Record<string, unknown> | null;
+}
 export interface GraphTransitionDto { fromState: string; toState: string; event: string }
 export interface WorkflowInspectDto {
   id: string;
