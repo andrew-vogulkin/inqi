@@ -21,6 +21,8 @@ export const Field = {
   Evidence: 'evidence',
   ReferenceSet: 'referenceSet',
   Toolset: 'toolset',
+  Domain: 'domain',
+  DomainPriors: 'domainPriors',
 } as const;
 export type Field = (typeof Field)[keyof typeof Field];
 
@@ -42,7 +44,7 @@ export const SUBJECT_IN = 'SUBJECT_IN';
 export const SUBJECT_OUT = 'SUBJECT_OUT';
 
 /** Registered if-else predicates (referenced by id in a state's config; no free expressions). */
-export const PREDICATES = ['low-confidence', 'has-draft', 'category-is-service', 'has-reference-set'] as const;
+export const PREDICATES = ['low-confidence', 'has-draft', 'category-is-service', 'has-reference-set', 'has-domain-priors'] as const;
 export type Predicate = (typeof PREDICATES)[number];
 
 const OPERATORS: OperatorSpec[] = [
@@ -56,6 +58,12 @@ const OPERATORS: OperatorSpec[] = [
   { id: 'target-industry-set', kind: 'context', reads: [Field.RawRequest], writes: [Field.ReferenceSet], emits: ['SET'] },
   { id: 'tooling', kind: 'context', reads: [], writes: [Field.Toolset], emits: ['BOUND'] },
   { id: 'if-else', kind: 'control', reads: [], writes: [], emits: ['THEN', 'ELSE'] },
+  // Domain memory — the network's read head (priors in) and write head (learned facts out).
+  { id: 'domain-recall', kind: 'context', reads: [Field.RawRequest], writes: [Field.Domain, Field.DomainPriors], emits: ['RECALLED', 'NO_PRIORS'] },
+  { id: 'attribute-mine', kind: 'builder', reads: [Field.RawRequest, Field.Title], writes: [Field.Attributes], emits: ['MINED'] },
+  { id: 'domain-learn', kind: 'builder', reads: [Field.Title, Field.Category], writes: [], emits: ['LEARNED'] },
+  // Explicit fan-in point for layered networks — pure pass-through, keeps wide graphs readable.
+  { id: 'join', kind: 'control', reads: [], writes: [], emits: ['MERGED'] },
   { id: SUBJECT_OUT, kind: 'exit', reads: OUT_REQUIRES, writes: [], emits: ['SUBJECT_CREATED'] },
 ];
 
@@ -71,5 +79,40 @@ export const DEFAULT_GRAPH = {
   transitions: [
     { from: SUBJECT_IN, to: 'enrich-basic', event: 'READY' },
     { from: 'enrich-basic', to: SUBJECT_OUT, event: 'DRAFTED' },
+  ],
+} as const;
+
+/**
+ * The seeded v2 layered NETWORK (docs/subject-build-network.md §5): 7 operators
+ * in 4 layers with M:M edges. IN fans out 1:3 (parallel perspectives), the
+ * drafting layer fans in 3:1, refinement fans out 1:2 and the memory write head
+ * fans in 2:1 before OUT. `layer` rides in state config (no schema change).
+ */
+export const LAYERED_GRAPH_V2 = {
+  states: [
+    { name: SUBJECT_IN, isInitial: true },
+    { name: 'disambiguate', config: { layer: 1 } },
+    { name: 'target-industry-set', config: { layer: 1 } },
+    { name: 'domain-recall', config: { layer: 1 } },
+    { name: 'enrich-web-grounded', config: { layer: 2 } },
+    { name: 'attribute-mine', config: { layer: 3 } },
+    { name: 'self-critique', config: { layer: 3 } },
+    { name: 'domain-learn', config: { layer: 4 } },
+    { name: SUBJECT_OUT, isTerminal: true },
+  ],
+  transitions: [
+    { from: SUBJECT_IN, to: 'disambiguate', event: 'READY' },
+    { from: SUBJECT_IN, to: 'target-industry-set', event: 'READY' },
+    { from: SUBJECT_IN, to: 'domain-recall', event: 'READY' },
+    { from: 'disambiguate', to: 'enrich-web-grounded', event: 'CLEAR' },
+    { from: 'disambiguate', to: 'enrich-web-grounded', event: 'AMBIGUOUS' },
+    { from: 'target-industry-set', to: 'enrich-web-grounded', event: 'SET' },
+    { from: 'domain-recall', to: 'enrich-web-grounded', event: 'RECALLED' },
+    { from: 'domain-recall', to: 'enrich-web-grounded', event: 'NO_PRIORS' },
+    { from: 'enrich-web-grounded', to: 'attribute-mine', event: 'DRAFTED' },
+    { from: 'enrich-web-grounded', to: 'self-critique', event: 'DRAFTED' },
+    { from: 'attribute-mine', to: 'domain-learn', event: 'MINED' },
+    { from: 'self-critique', to: 'domain-learn', event: 'REFINED' },
+    { from: 'domain-learn', to: SUBJECT_OUT, event: 'LEARNED' },
   ],
 } as const;

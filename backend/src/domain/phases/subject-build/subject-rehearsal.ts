@@ -4,8 +4,12 @@ import { SubjectStepDeps } from './subject-build.dispatch';
 import { SubjectBuildGraph } from './validate';
 import { SubjectCase } from './subject-cases';
 
-/** The deps a rehearsal needs — the model + reuse; persist is captured internally. */
-export type RehearsalDeps = Pick<SubjectStepDeps, 'ai' | 'findReuse'>;
+/**
+ * The deps a rehearsal needs — the model + reuse + (optionally) the domain
+ * memory for realistic priors; persist is captured internally and domain WRITES
+ * are always discarded (an experiment must never teach the live memory).
+ */
+export type RehearsalDeps = Pick<SubjectStepDeps, 'ai' | 'findReuse'> & { domainStore?: SubjectStepDeps['domainStore'] };
 
 export interface SubjectCaseResult {
   caseId: string;
@@ -30,7 +34,13 @@ async function scoreCase({ graph, kase, deps }: { graph: SubjectBuildGraph; kase
   const result = await interpretSubjectBuild({
     graph,
     data: initSubjectBuildData({ rawRequest: kase.request, enriched: kase.enriched }),
-    deps: { ai: deps.ai, findReuse: deps.findReuse, persist: async (f) => { built = f; } },
+    deps: {
+      ai: deps.ai,
+      findReuse: deps.findReuse,
+      persist: async (f) => { built = f; },
+      // Real priors when provided, but writes ALWAYS land in the void — rehearsal stays pure.
+      domainStore: { load: (args) => deps.domainStore?.load(args) ?? Promise.resolve(null), save: async () => undefined },
+    },
   });
   const b = result.created ? built : null;
 

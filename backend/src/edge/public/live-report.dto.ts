@@ -47,4 +47,11 @@ export class LiveReportDto {
   @ApiProperty({ description: 'HP-21: free + locked → options redacted until unlocked' }) freemium!: boolean;
   @ApiProperty({ description: 'HP-21: revealed after a 1-credit unlock' }) unlocked!: boolean;
   @ApiProperty({ description: 'HP-21: number of withheld (locked) options' }) lockedCount!: number;
+
+  @ApiProperty({
+    type: 'array', items: { type: 'object', additionalProperties: true },
+    description: 'Contacted/vetted providers that did NOT qualify (failed | unresponsive) — shown when the options list is thin/empty so the report reflects what was tried',
+    example: [{ name: 'Acme Trading Co', status: 'unresponsive' }],
+  })
+  failedInquiries!: { name: string; status: string }[];
 }

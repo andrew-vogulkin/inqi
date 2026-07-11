@@ -498,6 +498,9 @@ export class SnapshotsService {
       freemium: !!snapshot?.freemium,
       unlocked: !!snapshot?.unlocked,
       lockedCount: redaction?.lockedCount ?? 0,
+      // Names only (customer-safe): a thin/empty options list shows WHAT WAS TRIED
+      // (contacted-but-failed / unresponsive providers) instead of a bare empty state.
+      failedInquiries: await this.reports.findFailedInquiries({ reportId }),
     };
   }
 }
@@ -524,4 +527,6 @@ export interface LiveReport {
   freemium: boolean;
   unlocked: boolean;
   lockedCount: number;
+  /** Contacted/vetted providers that did not qualify (names only — customer-safe). */
+  failedInquiries: { name: string; status: string }[];
 }

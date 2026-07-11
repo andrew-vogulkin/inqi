@@ -3,8 +3,9 @@ import { AuditAction, AuditTargetType, WorkflowStatus } from '@inqi/shared';
 import { ConflictError, ErrorCode, NotFoundError } from '../../common/errors';
 import { AuditService } from '../../infra/observability/audit.service';
 import { WorkflowAdminRepository } from './workflow-admin.repository';
-import { GraphState, GraphTransition, WorkflowGraph, diffVersions, validateWorkflowGraph } from './workflow-graph';
+import { GraphState, GraphTransition, WorkflowGraph, ambiguousTransitions, diffVersions, validateWorkflowGraph } from './workflow-graph';
 import { SubjectBuildGraph, validateSubjectBuildGraph } from '../phases/subject-build/validate';
+import { validatePhaseTunables } from '../phases/phase-tunables';
 
 const SUBJECT_BUILD_KEY = 'subject_build';
 
@@ -77,11 +78,24 @@ export class WorkflowAdminService {
       throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish an invalid workflow graph', details: { errors: validation.errors } });
     }
     // Composable phases get an extra, operator-aware gate (typed I/O, the persist
-    // invariant, the ≤5 cap) before a candidate composition can go live.
+    // invariant, the operator budget) before a candidate composition can go live.
     if (def.key === SUBJECT_BUILD_KEY) {
       const sb = validateSubjectBuildGraph(toSubjectBuildGraph(def));
       if (!sb.valid) {
         throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish an invalid subject_build composition', details: { errors: sb.errors } });
+      }
+    } else {
+      // ENGINE-RUN workflows must stay deterministic: one transition per (state, event).
+      // The DB unique key no longer enforces this (it gained toState so subject_build
+      // networks can fan out), so the publish gate carries the invariant now.
+      const ambiguous = ambiguousTransitions(toGraph(def).transitions);
+      if (ambiguous.length) {
+        throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish an engine-run workflow with ambiguous transitions (same state + event twice)', details: { ambiguous } });
+      }
+      // Stage-1 evolution: state-config genes must be registered tunables within bounds.
+      const tunables = validatePhaseTunables({ key: def.key, states: def.states as { name: string; config?: unknown }[] });
+      if (!tunables.valid) {
+        throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'cannot publish out-of-bounds phase tunables', details: { errors: tunables.errors } });
       }
     }
     await this.repo.publish({ id, key: def.key });

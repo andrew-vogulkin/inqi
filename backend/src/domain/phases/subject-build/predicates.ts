@@ -20,6 +20,8 @@ export const PREDICATE_FNS: Record<Predicate, SubjectPredicate> = {
   'category-is-service': (d) => d.draft.category === SubjectCategory.Service,
   // a target-industry-set operator has populated reference sources
   'has-reference-set': (d) => (d.referenceSet?.length ?? 0) > 0,
+  // domain-recall found memory from past builds of this domain (cold start → ELSE)
+  'has-domain-priors': (d) => (d.domainPriors?.buildCount ?? 0) > 0,
 };
 
 /** Evaluate a registered predicate; unknown id → false (validator forbids this at publish). */

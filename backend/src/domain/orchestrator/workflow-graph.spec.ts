@@ -1,5 +1,5 @@
 import { WorkflowStatus } from '@inqi/shared';
-import { assertVersionEditable, diffVersions, validateWorkflowGraph, WorkflowGraph } from './workflow-graph';
+import { ambiguousTransitions, assertVersionEditable, diffVersions, validateWorkflowGraph, WorkflowGraph } from './workflow-graph';
 
 const good: WorkflowGraph = {
   states: [
@@ -35,6 +35,16 @@ describe('validateWorkflowGraph', () => {
       transitions: good.transitions,
     };
     expect(validateWorkflowGraph(g).errors.some((e) => /ISLAND.*unreachable/.test(e))).toBe(true);
+  });
+});
+
+describe('ambiguousTransitions', () => {
+  it('a deterministic graph has none', () => {
+    expect(ambiguousTransitions(good.transitions)).toEqual([]);
+  });
+  it('flags a (state, event) pair wired twice — engine-run graphs must not fan out', () => {
+    const dup = [...good.transitions, { fromState: 'A', toState: 'DONE', event: 'go' }];
+    expect(ambiguousTransitions(dup)).toEqual(['A on go']);
   });
 });
 

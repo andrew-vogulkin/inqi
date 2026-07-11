@@ -50,9 +50,9 @@ export function naiveBreadthQuery({ subject }: { subject: BreadthSubject }): str
   return `${subject.title} ${subject.description}`.slice(0, 200);
 }
 
-/** C. Run every query, merge + dedupe hits into one pool. Best-effort per query. */
-export async function searchBreadthPool({ web, queries, fallbackQuery, logger }: {
-  web: WebSearchProvider; queries: string[]; fallbackQuery: string; logger: Logger;
+/** C. Run every query, merge + dedupe hits into one pool. Best-effort per query. `cap` = the poolCap gene. */
+export async function searchBreadthPool({ web, queries, fallbackQuery, logger, cap = MAX_WEB_HITS }: {
+  web: WebSearchProvider; queries: string[]; fallbackQuery: string; logger: Logger; cap?: number;
 }): Promise<BreadthPoolHit[]> {
   const list = queries.length ? queries : [fallbackQuery];
   const settled = await Promise.all(list.map(async (query) => {
@@ -70,7 +70,7 @@ export async function searchBreadthPool({ web, queries, fallbackQuery, logger }:
       if (seen.has(url)) continue;
       seen.add(url);
       merged.push({ title, url, content });
-      if (merged.length >= MAX_WEB_HITS) return merged;
+      if (merged.length >= cap) return merged;
     }
   }
   return merged;
@@ -167,12 +167,12 @@ export async function relaxBreadthQueries({ ai, subject, priorQueries, qualified
 }
 
 /** ✓ The adaptive checkpoint, pure: what the loop does after a qualify round. */
-export function decideBreadthCheckpoint({ foundCount, targetCount, gained, dryRounds, cycle, maxCycles }: {
-  foundCount: number; targetCount: number; gained: number; dryRounds: number; cycle: number; maxCycles: number;
+export function decideBreadthCheckpoint({ foundCount, targetCount, gained, dryRounds, cycle, maxCycles, dryPatience = MAX_DRY_ROUNDS }: {
+  foundCount: number; targetCount: number; gained: number; dryRounds: number; cycle: number; maxCycles: number; dryPatience?: number;
 }): { event: BreadthEvent; dryRounds: number } {
   const nextDry = gained === 0 ? dryRounds + 1 : 0;
   if (foundCount >= targetCount) return { event: BreadthEvent.TARGET_MET, dryRounds: nextDry };
-  if (nextDry >= MAX_DRY_ROUNDS) return { event: BreadthEvent.WENT_DRY, dryRounds: nextDry };
+  if (nextDry >= dryPatience) return { event: BreadthEvent.WENT_DRY, dryRounds: nextDry };
   if (cycle >= maxCycles) return { event: BreadthEvent.CAP_REACHED, dryRounds: nextDry };
   return { event: BreadthEvent.CONTINUE, dryRounds: nextDry };
 }

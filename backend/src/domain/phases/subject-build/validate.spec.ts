@@ -1,5 +1,5 @@
 import { validateSubjectBuildGraph, MAX_OPERATORS, SubjectBuildGraph } from './validate';
-import { DEFAULT_GRAPH, PALETTE, SUBJECT_IN, SUBJECT_OUT } from './operators';
+import { DEFAULT_GRAPH, LAYERED_GRAPH_V2, PALETTE, SUBJECT_IN, SUBJECT_OUT } from './operators';
 
 const g = (states: SubjectBuildGraph['states'], transitions: SubjectBuildGraph['transitions']): SubjectBuildGraph => ({ states, transitions });
 const IN = { name: SUBJECT_IN, isInitial: true };
@@ -39,29 +39,39 @@ describe('validateSubjectBuildGraph', () => {
       [{ from: SUBJECT_IN, to: 'rl', event: 'READY' }, { from: 'rl', to: SUBJECT_OUT, event: 'REUSED' }],
     ));
     expect(res.valid).toBe(false);
-    expect(res.errors.join(' ')).toMatch(/reuse-lookup.*reads draft\.title not produced upstream/);
+    expect(res.errors.join(' ')).toMatch(/reuse-lookup.*reads draft\.title not written by any ancestor/);
   });
 
-  it('rejects a path that never writes the persist invariant', () => {
+  it('rejects a network that never writes the persist invariant', () => {
     const res = validateSubjectBuildGraph(g(
       [IN, { name: 'tooling' }, OUT],
       [{ from: SUBJECT_IN, to: 'tooling', event: 'READY' }, { from: 'tooling', to: SUBJECT_OUT, event: 'BOUND' }],
     ));
     expect(res.valid).toBe(false);
-    expect(res.errors.join(' ')).toMatch(/never writes draft.title, draft.summary, draft.category/);
+    expect(res.errors.join(' ')).toMatch(/no ancestor of SUBJECT_OUT writes draft.title, draft.summary, draft.category/);
   });
 
-  it(`rejects a composition that runs more than ${MAX_OPERATORS} operators between IN and OUT`, () => {
-    const ops = Array.from({ length: 6 }, (_, i) => ({ name: `op${i}`, handler: 'enrich-basic' }));
+  it(`rejects a composition with more than ${MAX_OPERATORS} reachable operators (the run budget)`, () => {
+    const ops = Array.from({ length: MAX_OPERATORS + 1 }, (_, i) => ({ name: `op${i}`, handler: 'enrich-basic' }));
     const chain = [IN, ...ops, OUT];
     const transitions = [
       { from: SUBJECT_IN, to: 'op0', event: 'READY' },
       ...ops.slice(0, -1).map((_, i) => ({ from: `op${i}`, to: `op${i + 1}`, event: 'DRAFTED' })),
-      { from: 'op5', to: SUBJECT_OUT, event: 'DRAFTED' },
+      { from: `op${MAX_OPERATORS}`, to: SUBJECT_OUT, event: 'DRAFTED' },
     ];
     const res = validateSubjectBuildGraph(g(chain, transitions));
     expect(res.valid).toBe(false);
-    expect(res.errors.join(' ')).toMatch(new RegExp(`runs 6 operators \\(> ${MAX_OPERATORS}\\)`));
+    expect(res.errors.join(' ')).toMatch(new RegExp(`${MAX_OPERATORS + 1} operators reachable .*> ${MAX_OPERATORS}`));
+  });
+
+  it(`accepts a ${MAX_OPERATORS}-operator chain (the raised budget)`, () => {
+    const ops = Array.from({ length: MAX_OPERATORS }, (_, i) => ({ name: `op${i}`, handler: 'enrich-basic' }));
+    const transitions = [
+      { from: SUBJECT_IN, to: 'op0', event: 'READY' },
+      ...ops.slice(0, -1).map((_, i) => ({ from: `op${i}`, to: `op${i + 1}`, event: 'DRAFTED' })),
+      { from: `op${MAX_OPERATORS - 1}`, to: SUBJECT_OUT, event: 'DRAFTED' },
+    ];
+    expect(validateSubjectBuildGraph(g([IN, ...ops, OUT], transitions))).toEqual({ valid: true, errors: [] });
   });
 
   it('rejects an unregistered operator and an event the operator cannot emit', () => {
@@ -102,5 +112,72 @@ describe('validateSubjectBuildGraph', () => {
     expect(() => { res = validateSubjectBuildGraph(graph); }).not.toThrow();
     expect(res.valid).toBe(false);
     expect(res.errors.join(' ')).toMatch(/targets an unknown state/);
+  });
+});
+
+describe('validateSubjectBuildGraph — layered M:M networks', () => {
+  it('accepts the seeded v2 network (fan-out, fan-in, domain memory)', () => {
+    expect(validateSubjectBuildGraph(LAYERED_GRAPH_V2 as unknown as SubjectBuildGraph)).toEqual({ valid: true, errors: [] });
+  });
+
+  it('rejects an edge that does not deepen (same authored layer)', () => {
+    const res = validateSubjectBuildGraph(g(
+      [IN, { name: 'enrich-basic', config: { layer: 2 } }, { name: 'self-critique', config: { layer: 2 } }, OUT],
+      [
+        { from: SUBJECT_IN, to: 'enrich-basic', event: 'READY' },
+        { from: 'enrich-basic', to: 'self-critique', event: 'DRAFTED' }, // 2 → 2: sideways, forbidden
+        { from: 'self-critique', to: SUBJECT_OUT, event: 'REFINED' },
+      ],
+    ));
+    expect(res.valid).toBe(false);
+    expect(res.errors.join(' ')).toMatch(/does not deepen/);
+  });
+
+  it('rejects an authored layer outside 1..10', () => {
+    const res = validateSubjectBuildGraph(g(
+      [IN, { name: 'enrich-basic', config: { layer: 11 } }, OUT],
+      [{ from: SUBJECT_IN, to: 'enrich-basic', event: 'READY' }, { from: 'enrich-basic', to: SUBJECT_OUT, event: 'DRAFTED' }],
+    ));
+    expect(res.valid).toBe(false);
+    expect(res.errors.join(' ')).toMatch(/layer 11 \(must be 1\.\.10\)/);
+  });
+
+  it('accepts fan-in reads satisfied across parallel ancestors (the blackboard merge)', () => {
+    // attribute-mine reads draft.title — written by enrich-basic on a PARALLEL branch
+    // that is still an ancestor via the join. Legacy per-path checking would allow it
+    // too, but this is the canonical M:M shape: two L1 nodes feeding one L2 node.
+    const res = validateSubjectBuildGraph(g(
+      [
+        IN,
+        { name: 'enrich-basic', config: { layer: 1 } },
+        { name: 'domain-recall', config: { layer: 1 } },
+        { name: 'attribute-mine', config: { layer: 2 } },
+        OUT,
+      ],
+      [
+        { from: SUBJECT_IN, to: 'enrich-basic', event: 'READY' },
+        { from: SUBJECT_IN, to: 'domain-recall', event: 'READY' },
+        { from: 'enrich-basic', to: 'attribute-mine', event: 'DRAFTED' },
+        { from: 'domain-recall', to: 'attribute-mine', event: 'RECALLED' },
+        { from: 'domain-recall', to: 'attribute-mine', event: 'NO_PRIORS' },
+        { from: 'attribute-mine', to: SUBJECT_OUT, event: 'MINED' },
+      ],
+    ));
+    expect(res).toEqual({ valid: true, errors: [] });
+  });
+
+  it('still validates cyclic graphs under the legacy walk rules', () => {
+    // self-critique loop (cycle) + a proper exit — legacy mode, still valid
+    const res = validateSubjectBuildGraph(g(
+      [IN, { name: 'enrich-basic' }, { name: 'self-critique' }, OUT],
+      [
+        { from: SUBJECT_IN, to: 'enrich-basic', event: 'READY' },
+        { from: 'enrich-basic', to: 'self-critique', event: 'DRAFTED' },
+        { from: 'self-critique', to: 'self-critique', event: 'REFINED' }, // loop
+      ],
+    ));
+    // OUT unreachable in this cyclic graph → legacy rules still catch it
+    expect(res.valid).toBe(false);
+    expect(res.errors.join(' ')).toMatch(/SUBJECT_OUT is unreachable/);
   });
 });

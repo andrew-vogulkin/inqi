@@ -63,7 +63,10 @@ model WorkflowTransition {
 
   definition WorkflowDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
 
-  @@unique([definitionId, fromState, event])
+  // Includes toState so subject_build networks may FAN OUT (one event driving
+  // several edges). Engine-run graphs (report, phases) keep (from, event) unique
+  // by construction — their lookups use findFirst and their seeds never fan out.
+  @@unique([definitionId, fromState, event, toState])
   @@index([definitionId, fromState])
 }
 
@@ -91,6 +94,23 @@ model PhaseRun {
   @@index([reportId, key])
   @@index([inquiryId])
   @@index([key, state])
+}
+
+/// Accumulated, self-improving knowledge about a DOMAIN of subjects — the
+/// subject_build network's persistent memory. Read by the `domain-recall`
+/// operator at the top of the network, written back by `domain-learn` at the
+/// bottom, so every built Subject makes the next build of its domain better.
+/// Rows are keyed by domain label (reference-set labels + learned category slugs).
+model DomainKnowledge {
+  id         String   @id @default(cuid())
+  domain     String   @unique
+  category   String?  // dominant SubjectCategory seen for this domain
+  attributes Json     @default("{}") // accumulated attribute schema/facts buyers filter on
+  sources    Json     @default("[]") // learned good sources (string[], capped)
+  titleHints Json     @default("[]") // exemplar titles of past builds (string[], capped)
+  buildCount Int      @default(0)    // how many Subjects taught this row
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 // ---------------------------------------------------------------------------

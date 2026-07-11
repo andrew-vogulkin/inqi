@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { SubjectCategory } from '@inqi/shared';
-import { SubjectDraft } from './draft';
+import { DomainPriorsData, SubjectDraft } from './draft';
 
 const CATEGORY = z.enum(Object.values(SubjectCategory) as [string, ...string[]]);
 
@@ -32,8 +32,11 @@ export function enrichBasicUser({ rawRequest, enriched }: { rawRequest: string; 
 export function enrichWebGroundedSystem(): string {
   return `${SUBJECT_RULES} Ground the title/category in what these professional sources would show; prefer concrete, verifiable phrasing.`;
 }
-export function enrichWebGroundedUser({ rawRequest, referenceSet, evidence }: { rawRequest: string; referenceSet?: string[]; evidence?: { url: string; snippet: string }[] }): string {
-  return `Request: ${rawRequest}\n\nPreferred sources: ${(referenceSet ?? []).join(', ') || '(none)'}\n`
+export function enrichWebGroundedUser({ rawRequest, referenceSet, evidence, priors }: { rawRequest: string; referenceSet?: string[]; evidence?: { url: string; snippet: string }[]; priors?: DomainPriorsData }): string {
+  const memory = priors && priors.buildCount > 0
+    ? `\nDomain memory (${priors.buildCount} past builds of this domain): exemplar titles ${JSON.stringify(priors.titleHints.slice(0, 5))}; learned sources ${priors.sources.slice(0, 6).join(', ') || '(none)'}.`
+    : '';
+  return `Request: ${rawRequest}\n\nPreferred sources: ${(referenceSet ?? []).join(', ') || '(none)'}${memory}\n`
     + `Evidence snippets: ${JSON.stringify((evidence ?? []).slice(0, 6))}\n\nReturn { title, category, summary, confidence } grounded in the evidence.`;
 }
 
@@ -49,6 +52,15 @@ export function selfCritiqueSystem(): string {
 }
 export function selfCritiqueUser({ draft, rawRequest }: { draft: SubjectDraft; rawRequest: string }): string {
   return `Request: ${rawRequest}\nDraft: ${JSON.stringify({ title: draft.title, category: draft.category, summary: draft.summary })}\n\nReturn the improved { title, category, summary, confidence }.`;
+}
+
+export function attributeMineSystem(): string {
+  return 'Extract the structured attributes a buyer would filter on for this subject (price range, size, condition, location radius, capacity — whatever the request supports). '
+    + 'If domain memory lists attribute keys past builds used, prefer filling THOSE keys before inventing new ones. Return only attributes evidenced by the request.';
+}
+export function attributeMineUser({ rawRequest, draft, priors }: { rawRequest: string; draft: SubjectDraft; priors?: DomainPriorsData }): string {
+  const known = priors && Object.keys(priors.attributes).length ? `\nDomain memory attribute keys (from ${priors.buildCount} past builds): ${Object.keys(priors.attributes).slice(0, 12).join(', ')}` : '';
+  return `Request: ${rawRequest}\nSubject: ${JSON.stringify({ title: draft.title, category: draft.category })}${known}\n\nReturn { attributes }.`;
 }
 
 export function disambiguateSystem(): string {

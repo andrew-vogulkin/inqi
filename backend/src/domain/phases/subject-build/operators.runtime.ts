@@ -1,9 +1,10 @@
 import { AiProvider } from '../../../infra/ai/ai.tokens';
 import { SubjectBuildData, SubjectDraft } from './draft';
+import { DomainPriors, mergeDomainKnowledge, resolveDomainLabel } from './domain-knowledge';
 import { evalPredicate } from './predicates';
 import { referenceSetFor } from './reference-sets';
 import {
-  categorySpecializeSystem, categorySpecializeUser, critiqueSchema, disambiguateSchema, disambiguateSystem, disambiguateUser,
+  attributeMineSystem, attributeMineUser, categorySpecializeSystem, categorySpecializeUser, critiqueSchema, disambiguateSchema, disambiguateSystem, disambiguateUser,
   draftSchema, enrichBasicSystem, enrichBasicUser, enrichWebGroundedSystem, enrichWebGroundedUser, selfCritiqueSystem, selfCritiqueUser, specializeSchema,
 } from './prompts';
 
@@ -14,7 +15,7 @@ export type Ai = Pick<AiProvider, 'structured' | 'isConfigured'>;
 export interface OperatorOutcome {
   event: string;
   draft?: Partial<SubjectDraft>;
-  set?: Partial<Pick<SubjectBuildData, 'referenceSet' | 'toolset' | 'evidence'>>;
+  set?: Partial<Pick<SubjectBuildData, 'referenceSet' | 'toolset' | 'evidence' | 'domain' | 'domainPriors'>>;
   note?: string;
 }
 
@@ -43,6 +44,50 @@ export function opTargetIndustrySet({ data }: { data: SubjectBuildData }): Opera
 export function opIfElse({ data, config }: { data: SubjectBuildData; config?: Record<string, unknown> }): OperatorOutcome {
   const id = String(config?.predicate ?? '');
   return { event: evalPredicate({ id, data, config }) ? 'THEN' : 'ELSE' };
+}
+
+/** join: an explicit fan-in point in a layered network — pure pass-through. */
+export function opJoin(): OperatorOutcome {
+  return { event: 'MERGED' };
+}
+
+// --- domain memory (the network's read + write heads) -----------------------
+
+/** How the domain memory is persisted — injected (Prisma live; a sink in tests/rehearsals). */
+export interface DomainStore {
+  load: (args: { domain: string }) => Promise<DomainPriors | null>;
+  save: (args: { domain: string; knowledge: DomainPriors }) => Promise<void>;
+}
+
+/** domain-recall: resolve the domain label and load what past builds learned. */
+export async function opDomainRecall({ data, store }: { data: SubjectBuildData; store: DomainStore }): Promise<OperatorOutcome> {
+  const domain = resolveDomainLabel({ rawRequest: data.rawRequest, category: data.draft.category ?? data.enriched?.category });
+  if (!domain) return { event: 'NO_PRIORS', note: 'domain-recall: no domain label for this request' };
+  try {
+    const priors = await store.load({ domain });
+    if (!priors || priors.buildCount === 0) return { event: 'NO_PRIORS', set: { domain }, note: `domain-recall: ${domain} is cold` };
+    return { event: 'RECALLED', set: { domain, domainPriors: priors }, note: `domain-recall: ${domain} (${priors.buildCount} past builds)` };
+  } catch { return { event: 'NO_PRIORS', set: { domain }, note: 'domain-recall failed — continuing cold' }; }
+}
+
+/** domain-learn: fold the finished draft back into the domain's memory (the write head). */
+export async function opDomainLearn({ data, store }: { data: SubjectBuildData; store: DomainStore }): Promise<OperatorOutcome> {
+  const domain = data.domain ?? resolveDomainLabel({ rawRequest: data.rawRequest, category: data.draft.category });
+  if (!domain) return { event: 'LEARNED', note: 'domain-learn: no domain label — nothing kept' };
+  try {
+    const prior = data.domainPriors ?? (await store.load({ domain }));
+    await store.save({ domain, knowledge: mergeDomainKnowledge({ prior: prior ?? null, data }) });
+    return { event: 'LEARNED', note: `domain-learn: ${domain} updated` };
+  } catch { return { event: 'LEARNED', note: 'domain-learn failed — build continues' }; }
+}
+
+/** attribute-mine: buyer-filterable attributes, guided by the domain's learned attribute keys. */
+export async function opAttributeMine({ data, ai }: { data: SubjectBuildData; ai: Ai }): Promise<OperatorOutcome> {
+  if (!ai.isConfigured()) return { event: 'MINED' };
+  try {
+    const out = await ai.structured({ system: attributeMineSystem(), user: attributeMineUser({ rawRequest: data.rawRequest, draft: data.draft, priors: data.domainPriors }), validate: (r) => specializeSchema.parse(r) });
+    return { event: 'MINED', draft: { attributes: { ...(data.draft.attributes ?? {}), ...out.attributes } } };
+  } catch { return { event: 'MINED', note: 'attribute-mine skipped (AI failed)' }; }
 }
 
 // --- LLM operators (fail-open, like feasibility) ---------------------------

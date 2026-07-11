@@ -6,7 +6,7 @@ import {
 } from '@inqi/shared';
 import { WorkflowAction } from '../src/domain/orchestrator/workflow-registry';
 import { PHASE_GRAPHS } from '../src/domain/phases/phase-graphs';
-import { DEFAULT_GRAPH as SUBJECT_BUILD_V1 } from '../src/domain/phases/subject-build/operators';
+import { DEFAULT_GRAPH as SUBJECT_BUILD_V1, LAYERED_GRAPH_V2 as SUBJECT_BUILD_V2 } from '../src/domain/phases/subject-build/operators';
 import { rankOptions, RankableOption } from '../src/domain/snapshot/ranking';
 
 const db = new PrismaClient();
@@ -206,12 +206,19 @@ async function main() {
     await installVersion({ key: graph.key, version: 1, status: WorkflowStatus.Active, states: graph.states, transitions: graph.transitions });
   }
 
-  // subject_build — the composable SUBJECT slot the AI experiments on. v1 reproduces
-  // today's behaviour (IN → enrich-basic → OUT); interpreted, not engine-run.
+  // subject_build — the composable SUBJECT slot the AI experiments on. v1 is the
+  // legacy linear baseline (IN → enrich-basic → OUT, kept for rollback/diff); v2 is
+  // the ACTIVE layered M:M network with domain memory (docs/subject-build-network.md).
+  // Both are interpreted, not engine-run; the loader picks the highest active version.
   await installVersion({
-    key: 'subject_build', version: 1, status: WorkflowStatus.Active,
+    key: 'subject_build', version: 1, status: WorkflowStatus.Archived,
     states: SUBJECT_BUILD_V1.states.map((s) => ({ ...s })),
     transitions: SUBJECT_BUILD_V1.transitions.map((t) => ({ from: t.from, to: t.to, event: t.event })),
+  });
+  await installVersion({
+    key: 'subject_build', version: 2, status: WorkflowStatus.Active,
+    states: SUBJECT_BUILD_V2.states.map((s) => ({ ...s })),
+    transitions: SUBJECT_BUILD_V2.transitions.map((t) => ({ from: t.from, to: t.to, event: t.event })),
   });
 
   const customers = await seedCustomers();

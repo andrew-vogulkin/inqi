@@ -13,6 +13,7 @@ import { retryBackoffSeconds } from '../../infra/observability/reaper.logic';
 import { StageLogger } from '../../infra/observability/activity.service';
 import { ConflictError, ErrorCode, NotFoundError } from '../../common/errors';
 import { WorkflowEngine } from '../orchestrator/workflow-engine.service';
+import { configuredTunables } from './phase-tunables';
 import { PhaseRunRepository } from './phase-run.repository';
 import { PhaseRegistryService } from './phase-registry';
 import { PhaseStepRegistry } from './phase-step.tokens';
@@ -81,7 +82,11 @@ export class PhaseEngine implements OnModuleInit {
     const initial = await this.db.workflowState.findFirst({ where: { definitionId: workflowVersionId, isInitial: true } });
     if (!initial) throw new NotFoundError({ code: ErrorCode.NotFound, message: `workflow ${key} has no initial state` });
 
-    const run = await this.repo.create({ data: { key, workflowVersionId, state: initial.name, reportId, inquiryId: inquiryId ?? null, data: data as Prisma.InputJsonValue } });
+    // Stage-1 evolution (docs/research-phase-evolution.md): genes set in the active
+    // definition's state configs override the caller's constants — pinned into
+    // run.data here so the run stays self-contained and replayable.
+    const tunables = configuredTunables({ key, states: [...states.entries()].map(([name, info]) => ({ name, config: info.config ?? undefined })) });
+    const run = await this.repo.create({ data: { key, workflowVersionId, state: initial.name, reportId, inquiryId: inquiryId ?? null, data: { ...data, ...tunables } as Prisma.InputJsonValue } });
     await this.repo.createShadowRun({ reportId, stage: key, inquiryId, phaseRunId: run.id, leaseUntil: this.leaseFromNow() });
     // `name` (the subject the run works on — depth runs carry the provider) rides on
     // every phase event so live feeds can say WHO, not just which machine.
@@ -99,8 +104,10 @@ export class PhaseEngine implements OnModuleInit {
     const run = await this.repo.findById({ id: runId });
     if (!run) throw new NotFoundError({ code: ErrorCode.NotFound, message: `phase run ${runId} not found` });
 
-    const trans = await this.db.workflowTransition.findUnique({
-      where: { definitionId_fromState_event: { definitionId: run.workflowVersionId, fromState: run.state, event } },
+    // findFirst: the unique key now includes toState (subject_build networks fan out);
+    // phase graphs keep (from, event) unique by construction, so this stays deterministic.
+    const trans = await this.db.workflowTransition.findFirst({
+      where: { definitionId: run.workflowVersionId, fromState: run.state, event },
     });
     if (!trans) {
       throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: `no ${run.key} transition from ${run.state} on ${event}`, details: { from: run.state, event } });

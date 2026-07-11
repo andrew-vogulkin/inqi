@@ -92,6 +92,9 @@ export interface LiveReportDto {
   freemium?: boolean;        // HP-21: free + locked → top options redacted until unlocked
   unlocked?: boolean;        // HP-21: revealed after a 1-credit unlock
   lockedCount?: number;      // HP-21: how many options are withheld (locked stubs)
+  /** Providers contacted/vetted that did NOT qualify (failed | unresponsive) — an
+   *  empty options list should show what was tried, not a bare empty state. */
+  failedInquiries?: { name: string; status: string }[];
 }
 
 /** Final report snapshot by capability token (GET /snapshots/:token, public deep link). */

@@ -28,6 +28,10 @@ export interface BreadthRunData {
   dryRounds: number;
   matchNote: string | null;   // set by relax rounds — their finds only partially match
   notes: string[];
+  // Stage-1 tunables (docs/research-phase-evolution.md) — pinned by the engine when
+  // the active definition's state configs set them; absent = today's constants.
+  poolCap?: number;
+  dryRoundsToStop?: number;
 }
 
 /**
@@ -75,7 +79,7 @@ export class BreadthSearchSteps {
   /** C. Merge + dedupe every query's hits into one pool. */
   private async search(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
-    const pool = await searchBreadthPool({ web: this.web, queries: d.queries, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger });
+    const pool = await searchBreadthPool({ web: this.web, queries: d.queries, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger, cap: d.poolCap });
     return { event: BreadthEvent.POOL_READY, dataPatch: { pool } };
   }
 
@@ -114,7 +118,7 @@ export class BreadthSearchSteps {
     const d = this.data(ctx);
     const { event, dryRounds } = decideBreadthCheckpoint({
       foundCount: d.candidates.length, targetCount: d.count, gained: d.gainedThisCycle,
-      dryRounds: d.dryRounds, cycle: d.cycle, maxCycles: d.maxCycles,
+      dryRounds: d.dryRounds, cycle: d.cycle, maxCycles: d.maxCycles, dryPatience: d.dryRoundsToStop,
     });
     const notes = [...d.notes];
     const patch: Record<string, unknown> = { dryRounds };
