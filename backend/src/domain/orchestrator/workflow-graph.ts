@@ -44,6 +44,23 @@ export function validateWorkflowGraph({ states, transitions }: WorkflowGraph): G
   return { valid: errors.length === 0, errors };
 }
 
+/**
+ * Duplicate (fromState, event) pairs — transitions the engine could not pick
+ * between. The DB stopped enforcing this when the unique key gained `toState`
+ * (subject_build networks legitimately FAN OUT on one event), so the publish
+ * gate now carries the determinism invariant for ENGINE-RUN workflows.
+ */
+export function ambiguousTransitions(transitions: GraphTransition[]): string[] {
+  const seen = new Set<string>();
+  const dups = new Set<string>();
+  for (const t of transitions) {
+    const key = `${t.fromState} on ${t.event}`;
+    if (seen.has(key)) dups.add(key);
+    seen.add(key);
+  }
+  return [...dups];
+}
+
 /** Guard: only `draft` versions may be edited; active/archived are immutable. Throws a typed 409. */
 export function assertVersionEditable(status: string): void {
   if (status !== WorkflowStatus.Draft) {
