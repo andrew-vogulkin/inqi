@@ -4,7 +4,6 @@ import { AsyncStatus, StatusTone } from '../conventions/enums';
 import { Route, navigate, hrefFor } from '../conventions/routes';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
 import { reportsApi } from '../api';
-import { ReportDto } from '../api/types';
 import { Skeleton } from '../ui';
 import { toneForReportState, toneForInquiryStatus, toneColors } from '../ui/tone';
 import { useAppDispatch, useSelector } from '../state/store';
@@ -12,6 +11,7 @@ import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
 import { AdminBoardState, EpicVM, epicInquiries, epicProgress } from '../state/adminBoard.reducer';
 import { RunControlsPanel } from './RunControls';
+import { ReportPicker } from './ReportPicker';
 
 const EPIC_PALETTE = [color.brand, color.info, color.inkSoft, color.warn];
 const epicColor = (i: number) => EPIC_PALETTE[i % EPIC_PALETTE.length];
@@ -20,11 +20,9 @@ const epicColor = (i: number) => EPIC_PALETTE[i % EPIC_PALETTE.length];
 export function AdminBoard({ reportId }: { reportId?: string }) {
   const dispatch = useAppDispatch();
   const board = useSelector((s) => s.adminBoard);
-  const [tabs, setTabs] = useState<ReportDto[]>([]);
-  const activeId = reportId ?? tabs[0]?.id ?? null;
-
-  // Report tabs (nav). Lightweight list, not board state.
-  useEffect(() => { reportsApi.list().then((rows) => setTabs(Array.isArray(rows) ? rows : [])).catch(() => undefined); }, []);
+  // No id in the URL → the picker resolves the default (the most recent report).
+  const [defaultId, setDefaultId] = useState<string | null>(null);
+  const activeId = reportId ?? defaultId;
 
   // Board detail for the active report.
   useEffect(() => { if (activeId) reportsApi.detail({ id: activeId }).then((b) => dispatch({ type: ActionType.AdminBoardLoaded, board: b })).catch(() => undefined); }, [activeId, dispatch]);
@@ -46,7 +44,11 @@ export function AdminBoard({ reportId }: { reportId?: string }) {
           </div>
           <p style={{ fontSize: fontSize.base, color: color.muted, margin: '5px 0 0' }}>Reports → epics → inquiries → findings, updating in real time.</p>
         </div>
-        <Tabs tabs={tabs} activeId={activeId} />
+        <ReportPicker
+          activeId={activeId}
+          onPick={(r) => navigate({ route: Route.AdminReport, params: { id: r.id } })}
+          onDefault={(r) => { if (r) setDefaultId(r.id); }}
+        />
       </header>
 
       <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start' }}>
@@ -55,23 +57,6 @@ export function AdminBoard({ reportId }: { reportId?: string }) {
         </div>
         <ActivityStream board={board} />
       </div>
-    </div>
-  );
-}
-
-function Tabs({ tabs, activeId }: { tabs: ReportDto[]; activeId: string | null }) {
-  if (!tabs.length) return null;
-  return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-      {tabs.map((t) => {
-        const on = t.id === activeId;
-        return (
-          <button key={t.id} onClick={() => navigate({ route: Route.AdminReport, params: { id: t.id } })}
-            style={{ fontSize: 12.5, padding: '7px 12px', borderRadius: radius.md, border: `1px solid ${on ? color.brand : color.lineStrong}`, background: on ? color.brandTint : color.surface, color: on ? color.brandStrong : color.inkSoft, fontWeight: fontWeight.medium, cursor: 'pointer' }}>
-            {t.rawRequest.slice(0, 30)}
-          </button>
-        );
-      })}
     </div>
   );
 }

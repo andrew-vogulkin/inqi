@@ -4,7 +4,8 @@ import { test, expect, Route, Page } from '@playwright/test';
 // settlement preview, cancel→refund (live + toast), and confirm-abort makes no call.
 
 const ADMIN = JSON.stringify({ token: 't', customer: { id: 'a1', email: 'ops@x.io', role: 'admin' } });
-const listBody = JSON.stringify([{ id: 'i1', rawRequest: 'a road bike, 56cm', state: 'OUTREACH', customerEmail: 'c@x.io', createdAt: new Date().toISOString() }]);
+// The report picker's search page — i1 is the most recent report → the board default.
+const searchBody = JSON.stringify({ rows: [{ id: 'i1', ref: 'RPT-260711-01', rawRequest: 'a road bike, 56cm', state: 'OUTREACH', customerEmail: 'c@x.io', createdAt: new Date().toISOString() }], nextCursor: null });
 const boardBody = JSON.stringify({
   id: 'i1', rawRequest: 'a road bike, 56cm', state: 'OUTREACH', customerEmail: 'c@x.io',
   subject: { title: 'Road bike' }, questionnaire: { confirmed: true },
@@ -18,7 +19,7 @@ const costBody = JSON.stringify({ currency: 'USD', perModel: [], outreach: { ema
 
 async function setup(page: Page) {
   await page.addInitScript((s) => localStorage.setItem('inqi.session', s), ADMIN);
-  await page.route('**/api/reports', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: listBody }));
+  await page.route('**/api/admin/reports*', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: searchBody }));
   await page.route('**/api/reports/*/cost', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: costBody }));
   await page.route('**/api/reports/*/pause', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'i1', state: 'ON_HOLD' }) }));
   await page.route('**/api/reports/*/resume', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'i1', state: 'OUTREACH' }) }));
@@ -69,7 +70,7 @@ test('pause disables Pause / enables Resume; resume continues', async ({ page })
 test('a confirm-cancel that is aborted makes no network call', async ({ page }) => {
   let cancelCalls = 0;
   await page.addInitScript((s) => localStorage.setItem('inqi.session', s), ADMIN);
-  await page.route('**/api/reports', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: listBody }));
+  await page.route('**/api/admin/reports*', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: searchBody }));
   await page.route('**/api/reports/*/cost', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: costBody }));
   await page.route('**/api/reports/*/cancel', (r: Route) => { cancelCalls += 1; return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'i1', state: 'CANCELLED' }) }); });
   await page.route('**/api/reports/*', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: boardBody }));

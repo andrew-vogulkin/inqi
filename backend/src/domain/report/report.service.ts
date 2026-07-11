@@ -16,6 +16,8 @@ export interface ReportViewer { sub: string; email: string; role: AuthRole }
 
 /** Concurrent submits racing the same day-counter: retry the create this many times. */
 const REF_MINT_ATTEMPTS = 3;
+/** Admin search page size when the caller names none — the picker's "last 10 reports". */
+const SEARCH_PAGE_DEFAULT = 10;
 /** Prisma unique-constraint violation code. */
 const P2002 = 'P2002';
 
@@ -141,6 +143,18 @@ export class ReportService {
       const qualifiedCount = counts[r.id] ?? 0;
       return { ...r, qualifiedCount, stage: deriveStage({ state: r.state, qualifiedCount }) };
     });
+  }
+
+  /**
+   * Admin report search (the operator picker): newest-first, cursor-paginated so the
+   * picker can scroll indefinitely. `q` matches the ref / customer email / request
+   * text; no q = the most recent reports (the picker's default page).
+   */
+  async search({ q, limit = SEARCH_PAGE_DEFAULT, cursor }: { q?: string; limit?: number; cursor?: string }) {
+    const rows = await this.reports.searchAdmin({ q, take: limit, cursorId: cursor });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return { rows: page, nextCursor: hasMore ? page[page.length - 1].id : null };
   }
 
   /** Backfill ownership when a customer signs in (claims reports submitted with their email). */

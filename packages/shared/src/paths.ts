@@ -33,6 +33,9 @@ export const Paths = {
   customerCredits: (id: string) => `/admin/customers/${id}/credits`,
   adminCustomers: () => '/admin/customers',
 
+  // admin report search (the operator report picker) — `q`/`limit`/`cursor` are querystring params
+  adminReports: () => '/admin/reports',
+
   // HP-21: freemium snapshot unlock (owner; charges 1 credit)
   snapshotUnlock: (id: string) => `/snapshots/${id}/unlock`,
 

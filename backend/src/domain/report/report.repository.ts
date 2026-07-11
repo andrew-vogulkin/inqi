@@ -51,6 +51,30 @@ export class ReportRepository {
     return this.exec(tx).report.findMany({ orderBy: { createdAt: 'desc' }, take });
   }
 
+  /**
+   * Admin report search (the operator picker): newest-first, cursor-paginated
+   * (cursor = the previous page's last row id). `q` matches the human ref
+   * (RPT-YYMMDD-NN), the customer email or the request text, case-insensitively.
+   * Fetches take+1 rows — the extra row only signals that a next page exists.
+   */
+  searchAdmin({ q, take, cursorId, tx }: { q?: string; take: number; cursorId?: string; tx?: DbTx }) {
+    const where: Prisma.ReportWhereInput = q
+      ? {
+          OR: [
+            { ref: { contains: q, mode: 'insensitive' } },
+            { customerEmail: { contains: q, mode: 'insensitive' } },
+            { rawRequest: { contains: q, mode: 'insensitive' } },
+          ],
+        }
+      : {};
+    return this.exec(tx).report.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], // id breaks same-timestamp ties → stable cursor walk
+      take: take + 1,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+    });
+  }
+
   /** A single customer's reports — owned by FK or (pre-auth) by matching email. */
   listForOwner({ customerId, email, take = 100, tx }: { customerId: string; email: string; take?: number; tx?: DbTx }) {
     return this.exec(tx).report.findMany({

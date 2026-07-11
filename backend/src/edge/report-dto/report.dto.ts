@@ -6,6 +6,9 @@ export class ReportDto {
   @ApiProperty({ example: 'clz1abcd0000xy' })
   id!: string;
 
+  @ApiPropertyOptional({ example: 'RPT-260711-01', nullable: true, description: 'Human-facing reference (RPT-YYMMDD-NN); null only on legacy/seed rows' })
+  ref?: string | null;
+
   @ApiProperty({ example: 'customer@example.com' })
   customerEmail!: string;
 
