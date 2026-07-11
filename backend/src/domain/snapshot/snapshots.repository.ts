@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { FindingKind, ReviewStatus } from '@inqi/shared';
+import { FindingKind, InquiryStatus, ReviewStatus } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** Thin data-access for snapshot synthesis (reads epics/inquiries/findings, writes ReportSnapshot). */
@@ -49,6 +49,15 @@ export class SnapshotsRepository {
   }
 
   /** The questions + answers + confirmed flag (read-only scope, shown on the report). */
+  /** Contacted/vetted providers that did NOT qualify — the report shows what was tried. */
+  findFailedInquiries({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findMany({
+      where: { reportId, status: { in: [InquiryStatus.Failed, InquiryStatus.Unresponsive] } },
+      select: { name: true, status: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   findQuestionnaire({ reportId, tx }: { reportId: string; tx?: DbTx }) {
     return this.exec(tx).questionnaire.findUnique({ where: { reportId }, select: { questions: true, answers: true, confirmed: true } });
   }

@@ -25,6 +25,7 @@ export interface ReportState {
   order: string[];          // ranked option ids (best first)
   freemium: boolean;        // FE-07: report is gated (top options redacted)
   freemiumState: FreemiumState;
+  failedInquiries: { name: string; status: string }[]; // contacted/vetted, did not qualify
   error: string | null;
   timeline: TimelineItem[]; // streamed events, sorted by id, deduped
   cursor: string;           // max event id seen (replay-by-cursor)
@@ -48,6 +49,7 @@ export const initialReportState: ReportState = {
   order: [],
   freemium: false,
   freemiumState: FreemiumState.Locked,
+  failedInquiries: [],
   error: null,
   timeline: [],
   cursor: '0',
@@ -136,6 +138,7 @@ export function reportReducer(state: ReportState, action: Action): ReportState {
         snapshotId: live.snapshotId ?? null,
         freemium,
         freemiumState,
+        failedInquiries: live.failedInquiries ?? [],
         optionsById,
         order,
       };

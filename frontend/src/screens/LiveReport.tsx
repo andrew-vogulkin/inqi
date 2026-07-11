@@ -126,7 +126,8 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
           {options.length === 0 && !locked.length
             ? <div style={{ marginTop: 14 }}>{streaming
               ? <EmptyState title="No options yet" hint="inqi is reaching out — qualified providers appear here live." />
-              : <EmptyState title="No providers qualified this run" hint="The summary above explains why. Unresponsive providers may still reply — this report updates itself (and emails you) when they do. This run was not charged." />}</div>
+              : <EmptyState title="No providers qualified this run" hint="The summary above explains why. Unresponsive providers may still reply — this report updates itself (and emails you) when they do. This run was not charged." />}
+              <FailedInquiries rows={report.failedInquiries ?? []} prominent /></div>
             : (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 2px 12px' }}>
@@ -139,15 +140,41 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
                   {options.map((o, i) => <OptionCard key={optionId(o)} option={o} rank={(o.rank ?? i + 1) - 1} best={lockedCount === 0 && i === 0} dossierHref={dossierFor(o)} />)}
                   {streaming && <StreamingCard />}
                 </div>
+                <FailedInquiries rows={report.failedInquiries ?? []} />
               </>
             )}
         </>
       ) : options.length === 0
         ? (streaming
           ? <EmptyState title="No options yet" hint="inqi is still reaching out — results appear here live." />
-          : <EmptyState title="No providers qualified this run" hint="The summary above explains why. This run was not charged." />)
+          : <><EmptyState title="No providers qualified this run" hint="The summary above explains why. This run was not charged." /><FailedInquiries rows={report.failedInquiries ?? []} prominent /></>)
         : layout === ReportLayout.Split ? <SplitView report={report} options={options} countLabel={countLabel} streaming={streaming} />
           : <TableView options={options} streaming={streaming} />}
+    </div>
+  );
+}
+
+/**
+ * Providers we contacted/vetted that did NOT make the list — an empty report shows
+ * what was tried instead of a bare empty state; a full report keeps it as a quiet
+ * footnote. Names only (customer-safe); status distinguishes vetted-out vs silent.
+ */
+function FailedInquiries({ rows, prominent = false }: { rows: { name: string; status: string }[]; prominent?: boolean }) {
+  if (!rows.length) return null;
+  return (
+    <div data-testid="failed-inquiries" style={{ marginTop: 16, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '14px 16px', opacity: prominent ? 1 : 0.85 }}>
+      <div style={{ fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: color.muted, marginBottom: 8 }}>
+        {prominent ? `We reached ${rows.length} provider${rows.length === 1 ? '' : 's'} — none qualified` : 'Contacted, didn\u2019t make the list'}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {rows.map((r) => (
+          <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: fontSize.sm }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', flex: 'none', background: color.lineStrong }} />
+            <span style={{ color: color.inkSoft, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+            <span style={{ fontSize: fontSize.xs, color: color.subtle }}>{r.status === 'unresponsive' ? 'no reply yet' : 'didn\u2019t qualify'}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
