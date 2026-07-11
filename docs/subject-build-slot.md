@@ -1,5 +1,11 @@
 # Subject-build slot — a sandbox sub-workflow the AI experiments with
 
+> **v2 (2026-07-11):** the slot is now a **layered M:M operator network** with
+> persistent domain memory, and the operator budget is **10** (was 5). This doc
+> remains the base contract; the network semantics, new operators
+> (`domain-recall`, `attribute-mine`, `domain-learn`, `join`) and the seeded v2
+> graph live in [subject-build-network.md](subject-build-network.md).
+
 Today the pre_research `SUBJECT` step is a single naive handler: it takes
 FEASIBILITY's enrichment and writes a `Subject`, falling back to
 `title = rawRequest.slice(0, 80)`. Everything downstream (questionnaire, breadth,

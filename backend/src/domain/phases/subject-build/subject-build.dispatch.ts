@@ -2,8 +2,8 @@ import { SubjectBuildData, draftToSubject, isInvariantMet } from './draft';
 import { SUBJECT_IN, SUBJECT_OUT } from './operators';
 import { MAX_OPERATORS } from './validate';
 import {
-  Ai, OperatorOutcome, SubjectDraftReuse, applyOutcome,
-  opCategorySpecialize, opDisambiguate, opEnrichBasic, opEnrichWebGrounded, opIfElse, opReuseLookup, opSelfCritique, opTargetIndustrySet, opTooling,
+  Ai, DomainStore, OperatorOutcome, SubjectDraftReuse, applyOutcome,
+  opAttributeMine, opCategorySpecialize, opDisambiguate, opDomainLearn, opDomainRecall, opEnrichBasic, opEnrichWebGrounded, opIfElse, opJoin, opReuseLookup, opSelfCritique, opTargetIndustrySet, opTooling,
 } from './operators.runtime';
 
 /** Control events shared by every phase graph (must match the engine / seeded terminals). */
@@ -14,6 +14,8 @@ export interface SubjectStepDeps {
   ai: Ai;
   findReuse: (draft: SubjectBuildData['draft']) => Promise<SubjectDraftReuse | null>;
   persist: (fields: { title: string; description: string; category: string }) => Promise<void>;
+  /** The domain memory (read by domain-recall, written by domain-learn). Rehearsals inject a read-only sink. */
+  domainStore: DomainStore;
 }
 
 export interface SubjectStepResult { event: string; data?: SubjectBuildData }
@@ -33,6 +35,10 @@ function runOperator(operatorId: string, args: { data: SubjectBuildData; config:
     case 'target-industry-set': return opTargetIndustrySet({ data });
     case 'tooling': return opTooling({ config });
     case 'if-else': return opIfElse({ data, config });
+    case 'join': return opJoin();
+    case 'domain-recall': return opDomainRecall({ data, store: deps.domainStore });
+    case 'domain-learn': return opDomainLearn({ data, store: deps.domainStore });
+    case 'attribute-mine': return opAttributeMine({ data, ai: deps.ai });
     default: return undefined;
   }
 }

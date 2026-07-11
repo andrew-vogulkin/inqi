@@ -27,7 +27,13 @@ export async function saveDraftSubjectBuildVersion(db: Db, candidate: SubjectBui
   const def = await db.workflowDefinition.create({
     data: {
       key: SUBJECT_BUILD_KEY, version, status: 'draft',
-      states: { create: candidate.states.map((s) => ({ name: s.name, isInitial: !!s.isInitial, isTerminal: !!s.isTerminal, handler: s.handler ?? null, config: (s.config as Prisma.InputJsonValue) ?? Prisma.JsonNull })) },
+      // A composed `layer` rides in config (WorkflowState has no layer column) — the loader and validator read it back from there.
+      states: {
+        create: candidate.states.map((s) => {
+          const config = s.layer != null ? { ...(s.config ?? {}), layer: s.layer } : s.config;
+          return { name: s.name, isInitial: !!s.isInitial, isTerminal: !!s.isTerminal, handler: s.handler ?? null, config: (config as Prisma.InputJsonValue) ?? Prisma.JsonNull };
+        }),
+      },
       transitions: { create: candidate.transitions.map((t) => ({ fromState: t.from, toState: t.to, event: t.event })) },
     },
   });

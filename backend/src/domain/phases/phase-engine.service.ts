@@ -99,8 +99,10 @@ export class PhaseEngine implements OnModuleInit {
     const run = await this.repo.findById({ id: runId });
     if (!run) throw new NotFoundError({ code: ErrorCode.NotFound, message: `phase run ${runId} not found` });
 
-    const trans = await this.db.workflowTransition.findUnique({
-      where: { definitionId_fromState_event: { definitionId: run.workflowVersionId, fromState: run.state, event } },
+    // findFirst: the unique key now includes toState (subject_build networks fan out);
+    // phase graphs keep (from, event) unique by construction, so this stays deterministic.
+    const trans = await this.db.workflowTransition.findFirst({
+      where: { definitionId: run.workflowVersionId, fromState: run.state, event },
     });
     if (!trans) {
       throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: `no ${run.key} transition from ${run.state} on ${event}`, details: { from: run.state, event } });

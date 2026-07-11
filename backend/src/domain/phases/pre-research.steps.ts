@@ -14,6 +14,7 @@ import { initSubjectBuildData } from './subject-build/draft';
 import { DEFAULT_GRAPH } from './subject-build/operators';
 import { SubjectBuildGraph } from './subject-build/validate';
 import { SubjectStepDeps } from './subject-build/subject-build.dispatch';
+import { prismaDomainStore } from './subject-build/domain-store';
 import { interpretSubjectBuild } from './subject-build/subject-build.interpreter';
 
 /** The composable subject-build phase key (its state names are author-defined). */
@@ -98,6 +99,7 @@ export class PreResearchSteps {
       persist: async ({ title, description, category }) => {
         await this.subjects.createFromReport({ reportId: report.id, rawRequest: report.rawRequest, enriched: { title, category, summary: description } });
       },
+      domainStore: prismaDomainStore(this.db), // live domain memory: recall priors, learn from this build
     };
 
     const result = await interpretSubjectBuild({ graph, data: initSubjectBuildData({ rawRequest: report.rawRequest, enriched }), deps });

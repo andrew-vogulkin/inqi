@@ -6,6 +6,20 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER TABLE "Subject" ADD COLUMN IF NOT EXISTS embedding vector(1024);
 ALTER TABLE "Subject" ADD COLUMN IF NOT EXISTS geo geography(Point,4326);
 
+-- subject_build domain memory (also modelled in schema.prisma; created here so
+-- live DBs never need `prisma db push`, which would drop the embedding column).
+CREATE TABLE IF NOT EXISTS "DomainKnowledge" (
+  "id"         TEXT PRIMARY KEY,
+  "domain"     TEXT NOT NULL UNIQUE,
+  "category"   TEXT,
+  "attributes" JSONB NOT NULL DEFAULT '{}',
+  "sources"    JSONB NOT NULL DEFAULT '[]',
+  "titleHints" JSONB NOT NULL DEFAULT '[]',
+  "buildCount" INTEGER NOT NULL DEFAULT 0,
+  "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Emit a NOTIFY whenever an outbox row is inserted -> WsGateway LISTENs.
 CREATE OR REPLACE FUNCTION inqi_notify_event() RETURNS trigger AS $$
 BEGIN

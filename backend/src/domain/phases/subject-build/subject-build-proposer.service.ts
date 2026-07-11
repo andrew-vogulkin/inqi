@@ -4,6 +4,7 @@ import { AI_PROVIDER, AiProvider } from '../../../infra/ai/ai.tokens';
 import { PrismaService } from '../../../infra/persistence/prisma.service';
 import { BossService } from '../../../infra/queue/boss.service';
 import { composeCandidate } from './subject-build.compose';
+import { rehearsalDomainStore } from './domain-store';
 import { compareSubjectGraphs } from './subject-rehearsal';
 import { SUBJECT_CASES } from './subject-cases';
 import { runProposal } from './subject-build.proposer';
@@ -39,7 +40,7 @@ export class SubjectBuildProposerService implements OnModuleInit {
         cases: SUBJECT_CASES,
         deps: {
           compose: (b) => composeCandidate({ ai: this.ai, baseline: b }),
-          rehearse: (args) => compareSubjectGraphs({ ...args, deps: { ai: this.ai, findReuse: async () => null } }),
+          rehearse: (args) => compareSubjectGraphs({ ...args, deps: { ai: this.ai, findReuse: async () => null, domainStore: rehearsalDomainStore(this.db) } }),
           saveDraft: async ({ candidate, comparison }) => {
             const { version } = await saveDraftSubjectBuildVersion(this.db, candidate);
             this.logger.log(`subject_build candidate DRAFTED as v${version} (baseline ${comparison.baseline.passed}/${comparison.baseline.total} → candidate ${comparison.candidate.passed}/${comparison.candidate.total}; gains ${comparison.gains.join(', ') || '—'}) — awaiting operator publish`);

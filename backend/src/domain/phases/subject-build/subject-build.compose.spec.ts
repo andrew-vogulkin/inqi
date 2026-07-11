@@ -20,11 +20,14 @@ describe('composeCandidate', () => {
     expect(validateSubjectBuildGraph(out).valid).toBe(true); // the proposer would rehearse this one
   });
 
-  it('the system prompt advertises the palette + the ≤5 rule (so the model composes validly)', () => {
+  it('the system prompt advertises the palette + the network rules (so the model composes validly)', () => {
     const s = composeSystem();
     expect(s).toContain('enrich-web-grounded');
     expect(s).toContain('reuse-lookup');
-    expect(s).toMatch(/at most 5 operators/i);
+    expect(s).toContain('domain-recall');
+    expect(s).toContain('domain-learn');
+    expect(s).toMatch(/at most 10 operator states/i);
+    expect(s).toMatch(/strictly deeper/i);
     expect(s).toContain(SUBJECT_OUT);
   });
 

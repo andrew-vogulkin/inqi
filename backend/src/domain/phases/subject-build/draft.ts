@@ -11,7 +11,16 @@ export interface SubjectDraft {
   confidence?: number;    // 0..1
 }
 
-/** The full subject_build run scratchpad (PhaseRun.data). */
+/** What past builds of the request's domain learned (loaded by domain-recall). */
+export interface DomainPriorsData {
+  attributes: Record<string, unknown>;
+  sources: string[];
+  titleHints: string[];
+  buildCount: number;
+  category?: string | null;
+}
+
+/** The full subject_build run scratchpad (PhaseRun.data — the network's shared blackboard). */
 export interface SubjectBuildData {
   rawRequest: string;
   enriched?: { title?: string; category?: string; summary?: string };
@@ -19,7 +28,9 @@ export interface SubjectBuildData {
   evidence?: { url: string; snippet: string }[];
   referenceSet?: string[];
   toolset?: string[];
-  stepCount: number;      // operators executed so far — the runtime ≤5 guard reads this
+  domain?: string;               // resolved domain label (domain-recall)
+  domainPriors?: DomainPriorsData; // the domain's accumulated memory (domain-recall)
+  stepCount: number;             // operators executed so far — the runtime operator-budget guard reads this
   notes: string[];
 }
 

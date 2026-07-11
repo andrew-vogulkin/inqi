@@ -25,7 +25,7 @@ function build({ transition, run = RUN, states, guardOk = true }: {
       findMany: jest.fn().mockResolvedValue(stateRows.map((s) => ({ name: s.name, isTerminal: !!s.isTerminal }))),
     },
     workflowTransition: {
-      findUnique: jest.fn().mockResolvedValue(transition === undefined ? { toState: 'MINE', guard: null, action: 'phase:enqueue-step' } : transition),
+      findFirst: jest.fn().mockResolvedValue(transition === undefined ? { toState: 'MINE', guard: null, action: 'phase:enqueue-step' } : transition),
     },
     agentEvent: { create: jest.fn() },
   };
@@ -128,8 +128,8 @@ describe('PhaseEngine.executeStep — the phase_step worker', () => {
     steps.register({ key: PhaseKey.BreadthSearch, state: 'SEARCH', handler });
     await engine.executeStep({ runId: 'run1', expectedState: 'SEARCH' });
     expect(handler.execute).not.toHaveBeenCalled();
-    expect(db.workflowTransition.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ definitionId_fromState_event: expect.objectContaining({ event: PhaseControlEvent.CANCEL }) }),
+    expect(db.workflowTransition.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ event: PhaseControlEvent.CANCEL }),
     }));
   });
 
@@ -153,8 +153,8 @@ describe('PhaseEngine.executeStep — the phase_step worker', () => {
     repo.bumpAttempts.mockResolvedValue({ ...RUN, attempts: 3 });
     steps.register({ key: PhaseKey.BreadthSearch, state: 'SEARCH', handler: { execute: async () => { throw new Error('boom'); } } });
     await engine.executeStep({ runId: 'run1', expectedState: 'SEARCH' });
-    expect(db.workflowTransition.findUnique).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ definitionId_fromState_event: expect.objectContaining({ event: PhaseControlEvent.STEP_FAILED }) }),
+    expect(db.workflowTransition.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ event: PhaseControlEvent.STEP_FAILED }),
     }));
   });
 });

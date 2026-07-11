@@ -41,8 +41,10 @@ export class WorkflowEngine {
   /** Advance a report by firing a workflow event; runs the transition's guard + action. */
   async advance({ reportId, event, payload }: { reportId: string; event: WorkflowEvent; payload?: unknown }): Promise<ReportState> {
     const inq = await this.db.report.findUniqueOrThrow({ where: { id: reportId } });
-    const trans = await this.db.workflowTransition.findUnique({
-      where: { definitionId_fromState_event: { definitionId: inq.workflowVersionId, fromState: inq.state, event } },
+    // findFirst: the unique key now includes toState (subject_build networks fan out);
+    // report graphs keep (from, event) unique by construction, so this stays deterministic.
+    const trans = await this.db.workflowTransition.findFirst({
+      where: { definitionId: inq.workflowVersionId, fromState: inq.state, event },
     });
     if (!trans) {
       throw new ConflictError({
