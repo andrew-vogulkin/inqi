@@ -68,7 +68,10 @@ export class CreditsService {
     await this.outbox.emit({
       type: action === 'charge' ? EventType.CreditsCharged : EventType.CreditsRefunded,
       reportId,
-      data: { amount: res.amount },
+      // balance = the post-settlement truth. The FE sets it ABSOLUTELY — replayed
+      // event histories must never compound `amount` as deltas on a snapshot that
+      // already includes them (the dashboard's negative-balance drift).
+      data: { amount: res.amount, balance: res.balance },
     });
     this.logger.log(`${action} ${res.amount} credit(s) for report ${reportId}`);
     return res;

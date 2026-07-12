@@ -60,13 +60,31 @@ describe('creditsReducer', () => {
     const after = creditsReducer(loaded, { type: ActionType.ToastPushed, toast: { id: 't', kind: ToastKind.Success, message: 'requested' } });
     expect(after.balance).toBe(2);
   });
-  it('reacts to credit events (reserve sets, refund adds, charge debits on delivery)', () => {
-    let s = creditsReducer({ ...initialCreditsState, balance: 5 }, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsReserved, data: { amount: 1, balance: 4 } }) });
+  it('a credit event sets the balance ABSOLUTELY from its payload (never a delta)', () => {
+    let s = creditsReducer({ ...initialCreditsState, balance: 5 }, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsCharged, data: { amount: 1, balance: 4 } }) });
     expect(s.balance).toBe(4);
-    s = creditsReducer(s, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsRefunded, data: { amount: 1 } }) });
+    s = creditsReducer(s, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsRefunded, at: '2026-06-29T00:01:00Z', data: { amount: 1, balance: 5 } }) });
     expect(s.balance).toBe(5);
-    s = creditsReducer(s, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsCharged, data: { amount: 1 } }) });
-    expect(s.balance).toBe(4); // pay-on-delivery: the charge is the debit
+  });
+  it('ignores events without a balance payload — replayed history must not compound as deltas', () => {
+    const loaded = creditsReducer(initialCreditsState, { type: ActionType.CreditsLoaded, balance: 3, history: [] });
+    const s = creditsReducer(loaded, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsCharged, data: { amount: 1 } }) });
+    expect(s.balance).toBe(3); // NOT 2 — the snapshot already includes every past charge
+  });
+  it('ignores events at/behind the snapshot watermark (the dashboard replays full report histories)', () => {
+    const loaded = creditsReducer(initialCreditsState, {
+      type: ActionType.CreditsLoaded, balance: 3,
+      history: [{ id: 'a', kind: 'charge', amount: 1, createdAt: '2026-07-01T00:00:00Z' }],
+    });
+    // A replayed historical charge (older than the snapshot) carries a then-current balance — stale, ignored.
+    let s = creditsReducer(loaded, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsCharged, at: '2026-06-30T00:00:00Z', data: { amount: 1, balance: 9 } }) });
+    expect(s.balance).toBe(3);
+    // A genuinely NEW charge (after the watermark) moves it.
+    s = creditsReducer(s, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsCharged, at: '2026-07-02T00:00:00Z', data: { amount: 1, balance: 2 } }) });
+    expect(s.balance).toBe(2);
+    // ...and the SAME event replayed again is now at the watermark: no double-apply.
+    s = creditsReducer(s, { type: ActionType.EventReceived, event: evt({ type: EventType.CreditsCharged, at: '2026-07-02T00:00:00Z', data: { amount: 1, balance: 2 } }) });
+    expect(s.balance).toBe(2);
   });
 });
 

@@ -10,6 +10,9 @@ export interface SettleResult {
   kind?: CreditKind;
   amount?: number;
   customerId?: string;
+  /** The customer's balance AFTER this settlement — rides on the realtime event so
+   *  the FE can set it absolutely (replayed events must not compound as deltas). */
+  balance?: number;
 }
 
 /**
@@ -144,9 +147,9 @@ export class CreditsRepository {
 
         if (action === 'refund') {
           if (!reserve) return { settled: false }; // nothing was held — a non-delivered run costs nothing
-          await tx.customer.update({ where: { id: reserve.customerId }, data: { credits: { increment: reserve.amount } } });
+          const c = await tx.customer.update({ where: { id: reserve.customerId }, data: { credits: { increment: reserve.amount } }, select: { credits: true } });
           await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind, amount: reserve.amount, reportId, actor: AuditActor.System, reason } });
-          return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId };
+          return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId, balance: c.credits };
         }
 
         // A delivered report with ZERO options delivered no value — it is never charged.
@@ -157,9 +160,9 @@ export class CreditsRepository {
         if (optionCount === 0) {
           // Legacy hold on an empty report: give the credits back instead of finalizing.
           if (reserve) {
-            await tx.customer.update({ where: { id: reserve.customerId }, data: { credits: { increment: reserve.amount } } });
+            const c = await tx.customer.update({ where: { id: reserve.customerId }, data: { credits: { increment: reserve.amount } }, select: { credits: true } });
             await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind: CreditKind.Refund, amount: reserve.amount, reportId, actor: AuditActor.System, reason: 'empty report — not charged' } });
-            return { settled: true, kind: CreditKind.Refund, amount: reserve.amount, customerId: reserve.customerId };
+            return { settled: true, kind: CreditKind.Refund, amount: reserve.amount, customerId: reserve.customerId, balance: c.credits };
           }
           return { settled: false };
         }
@@ -167,7 +170,8 @@ export class CreditsRepository {
         // charge — legacy hold: finalize it (credits already deducted at reserve time).
         if (reserve) {
           await tx.creditLedger.create({ data: { customerId: reserve.customerId, kind, amount: reserve.amount, reportId, actor: AuditActor.System, reason } });
-          return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId };
+          const c = await tx.customer.findUnique({ where: { id: reserve.customerId }, select: { credits: true } });
+          return { settled: true, kind, amount: reserve.amount, customerId: reserve.customerId, balance: c?.credits };
         }
 
         // charge — pay-on-delivery: debit the cost now. Free/unowned reports cost nothing.
@@ -176,9 +180,9 @@ export class CreditsRepository {
         if (!report?.customerId || report.freeReport) return { settled: false };
         // Unconditional decrement: the balance was verified at submit; if it was spent
         // in the meantime the delivered report is still owed for (may dip negative).
-        await tx.customer.update({ where: { id: report.customerId }, data: { credits: { decrement: cost } } });
+        const c = await tx.customer.update({ where: { id: report.customerId }, data: { credits: { decrement: cost } }, select: { credits: true } });
         await tx.creditLedger.create({ data: { customerId: report.customerId, kind, amount: cost, reportId, actor: AuditActor.System, reason } });
-        return { settled: true, kind, amount: cost, customerId: report.customerId };
+        return { settled: true, kind, amount: cost, customerId: report.customerId, balance: c.credits };
       });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return { settled: false };
