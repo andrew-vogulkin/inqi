@@ -5,7 +5,7 @@ import { rollupCost, UsageRow } from './cost';
 const prices: PriceTable = {
   currency: 'USD',
   models: { 'qwen-plus': { promptPer1k: 0.001, completionPer1k: 0.002 }, qwen: { promptPer1k: 0, completionPer1k: 0 } },
-  perEmail: 0.01, perEmbedding: 0.0001, perDiscoveryCall: 0, perBackgroundResearch: 0, perReplyProcessed: 0,
+  perEmail: 0.01, perEmbedding: 0.0001, perDiscoveryCall: 0, perBackgroundResearch: 0, perReplyProcessed: 0, perWebSearch: 0.0005,
 };
 const ai = (model: string, p: number, c: number, est = false): UsageRow => ({ kind: UsageKind.AiCall, model, promptTokens: p, completionTokens: c, totalTokens: p + c, quantity: 1 });
 const act = (kind: UsageKind, q = 1): UsageRow => ({ kind, promptTokens: 0, completionTokens: 0, totalTokens: 0, quantity: q });
@@ -44,5 +44,25 @@ describe('rollupCost', () => {
     const s = rollupCost({ usageRecords: [ai('qwen', 0, 0, true)], priceTable: prices });
     expect(s.tokenTotal).toBe(0);
     expect(s.grandTotalUsd).toBe(0);
+  });
+});
+
+describe('rollupCost — web searches (HP-15 extension)', () => {
+  const search = (q = 1, model = 'searxng'): UsageRow => ({ kind: UsageKind.WebSearch, model, promptTokens: 0, completionTokens: 0, totalTokens: 0, quantity: q });
+
+  it('counts calls, carries the provider label, and prices per call into the grand total', () => {
+    const s = rollupCost({ usageRecords: [search(), search(), search(3)], priceTable: prices });
+    expect(s.webSearch).toEqual({ calls: 5, provider: 'searxng', estUsd: 0.0025 });
+    expect(s.grandTotalUsd).toBeCloseTo(0.0025, 6);
+  });
+
+  it('no searches → zero row with the default provider label', () => {
+    const s = rollupCost({ usageRecords: [], priceTable: prices });
+    expect(s.webSearch).toEqual({ calls: 0, provider: 'searxng', estUsd: 0 });
+  });
+
+  it('mixed providers join their labels', () => {
+    const s = rollupCost({ usageRecords: [search(1, 'searxng'), search(1, 'brave')], priceTable: prices });
+    expect(s.webSearch.provider).toBe('searxng, brave');
   });
 });

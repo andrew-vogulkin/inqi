@@ -30,10 +30,10 @@ export class UsageService {
   }
 
   /** Record a counted outreach/agent action (email_sent, reply_processed, discovery_call, background_research). */
-  async recordAction({ reportId, kind, quantity = 1 }: { reportId?: string; kind: UsageKind; quantity?: number }): Promise<void> {
+  async recordAction({ reportId, kind, quantity = 1, model }: { reportId?: string; kind: UsageKind; quantity?: number; model?: string }): Promise<void> {
     if (!reportId) return;
     try {
-      await this.db.usageRecord.create({ data: { reportId, kind, quantity } });
+      await this.db.usageRecord.create({ data: { reportId, kind, quantity, ...(model ? { model } : {}) } });
     } catch (e) {
       this.logger.warn(`usage record (${kind}) failed: ${(e as Error).message}`);
     }

@@ -16,11 +16,18 @@ export class OutreachCostDto {
   @ApiProperty({ example: 0.0 }) estUsd!: number;
 }
 
+export class WebSearchCostDto {
+  @ApiProperty({ example: 42, description: 'Every web search fired for this report (breadth cycles, marketing pass, depth leads/tools)' }) calls!: number;
+  @ApiProperty({ example: 'searxng', description: 'The serving search provider(s)' }) provider!: string;
+  @ApiProperty({ example: 0.021 }) estUsd!: number;
+}
+
 /** Operator-only per-report cost summary (HP-15) — never part of the customer report. */
 export class CostSummaryDto {
   @ApiProperty({ example: 'USD' }) currency!: string;
   @ApiProperty({ type: [PerModelCostDto] }) perModel!: PerModelCostDto[];
   @ApiProperty({ type: OutreachCostDto }) outreach!: OutreachCostDto;
+  @ApiProperty({ type: WebSearchCostDto }) webSearch!: WebSearchCostDto;
   @ApiProperty({ example: 16_200 }) tokenTotal!: number;
   @ApiProperty({ example: 0.0665 }) grandTotalUsd!: number;
 }

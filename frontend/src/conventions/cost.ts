@@ -52,7 +52,9 @@ export interface CostView {
   perModel: PerModelRow[];
   outreach: OutreachRow[];
   outreachUsd: number;
-  sumUsd: number;       // Σ perModel.estUsd + outreach.estUsd
+  /** Every web search fired for the report, with the serving provider (searxng / a hosted API). */
+  webSearch: { calls: number; provider: string; estUsd: number };
+  sumUsd: number;       // Σ perModel.estUsd + outreach.estUsd + webSearch.estUsd
   reconciles: boolean;  // |sumUsd − totalUsd| < epsilon
 }
 
@@ -61,7 +63,9 @@ const EPSILON = 1e-6;
 /** Derive tiles + line items from the cost DTO, with the reconciliation check. */
 export function deriveCostView({ cost }: { cost: CostSummaryDto }): CostView {
   const perModelUsd = cost.perModel.reduce((acc, m) => acc + m.estUsd, 0);
-  const sumUsd = perModelUsd + cost.outreach.estUsd;
+  // Back-compat: a cached/old payload without webSearch reads as zero calls.
+  const webSearch = cost.webSearch ?? { calls: 0, provider: 'searxng', estUsd: 0 };
+  const sumUsd = perModelUsd + cost.outreach.estUsd + webSearch.estUsd;
   const outreach = OUTREACH_ACTIONS.map((action) => ({ action, count: cost.outreach[action] }));
   const outreachActions = outreach.reduce((acc, r) => acc + r.count, 0);
   return {
@@ -72,6 +76,7 @@ export function deriveCostView({ cost }: { cost: CostSummaryDto }): CostView {
     perModel: cost.perModel.map((m) => ({ model: m.model, promptTokens: m.promptTokens, completionTokens: m.completionTokens, estUsd: m.estUsd })),
     outreach,
     outreachUsd: cost.outreach.estUsd,
+    webSearch,
     sumUsd,
     reconciles: Math.abs(sumUsd - cost.grandTotalUsd) < EPSILON,
   };

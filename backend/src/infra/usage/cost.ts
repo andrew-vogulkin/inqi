@@ -17,6 +17,8 @@ export interface CostSummary {
   currency: string;
   perModel: PerModelCost[];
   outreach: { emails: number; replies: number; discovery: number; research: number; embeddings: number; estUsd: number };
+  /** Every web search the pipeline fired (breadth cycles, marketing pass, depth leads/tools), by provider. */
+  webSearch: { calls: number; provider: string; estUsd: number };
   tokenTotal: number;
   grandTotalUsd: number;
 }
@@ -61,13 +63,25 @@ export function rollupCost({ usageRecords, priceTable }: { usageRecords: UsageRo
     emails * priceTable.perEmail + replies * priceTable.perReplyProcessed + discovery * priceTable.perDiscoveryCall +
     research * priceTable.perBackgroundResearch + embeddings * priceTable.perEmbedding,
   );
+
+  const searchRows = usageRecords.filter((r) => r.kind === UsageKind.WebSearch);
+  const searchCalls = searchRows.reduce((s, r) => s + (r.quantity || 1), 0);
+  // Provider label rides the rows' `model` column ('searxng' today; a hosted API later).
+  const providers = [...new Set(searchRows.map((r) => r.model).filter(Boolean))] as string[];
+  const webSearch = {
+    calls: searchCalls,
+    provider: providers.join(', ') || 'searxng',
+    estUsd: round(searchCalls * (priceTable.perWebSearch ?? 0)),
+  };
+
   const modelUsd = perModel.reduce((s, m) => s + m.estUsd, 0);
 
   return {
     currency: priceTable.currency,
     perModel,
     outreach: { emails, replies, discovery, research, embeddings, estUsd: outreachUsd },
+    webSearch,
     tokenTotal,
-    grandTotalUsd: round(modelUsd + outreachUsd),
+    grandTotalUsd: round(modelUsd + outreachUsd + webSearch.estUsd),
   };
 }

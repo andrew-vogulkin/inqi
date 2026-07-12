@@ -154,6 +154,8 @@ export interface CostSummaryDto {
   currency: string;
   perModel: { model: string; promptTokens: number; completionTokens: number; estUsd: number }[];
   outreach: { emails: number; replies: number; discovery: number; research: number; embeddings: number; estUsd: number };
+  /** Every web search the pipeline fired for this report, with the serving provider. */
+  webSearch: { calls: number; provider: string; estUsd: number };
   tokenTotal: number;
   grandTotalUsd: number;
 }

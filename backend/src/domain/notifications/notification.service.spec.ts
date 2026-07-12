@@ -7,8 +7,9 @@ function makeService({ report, admins }: { report: unknown; admins: string[] }) 
   const boss = { work: jest.fn(), enqueue: jest.fn() };
   const outbox = { emit: jest.fn(async () => undefined) };
   const config = { webBaseUrl: 'https://inqi.test' };
-  const svc = new NotificationService(repo as never, boss as never, outbox as never, config as never, channel as never);
-  return { svc, repo, channel, outbox };
+  const usage = { recordAction: jest.fn(async () => undefined) };
+  const svc = new NotificationService(repo as never, boss as never, outbox as never, config as never, channel as never, usage as never);
+  return { svc, repo, channel, outbox, usage };
 }
 
 /** Invoke the private handler the queue worker calls. */
