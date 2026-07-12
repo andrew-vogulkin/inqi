@@ -5,7 +5,7 @@ import { AuditService } from '../../infra/observability/audit.service';
 import { WorkflowAdminRepository } from './workflow-admin.repository';
 import { GraphState, GraphTransition, WorkflowGraph, ambiguousTransitions, diffVersions, validateWorkflowGraph } from './workflow-graph';
 import { SubjectBuildGraph, validateSubjectBuildGraph } from '../phases/subject-build/validate';
-import { validatePhaseTunables } from '../phases/phase-tunables';
+import { PHASE_TUNABLES, validatePhaseTunables } from '../phases/phase-tunables';
 
 const SUBJECT_BUILD_KEY = 'subject_build';
 
@@ -56,6 +56,9 @@ export class WorkflowAdminService {
       }),
       transitions: graph.transitions,
       validation: validateWorkflowGraph(graph),
+      // The phase's tunable-gene registry (bounds + fallbacks) — the diagram shows
+      // defaults on gene-carrying states even when a version sets nothing.
+      tunables: PHASE_TUNABLES[def.key] ?? [],
     };
   }
 

@@ -1,4 +1,6 @@
-import { GraphStateDto, GraphTransitionDto } from '../api/types';
+import { GraphStateDto, GraphTransitionDto, WorkflowInspectDto } from '../api/types';
+
+type TunableSpec = NonNullable<WorkflowInspectDto['tunables']>[number];
 import { splitCommonEdges, CollapsedEdge } from './workflow-diagram';
 
 /**
@@ -8,11 +10,19 @@ import { splitCommonEdges, CollapsedEdge } from './workflow-diagram';
  */
 const idOf = (name: string): string => name.replace(/[^A-Za-z0-9_]/g, '_');
 
-/** The scalar config entries worth drawing (genes, layer, predicate…) as `k=v` pairs. */
-export function stateConfigLabel(config: Record<string, unknown> | null | undefined): string | null {
+/**
+ * The note text for one state: its SET scalar config entries (genes, layer,
+ * predicate…) plus the registry's unset genes rendered as defaults — so a
+ * baseline version still shows every knob a proposal could turn.
+ */
+export function stateConfigLabel(config: Record<string, unknown> | null | undefined, registry: TunableSpec[] = []): string | null {
   const scalars = Object.entries(config ?? {}).filter(([, v]) => ['number', 'string', 'boolean'].includes(typeof v));
-  if (!scalars.length) return null;
-  return scalars.map(([k, v]) => `${k}=${v}`).join(' · ');
+  const setKeys = new Set(scalars.map(([k]) => k));
+  const defaults = registry
+    .filter((t) => !setKeys.has(t.key))
+    .map((t) => `${t.key}=${t.fallback ?? 'auto'} (default)`);
+  const parts = [...scalars.map(([k, v]) => `${k}=${v}`), ...defaults];
+  return parts.length ? parts.join(' · ') : null;
 }
 
 /**
@@ -22,14 +32,14 @@ export function stateConfigLabel(config: Record<string, unknown> | null | undefi
  * config (tunable genes, subject_build layers/predicates) renders as an attached
  * note so a tuned version is visibly different from the baseline.
  */
-export function toMermaidSource({ states, transitions }: { states: GraphStateDto[]; transitions: GraphTransitionDto[] }): { source: string; collapsed: CollapsedEdge[] } {
+export function toMermaidSource({ states, transitions, tunables = [] }: { states: GraphStateDto[]; transitions: GraphTransitionDto[]; tunables?: TunableSpec[] }): { source: string; collapsed: CollapsedEdge[] } {
   const { drawn, collapsed } = splitCommonEdges(transitions);
   const lines = ['stateDiagram-v2', '  direction LR'];
   for (const s of states) if (idOf(s.name) !== s.name) lines.push(`  state "${s.name}" as ${idOf(s.name)}`);
   for (const s of states) if (s.isInitial) lines.push(`  [*] --> ${idOf(s.name)}`);
   for (const t of drawn) lines.push(`  ${idOf(t.fromState)} --> ${idOf(t.toState)}: ${t.event}`);
   for (const s of states) {
-    const label = stateConfigLabel(s.config);
+    const label = stateConfigLabel(s.config, tunables.filter((t) => t.state === s.name));
     if (label) lines.push(`  note right of ${idOf(s.name)}`, `    ${label}`, '  end note');
   }
   const terminals = states.filter((s) => s.isTerminal).map((s) => idOf(s.name));
