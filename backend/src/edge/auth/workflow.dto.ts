@@ -39,6 +39,13 @@ export class WorkflowInspectDto {
   @ApiProperty({ type: [WorkflowStateDto] }) states!: unknown[];
   @ApiProperty({ type: [WorkflowTransitionDto] }) transitions!: WorkflowTransitionDto[];
   @ApiProperty({ type: WorkflowValidationDto }) validation!: unknown;
+
+  @ApiProperty({
+    required: false, type: 'array', items: { type: 'object', additionalProperties: true },
+    description: 'The phase tunable-gene registry (key, carrying state, bounds, fallback) — empty for non-evolving keys',
+    example: [{ key: 'poolCap', state: 'SEARCH', min: 8, max: 40, fallback: 24, describe: 'web hits kept per search cycle' }],
+  })
+  tunables?: { key: string; state: string; min: number; max: number; fallback: number | null; describe: string }[];
 }
 
 /** Result of activating a workflow version (POST /workflows/:id/publish). */

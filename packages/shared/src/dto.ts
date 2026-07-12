@@ -255,6 +255,8 @@ export interface WorkflowInspectDto {
   states: GraphStateDto[];
   transitions: GraphTransitionDto[];
   validation: { valid: boolean; errors: string[] };
+  /** The phase's tunable-gene registry (empty for non-evolving keys). */
+  tunables?: { key: string; state: string; min: number; max: number; fallback: number | null; describe: string }[];
 }
 /** The inner add/remove sets (states + transitions). No `changed` — derived on the FE. */
 export interface VersionDiffDto {

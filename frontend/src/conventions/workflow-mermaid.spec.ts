@@ -57,4 +57,22 @@ describe('toMermaidSource — workflow graph → stateDiagram-v2', () => {
     expect(source).toContain('dryRoundsToStop=3 · maxCycles=4 · predicate=low-confidence');
     expect(source).not.toContain('nested'); // non-scalars stay out of the drawing
   });
+
+  it('shows registry defaults on gene-carrying states even when the version sets nothing', () => {
+    const tunables = [
+      { key: 'leadsCap', state: 'SEARCH_LEADS', min: 4, max: 20, fallback: 12, describe: 'leads' },
+      { key: 'maxCycles', state: 'INVESTIGATE', min: 1, max: 6, fallback: null, describe: 'cycles' },
+      { key: 'poolCap', state: 'SEARCH_LEADS', min: 8, max: 40, fallback: 24, describe: 'pool' },
+    ];
+    const { source } = toMermaidSource({
+      states: [s('SEARCH_LEADS', { initial: true }), { ...s('INVESTIGATE'), config: { maxCycles: 3 } }, s('DONE', { terminal: true })],
+      transitions: [t('SEARCH_LEADS', 'LEADS_READY', 'INVESTIGATE'), t('INVESTIGATE', 'CYCLE_CAP', 'DONE')],
+      tunables,
+    });
+    // unset genes render as defaults (null fallback = caller-computed → "auto")
+    expect(source).toContain('leadsCap=12 (default) · poolCap=24 (default)');
+    // a SET gene wins over its registry default — no duplicate entry
+    expect(source).toContain('maxCycles=3');
+    expect(source).not.toContain('maxCycles=auto');
+  });
 });
