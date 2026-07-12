@@ -60,6 +60,7 @@ export const BreadthState = {
   QUALIFY: 'QUALIFY',
   CHECKPOINT: 'CHECKPOINT',
   RELAX: 'RELAX',
+  MARKETING: 'MARKETING',
   TARGET_MET: 'TARGET_MET',
   WENT_DRY: 'WENT_DRY',
   CAP_REACHED: 'CAP_REACHED',
@@ -79,6 +80,8 @@ export const BreadthEvent = {
   CONTINUE: 'CONTINUE',
   RELAXED: 'RELAXED',
   RELAX_EXHAUSTED: 'RELAX_EXHAUSTED',
+  MARKETING_QUERIES: 'MARKETING_QUERIES',
+  MARKETING_EXHAUSTED: 'MARKETING_EXHAUSTED',
 } as const;
 export type BreadthEvent = (typeof BreadthEvent)[keyof typeof BreadthEvent];
 

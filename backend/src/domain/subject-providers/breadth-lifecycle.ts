@@ -5,9 +5,9 @@ import { WebSearchProvider } from '../../infra/websearch/websearch.tokens';
 import type { WebResult } from '../../infra/websearch/websearch.tools';
 import { DiscoverArgs, DiscoveredProvider } from './discovery.tokens';
 import {
-  discoverySystem, discoveryQueriesSystem, discoveryFilterSystem, discoveryFallbackQueriesSystem,
-  buildDiscoveryUser, buildDiscoveryQueriesUser, buildDiscoveryFilterUser, buildDiscoveryFallbackUser,
-  discoverySchema, discoveryQueriesSchema, discoveryFilterSchema, discoveryFallbackSchema,
+  discoverySystem, discoveryQueriesSystem, discoveryFilterSystem, discoveryFallbackQueriesSystem, discoveryMarketingQueriesSystem,
+  buildDiscoveryUser, buildDiscoveryQueriesUser, buildDiscoveryFilterUser, buildDiscoveryFallbackUser, buildDiscoveryMarketingUser,
+  discoverySchema, discoveryQueriesSchema, discoveryFilterSchema, discoveryFallbackSchema, discoveryMarketingSchema,
 } from './discovery.prompt';
 
 const DEMO_REGIONS = ['HK', 'NL', 'UAE', 'South Africa', 'USA', 'Brazil', 'UK', 'Singapore'];
@@ -162,6 +162,32 @@ export async function relaxBreadthQueries({ ai, subject, priorQueries, qualified
     return null;
   } catch (e) {
     logger.warn(`discovery fallback query formation failed: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/**
+ * G. The last search pass: re-describe the subject in the short commercial category
+ * language businesses use for SEO ("tea cups supplier Bangkok") — the request's
+ * specifics never match how providers word their own pages. Null = nothing usable.
+ */
+export async function marketingBreadthQueries({ ai, subject, priorQueries, logger }: {
+  ai: AiProvider; subject: BreadthSubject; priorQueries: string[]; logger: Logger;
+}): Promise<string[] | null> {
+  try {
+    const r = await ai.structured({
+      system: discoveryMarketingQueriesSystem(),
+      user: buildDiscoveryMarketingUser({ subject, priorQueries }),
+      tier: ModelTier.Breadth,
+      validate: (raw) => discoveryMarketingSchema.parse(raw),
+    });
+    if (Array.isArray(r?.queries) && r.queries.length) {
+      logger.log(`marketing-language queries: ${r.queries.map((s) => `"${s}"`).join(', ')}`);
+      return r.queries;
+    }
+    return null;
+  } catch (e) {
+    logger.warn(`discovery marketing query formation failed: ${(e as Error).message}`);
     return null;
   }
 }

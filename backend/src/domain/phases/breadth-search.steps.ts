@@ -6,7 +6,7 @@ import { UsageService } from '../../infra/usage/usage.service';
 import { DiscoveredProvider } from '../subject-providers/discovery.tokens';
 import {
   BreadthPoolHit, BreadthSubject, decideBreadthCheckpoint, fallbackCandidates, formBreadthQueries,
-  mineCandidates, naiveBreadthQuery, qualifyCandidates, relaxBreadthQueries, searchBreadthPool,
+  marketingBreadthQueries, mineCandidates, naiveBreadthQuery, qualifyCandidates, relaxBreadthQueries, searchBreadthPool,
 } from '../subject-providers/breadth-lifecycle';
 import { PhaseStepRegistry, StepCtx, StepOutcome } from './phase-step.tokens';
 
@@ -33,6 +33,7 @@ export interface BreadthRunData {
   gainedThisCycle: number;
   dryRounds: number;
   matchNote: string | null;   // set by relax rounds — their finds only partially match
+  marketingDone?: boolean;    // the MARKETING pass runs once per run; its second visit exhausts
   notes: string[];
   // Stage-1 tunables (docs/research-phase-evolution.md) — pinned by the engine when
   // the active definition's state configs set them; absent = today's constants.
@@ -63,6 +64,7 @@ export class BreadthSearchSteps {
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.QUALIFY, handler: { execute: (ctx) => this.qualify(ctx) } });
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.CHECKPOINT, handler: { execute: (ctx) => this.checkpoint(ctx) } });
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.RELAX, handler: { execute: (ctx) => this.relax(ctx) } });
+    registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.MARKETING, handler: { execute: (ctx) => this.marketing(ctx) } });
   }
 
   private data(ctx: StepCtx): BreadthRunData {
@@ -176,6 +178,36 @@ export class BreadthSearchSteps {
       dataPatch: {
         queries: relaxed.queries,
         matchNote: `found without "${relaxed.relaxed}" — confirm via research/outreach`,
+        notes: [...d.notes, note],
+      },
+    };
+  }
+
+  /**
+   * G. The marketing pass — the last rung of the fallback ladder (exact → relaxed →
+   * category language). Re-describes the subject as the short commercial phrases
+   * businesses use for SEO ("tea cups supplier Bangkok") and searches once more;
+   * runs once per run — its second visit (or a failed formation) exhausts to dry.
+   */
+  private async marketing(ctx: StepCtx): Promise<StepOutcome> {
+    const d = this.data(ctx);
+    if (d.marketingDone) {
+      const note = `marketing-language pass already spent — stopping at ${d.candidates.length}/${d.count}`;
+      await ctx.log({ message: `Discovery: ${note}` });
+      return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { notes: [...d.notes, note] } };
+    }
+    const queries = await marketingBreadthQueries({ ai: this.ai, subject: d.subject, priorQueries: d.queries, logger: this.logger });
+    if (!queries) {
+      return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { marketingDone: true, notes: [...d.notes, `marketing query formation failed — stopping at ${d.candidates.length}/${d.count}`] } };
+    }
+    const note = `constraints exhausted — re-searching in marketing language: ${queries.map((q) => `"${q}"`).join(', ')}`;
+    await ctx.log({ message: `Discovery: ${note}` });
+    return {
+      event: BreadthEvent.MARKETING_QUERIES,
+      dataPatch: {
+        marketingDone: true,
+        queries,
+        matchNote: 'found via category-level marketing search — the request’s specific constraints were NOT applied; confirm every one via research/outreach',
         notes: [...d.notes, note],
       },
     };

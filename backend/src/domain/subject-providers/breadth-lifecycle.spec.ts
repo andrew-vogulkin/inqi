@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { BreadthEvent, LeadSource } from '@inqi/shared';
-import { decideBreadthCheckpoint, fallbackCandidates, mineCandidates, qualifyCandidates } from './breadth-lifecycle';
+import { decideBreadthCheckpoint, fallbackCandidates, marketingBreadthQueries, mineCandidates, qualifyCandidates } from './breadth-lifecycle';
 
 const logger = new Logger('test');
 const SUBJECT = { title: 'rooftop yoga studio', description: 'in Bangkok' };
@@ -96,5 +96,25 @@ describe('fallbackCandidates — deterministic no-AI degradation', () => {
     const out = fallbackCandidates({ count: 3, exclude: ['Subject Provider 2'] });
     expect(out.map((c) => c.name)).toEqual(['Subject Provider 1', 'Subject Provider 3', 'Subject Provider 4']);
     expect(out.every((c) => c.source === LeadSource.Fallback)).toBe(true);
+  });
+});
+
+describe('marketingBreadthQueries — the last search pass in commercial category language', () => {
+  it('returns the short SEO-style queries the model forms', async () => {
+    const ai = aiReturning({ queries: ['tea cups supplier Bangkok', 'food packaging supplier Thailand'] });
+    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: ['biodegradable bubble tea cups Bangkok'], logger });
+    expect(out).toEqual(['tea cups supplier Bangkok', 'food packaging supplier Thailand']);
+  });
+
+  it('a formation failure returns null (the step exhausts to dry, never throws)', async () => {
+    const ai = { isConfigured: () => true, structured: jest.fn().mockRejectedValue(new Error('down')) };
+    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: [], logger });
+    expect(out).toBeNull();
+  });
+
+  it('an empty query list returns null', async () => {
+    const ai = { isConfigured: () => true, structured: jest.fn().mockResolvedValue({ queries: [] }) };
+    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: [], logger });
+    expect(out).toBeNull();
   });
 });

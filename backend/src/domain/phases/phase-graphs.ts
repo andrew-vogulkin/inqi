@@ -87,11 +87,12 @@ export const PRE_RESEARCH_GRAPH: PhaseGraph = {
   ],
 };
 
-// ---- breadth_search v1 -----------------------------------------------------
+// ---- breadth_search --------------------------------------------------------
 
 const BREADTH_WORKING = [
   BreadthState.FORM_QUERIES, BreadthState.SEARCH, BreadthState.MINE,
   BreadthState.QUALIFY, BreadthState.CHECKPOINT, BreadthState.RELAX,
+  BreadthState.MARKETING,
 ];
 
 export const BREADTH_SEARCH_GRAPH: PhaseGraph = {
@@ -103,6 +104,7 @@ export const BREADTH_SEARCH_GRAPH: PhaseGraph = {
     { name: BreadthState.QUALIFY },
     { name: BreadthState.CHECKPOINT },
     { name: BreadthState.RELAX },
+    { name: BreadthState.MARKETING },
     { name: BreadthState.TARGET_MET, isTerminal: true },
     { name: BreadthState.WENT_DRY, isTerminal: true },
     { name: BreadthState.CAP_REACHED, isTerminal: true },
@@ -122,7 +124,12 @@ export const BREADTH_SEARCH_GRAPH: PhaseGraph = {
     { from: BreadthState.CHECKPOINT, event: BreadthEvent.CONTINUE, to: BreadthState.RELAX, guard: PhaseGuard.BreadthUnderCycleCap, action: PhaseAction.EnqueueStep },
     // RELAX loops to SEARCH (not FORM_QUERIES): the relax step itself produces the new queries.
     { from: BreadthState.RELAX, event: BreadthEvent.RELAXED, to: BreadthState.SEARCH, action: PhaseAction.EnqueueStep },
-    { from: BreadthState.RELAX, event: BreadthEvent.RELAX_EXHAUSTED, to: BreadthState.WENT_DRY, action: PhaseAction.BreadthComplete },
+    // Relaxation exhausted → one MARKETING pass: re-describe the subject in the short
+    // commercial category language businesses use for SEO ("tea cups supplier") and
+    // search once more before conceding dry. Its second visit exhausts to WENT_DRY.
+    { from: BreadthState.RELAX, event: BreadthEvent.RELAX_EXHAUSTED, to: BreadthState.MARKETING, action: PhaseAction.EnqueueStep },
+    { from: BreadthState.MARKETING, event: BreadthEvent.MARKETING_QUERIES, to: BreadthState.SEARCH, action: PhaseAction.EnqueueStep },
+    { from: BreadthState.MARKETING, event: BreadthEvent.MARKETING_EXHAUSTED, to: BreadthState.WENT_DRY, action: PhaseAction.BreadthComplete },
     ...controlRows({
       working: BREADTH_WORKING, failedTo: BreadthState.FAILED, cancelledTo: BreadthState.CANCELLED,
       failAction: PhaseAction.BreadthFailed,
