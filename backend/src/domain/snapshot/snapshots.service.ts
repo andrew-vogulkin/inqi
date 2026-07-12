@@ -331,7 +331,10 @@ export class SnapshotsService {
     const findings = await this.reports.findFindings({ reportId, kinds: [FindingKind.Option, FindingKind.SubjectProviderBackground] });
     const ranked = assembleOptions(findings);
     const idx = ranked.findIndex((o) => o.subjectProvider === ref);
-    if (idx === -1) throw new NotFoundError({ code: ErrorCode.SnapshotNotFound, message: 'option not found' });
+    // Not a ranked option → maybe a contacted/vetted provider that did NOT qualify.
+    // Its dossier still exists (web evidence, outreach chain, the vet verdict) so the
+    // customer can evaluate it manually — resolved by inquiry name instead of finding.
+    if (idx === -1) return this.unqualifiedProvenance({ reportId, ref, findings });
     const opt = ranked[idx];
 
     const optionFinding = findings.find((f) => f.kind === FindingKind.Option && String((f.data as Record<string, unknown>)?.subjectProvider) === ref);
@@ -384,7 +387,58 @@ export class SnapshotsService {
       outreach: { persona: owner?.personaId ?? 'inqi', route: 'via inqi', outcome, chain },
       depth: contacted ? ProvenanceDepth.WebOutreachFeedback : hasFeedback ? ProvenanceDepth.WebFeedback : ProvenanceDepth.WebOnly,
       researchPending: inquiry?.researchPending ?? false,
+      qualified: true,
       summaries,
+      reference: { website, socials: contact.socials ?? [], contactEmail },
+    };
+  }
+
+  /**
+   * The dossier for a provider that was contacted/vetted but did NOT qualify —
+   * unranked (scoring.rank = 0), built straight from the inquiry (its background
+   * finding, web evidence, outreach chain) plus the vet verdict's disqualify
+   * reason. No AI summaries: "ranked #0 of N" would only mislead them.
+   */
+  private async unqualifiedProvenance({ reportId, ref, findings }: {
+    reportId: string; ref: string; findings: Awaited<ReturnType<SnapshotsRepository['findFindings']>>;
+  }): Promise<ProvenanceDto> {
+    const inquiry = await this.reports.findInquiryByName({ reportId, name: ref });
+    if (!inquiry) throw new NotFoundError({ code: ErrorCode.SnapshotNotFound, message: 'option not found' });
+
+    const contact = ((inquiry as { contact?: unknown }).contact ?? {}) as { website?: string; socials?: string[] };
+    const bgFinding = findings.find((f) => f.kind === FindingKind.SubjectProviderBackground && f.inquiryId === inquiry.id);
+    const bg = { ...((bgFinding?.data as Record<string, unknown>) ?? {}), ...((inquiry.background as Record<string, unknown>) ?? {}) } as Record<string, unknown>;
+
+    const web = toRecordArray(bg.sources).map((s) => ({
+      source: String(s.source ?? s.title ?? 'web'),
+      url: String(s.url ?? ''),
+      snippet: String(s.snippet ?? s.summary ?? ''),
+    }));
+    const themes = toStringArray(bg.themes);
+    const quotes = toStringArray(bg.quotes);
+    const hasFeedback = bg.rating != null || themes.length > 0;
+
+    const owner = await this.reports.findReport({ id: reportId });
+    const msgs = await this.reports.findMessages({ inquiryId: inquiry.id });
+    const chain = msgs.map((m) => ({
+      direction: m.direction, subject: m.subject ?? null, body: m.body, at: m.createdAt.toISOString(),
+      channel: String(((m.source?.data ?? {}) as Record<string, unknown>).channel ?? '') || null,
+    }));
+    const outcome = outreachOutcomeFromMessages(msgs);
+    const contacted = msgs.some((m) => m.direction === MessageDirection.Outbound);
+    const contactEmail = msgs.find((m) => m.direction === MessageDirection.Outbound && m.toAddr)?.toAddr ?? null;
+    const website = pickContactWebsite({ website: contact.website ?? null, sources: web });
+    const disqualified = ((inquiry.result ?? {}) as Record<string, unknown>).disqualified;
+
+    return {
+      web,
+      feedback: { rating: num(bg.rating), sentiment: num(bg.sentiment), themes, quotes },
+      scoring: { feedbackScore: round3(inquiry.qualityScore ?? 0), priceScore: 0, blendedScore: 0, rank: 0 },
+      outreach: { persona: owner?.personaId ?? 'inqi', route: 'via inqi', outcome, chain },
+      depth: contacted ? ProvenanceDepth.WebOutreachFeedback : hasFeedback ? ProvenanceDepth.WebFeedback : ProvenanceDepth.WebOnly,
+      researchPending: inquiry.researchPending ?? false,
+      qualified: false,
+      disqualifyReason: typeof disqualified === 'string' && disqualified ? disqualified : null,
       reference: { website, socials: contact.socials ?? [], contactEmail },
     };
   }

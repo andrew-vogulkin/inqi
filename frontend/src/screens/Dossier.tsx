@@ -40,12 +40,16 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
     reportsApi.reportLive({ id: reportId })
       .then((live) => {
         const idx = (live.options ?? []).findIndex((o) => optionId(o) === optionRef);
-        if (idx < 0) { dispatch({ type: ActionType.DossierLoadFailed, message: 'That option is no longer in the report.' }); return; }
-        const option = live.options[idx];
+        // Not a ranked option → maybe a contacted provider that didn't qualify. Its
+        // dossier still opens (the provenance overlay resolves by inquiry name) so the
+        // customer can evaluate it manually.
+        const failed = idx < 0 ? (live.failedInquiries ?? []).find((f) => f.name === optionRef) : undefined;
+        if (idx < 0 && !failed) { dispatch({ type: ActionType.DossierLoadFailed, message: 'That option is no longer in the report.' }); return; }
+        const option = idx >= 0 ? live.options[idx] : { subjectProvider: optionRef };
         setReportRef(live.ref ?? null);
         const q = live.questionnaire;
         setScope((q?.questions ?? []).filter((qq) => qq.type !== 'confirm' && q?.answers?.[qq.id]).map((qq) => ({ prompt: qq.prompt, answer: q!.answers![qq.id] })));
-        dispatch({ type: ActionType.DossierLoaded, option, rank: idx + 1, origin });
+        dispatch({ type: ActionType.DossierLoaded, option, rank: idx >= 0 ? idx + 1 : 0, origin });
         if (origin === DossierOrigin.Admin && option.inquiryId) {
           // Admin: the full email chain (admin-gated). Customers never call this.
           adminApi.thread({ inquiryId: option.inquiryId }).then((t) => dispatch({ type: ActionType.DossierChainLoaded, messages: t })).catch(() => dispatch({ type: ActionType.DossierProvenanceFailed }));
@@ -74,6 +78,7 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
       <Header vm={vm} reportId={reportId} reportRef={reportRef} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {vm.qualified === false && <DisqualifiedBanner reason={vm.disqualifyReason ?? null} />}
         {vm.summaries?.overview && <OverviewCard text={vm.summaries.overview} />}
         <Step n={1} title="Web search" result={vm.researchPending ? 'research in progress' : `${vm.web.length} source${vm.web.length === 1 ? '' : 's'}`} summary={vm.summaries?.web}><WebStep web={vm.web} researchPending={vm.researchPending} /></Step>
         <Step n={2} title="Outreach" result={d.overlayPending ? 'loading…' : outreachResult(vm.outreach)} summary={d.overlayPending ? undefined : vm.summaries?.outreach}>
@@ -86,7 +91,7 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
         <Step n={3} title="Feedback scan" result={vm.feedback.reviewsCount != null ? `${vm.feedback.reviewsCount} reviews` : (vm.feedback.rating != null ? `★ ${vm.feedback.rating}` : 'scanned')} summary={vm.summaries?.feedback}>
           <FeedbackStep feedback={vm.feedback} />
         </Step>
-        <Step n={4} title="Qualification & ranking" accent result={`ranked #${vm.scoring.rank}`} summary={vm.summaries?.ranking}><ScoringStep scoring={vm.scoring} provider={vm.provider} reservations={vm.reservations} scope={scope} /></Step>
+        <Step n={4} title="Qualification & ranking" accent result={vm.scoring.rank > 0 ? `ranked #${vm.scoring.rank}` : 'didn’t qualify'} summary={vm.summaries?.ranking}><ScoringStep scoring={vm.scoring} provider={vm.provider} reservations={vm.reservations} scope={scope} /></Step>
       </div>
     </div>
   );
@@ -95,7 +100,7 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
 function Header({ vm, reportId, reportRef }: { vm: DossierVM; reportId: string; reportRef: string | null }) {
   // Price origin: a reply means the provider quoted it directly; otherwise it came off public listings.
   const priceOrigin = vm.outreach.variant === OutreachVariant.Replied ? 'quoted by provider' : 'from public listings';
-  const meta = [vm.price ? `${`${vm.price.amount} ${vm.price.currency}`.trim()} (${priceOrigin})` : null, `ranked #${vm.rank}`].filter(Boolean).join(' · ');
+  const meta = [vm.price ? `${`${vm.price.amount} ${vm.price.currency}`.trim()} (${priceOrigin})` : null, vm.rank > 0 ? `ranked #${vm.rank}` : 'not ranked'].filter(Boolean).join(' · ');
   return (
     <div style={{ marginBottom: 18 }}>
       <div style={{ fontSize: 11.5, color: color.subtle, fontFamily: font.mono, letterSpacing: '.05em', marginBottom: 9 }}>RESEARCH DOSSIER · {reportRef ?? `#${reportId.slice(0, 8)}`}</div>
@@ -204,6 +209,16 @@ function Citation({ n }: { n: number }) {
  * provenance overlay (cached server-side — regenerated only when a new reply or
  * re-rank changes the underlying data).
  */
+/** Why this provider is unranked — the vet verdict's reason, so the customer can judge for themselves. */
+function DisqualifiedBanner({ reason }: { reason: string | null }) {
+  return (
+    <div data-testid="disqualified-banner" style={{ background: color.warnTint, border: `1px solid ${WARN_BORDER}`, borderRadius: radius.lg, padding: '14px 16px' }}>
+      <div style={{ fontSize: fontSize.sm, fontWeight: fontWeight.semibold, marginBottom: reason ? 7 : 0 }}>Didn’t qualify — requires manual research</div>
+      {reason && <div style={{ fontSize: fontSize.sm, color: color.muted, lineHeight: 1.55 }}>{reason}</div>}
+    </div>
+  );
+}
+
 function OverviewCard({ text }: { text: string }) {
   const cited = citedSections(text);
   return (
@@ -485,7 +500,7 @@ function ScoringStep({ scoring, provider, reservations, scope }: { scoring: Scor
         {box('Price score', scoring.priceScore)}
         {box('Blended score', scoring.blendedScore, true)}
       </div>
-      <div style={{ fontSize: 12.5, color: color.muted, lineHeight: 1.55 }}>The blended score weights public feedback against price and availability. With these inputs, {provider} ranked #{scoring.rank} for this report.{reservations.length > 0 ? ' Its unmet constraints above lowered the feedback score.' : ''}</div>
+      <div style={{ fontSize: 12.5, color: color.muted, lineHeight: 1.55 }}>The blended score weights public feedback against price and availability. {scoring.rank > 0 ? `With these inputs, ${provider} ranked #${scoring.rank} for this report.` : `${provider} didn’t qualify, so it isn’t ranked — evaluate the evidence above yourself.`}{reservations.length > 0 ? ' Its unmet constraints above lowered the feedback score.' : ''}</div>
     </div>
   );
 }
