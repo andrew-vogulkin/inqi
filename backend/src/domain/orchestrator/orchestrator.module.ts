@@ -3,6 +3,7 @@ import { CreditsModule } from '../credits/credits.module';
 import { WorkflowEngine } from './workflow-engine.service';
 import { OrchestratorRepository } from './orchestrator.repository';
 import { OutreachControlService } from './outreach-control.service';
+import { ReportTunablesService } from './report-tunables.service';
 
 /**
  * Domain: the orchestrator engine — the versioned workflow state machine, its
@@ -13,7 +14,7 @@ import { OutreachControlService } from './outreach-control.service';
  */
 @Module({
   imports: [CreditsModule],
-  providers: [WorkflowEngine, OrchestratorRepository, OutreachControlService],
-  exports: [WorkflowEngine, OrchestratorRepository, OutreachControlService],
+  providers: [WorkflowEngine, OrchestratorRepository, OutreachControlService, ReportTunablesService],
+  exports: [WorkflowEngine, OrchestratorRepository, OutreachControlService, ReportTunablesService],
 })
 export class OrchestratorModule {}

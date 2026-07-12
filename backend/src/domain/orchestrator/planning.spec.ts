@@ -1,13 +1,28 @@
 import { InquiryStatus, OutreachStrategy } from '@inqi/shared';
-import { OutreachActionKind, SynthesisGate, assignWaves, decideNextAction, decideSynthesisGate, pendingUnreleasedWaves, planSize } from './planning';
+import { OutreachActionKind, SynthesisGate, assignWaves, decideNextAction, decideSynthesisGate, escalatingWaves, pendingUnreleasedWaves, planSize } from './planning';
 
 const cands = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `P${i}`, country: 'X' }));
 
+describe('escalatingWaves', () => {
+  it('defaults to today\'s 1:3:9', () => expect(escalatingWaves()).toEqual([1, 3, 9]));
+  it('builds [w, w·g, w·g²] from the report genes', () => {
+    expect(escalatingWaves({ firstWave: 2, waveGrowth: 2 })).toEqual([2, 4, 8]);
+    expect(escalatingWaves({ firstWave: 1, waveGrowth: 4 })).toEqual([1, 4, 16]);
+  });
+  it('fills unset genes with their defaults', () => {
+    expect(escalatingWaves({ firstWave: 3 })).toEqual([3, 9, 27]);
+    expect(escalatingWaves({ waveGrowth: 2 })).toEqual([1, 2, 4]);
+  });
+});
+
 describe('planSize', () => {
-  it('escalating seeds 1+3+9 = 13', () => expect(planSize(OutreachStrategy.ESCALATING)).toBe(13));
+  it('escalating seeds 1+3+9 = 13', () => expect(planSize({ strategy: OutreachStrategy.ESCALATING })).toBe(13));
+  it('a gene-driven wave plan changes the escalating seed', () => {
+    expect(planSize({ strategy: OutreachStrategy.ESCALATING, waves: [2, 4, 8] })).toBe(14);
+  });
   it('other strategies seed a positive pool', () => {
-    expect(planSize(OutreachStrategy.PARALLEL)).toBeGreaterThan(0);
-    expect(planSize(OutreachStrategy.ONE_BY_ONE)).toBeGreaterThan(0);
+    expect(planSize({ strategy: OutreachStrategy.PARALLEL })).toBeGreaterThan(0);
+    expect(planSize({ strategy: OutreachStrategy.ONE_BY_ONE })).toBeGreaterThan(0);
   });
 });
 
@@ -26,6 +41,11 @@ describe('assignWaves', () => {
   });
   it('one_by_one → ascending waves', () => {
     expect(assignWaves({ candidates: cands(3), strategy: OutreachStrategy.ONE_BY_ONE }).map((x) => x.wave)).toEqual([1, 2, 3]);
+  });
+  it('escalating honors a gene-driven wave plan', () => {
+    const w = assignWaves({ candidates: cands(14), strategy: OutreachStrategy.ESCALATING, waves: [2, 4, 8] });
+    const byWave = (n: number) => w.filter((x) => x.wave === n).length;
+    expect([byWave(1), byWave(2), byWave(3)]).toEqual([2, 4, 8]);
   });
 });
 

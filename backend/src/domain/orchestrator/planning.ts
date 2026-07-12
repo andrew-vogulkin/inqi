@@ -7,11 +7,19 @@ export const ESCALATING_WAVES = [1, 3, 9];
 const PARALLEL_POOL = 9;
 const ONE_BY_ONE_POOL = 5;
 
+/**
+ * The escalating wave plan from the report genes: three waves [w, w·g, w·g²].
+ * Unset genes fall back to today's 1:3:9.
+ */
+export function escalatingWaves({ firstWave = 1, waveGrowth = 3 }: { firstWave?: number; waveGrowth?: number } = {}): number[] {
+  return [firstWave, firstWave * waveGrowth, firstWave * waveGrowth * waveGrowth];
+}
+
 /** How many candidates discovery should propose for the initial funnel. */
-export function planSize(strategy: OutreachStrategy): number {
+export function planSize({ strategy, waves = ESCALATING_WAVES }: { strategy: OutreachStrategy; waves?: number[] }): number {
   if (strategy === OutreachStrategy.PARALLEL) return PARALLEL_POOL;
   if (strategy === OutreachStrategy.ONE_BY_ONE) return ONE_BY_ONE_POOL;
-  return ESCALATING_WAVES.reduce((a, b) => a + b, 0); // escalating: 13
+  return waves.reduce((a, b) => a + b, 0); // default escalating: 13
 }
 
 export interface WavedProvider extends DiscoveredProvider {
@@ -19,20 +27,20 @@ export interface WavedProvider extends DiscoveredProvider {
 }
 
 /** Assign discovered candidates to release waves per strategy. */
-export function assignWaves({ candidates, strategy }: { candidates: DiscoveredProvider[]; strategy: OutreachStrategy }): WavedProvider[] {
+export function assignWaves({ candidates, strategy, waves = ESCALATING_WAVES }: { candidates: DiscoveredProvider[]; strategy: OutreachStrategy; waves?: number[] }): WavedProvider[] {
   if (strategy === OutreachStrategy.PARALLEL) {
     return candidates.map((c) => ({ ...c, wave: 1 }));
   }
   if (strategy === OutreachStrategy.ONE_BY_ONE) {
     return candidates.map((c, i) => ({ ...c, wave: i + 1 }));
   }
-  // escalating 1:3:9 — overflow falls into the last wave
+  // escalating (default 1:3:9) — overflow falls into the last wave
   let wave = 1;
-  let remaining = ESCALATING_WAVES[0];
+  let remaining = waves[0];
   return candidates.map((c) => {
-    if (remaining === 0 && wave < ESCALATING_WAVES.length) {
+    if (remaining === 0 && wave < waves.length) {
       wave += 1;
-      remaining = ESCALATING_WAVES[wave - 1];
+      remaining = waves[wave - 1];
     }
     if (remaining > 0) remaining -= 1;
     return { ...c, wave };
