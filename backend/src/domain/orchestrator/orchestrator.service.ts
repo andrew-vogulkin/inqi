@@ -13,10 +13,12 @@ import { SnapshotsService } from '../snapshot/snapshots.service';
 import { PhaseEngine } from '../phases/phase-engine.service';
 import { ConflictError } from '../../common/errors';
 import { ReportLifecycleEvent, notificationForLifecycle } from '../report/report-lifecycle';
-import { OutreachActionKind, SynthesisGate, decideNextAction, decideSynthesisGate, pendingUnreleasedWaves, planSize } from './planning';
+import { OutreachActionKind, SynthesisGate, decideNextAction, decideSynthesisGate, escalatingWaves, pendingUnreleasedWaves, planSize } from './planning';
 import { WorkflowEngine } from './workflow-engine.service';
 import { OrchestratorRepository } from './orchestrator.repository';
 import { OutreachControlService } from './outreach-control.service';
+import { ReportTunablesService } from './report-tunables.service';
+import { PHASE_TUNABLES, REPORT_WORKFLOW_KEY } from '../phases/phase-tunables';
 
 /**
  * Recoverable processing states → their AgentStage + the job to re-enqueue on retry
@@ -65,6 +67,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly usageCtx: UsageContextService,
     private readonly phases: PhaseEngine,
     private readonly outreach: OutreachControlService,
+    private readonly tunables: ReportTunablesService,
   ) {}
 
   async onModuleInit() {
@@ -194,15 +197,17 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       reportId, stage: AgentStage.BuildFunnel,
       fn: async (log) => {
         const strategy = OutreachStrategy.ESCALATING;
+        // Report genes (carrier B): resolved through the report's pinned version.
+        const genes = await this.tunables.forReport({ reportId });
         const epic = await this.repo.createEpic({
-          data: { reportId, definition: { geo: true, time: true, price: true }, strategy, targetQualifiedOptions: READY_MIN }, // HP-23: pursue Ready (≥5); supersedes HP-07 target=3
+          data: { reportId, definition: { geo: true, time: true, price: true }, strategy, targetQualifiedOptions: genes.targetQualifiedOptions ?? READY_MIN }, // HP-23: pursue Ready (≥5); supersedes HP-07 target=3
         });
         await this.outbox.emit({ type: EventType.EpicCreated, reportId, epicId: epic.id, data: { strategy } });
 
-        const breadthCap = this.config.research.maxBreadthInquiries;
+        const breadthCap = genes.breadthCap ?? this.config.research.maxBreadthInquiries;
         await this.startBreadthRun({
           reportId, epicId: epic.id, purpose: BreadthPurpose.Funnel,
-          count: Math.min(planSize(strategy), breadthCap), exclude: [],
+          count: Math.min(planSize({ strategy, waves: escalatingWaves(genes) }), breadthCap), exclude: [],
         });
         await log({ message: 'Breadth-search run started (funnel assembles when it finishes)', data: { strategy } });
       },
@@ -276,7 +281,8 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     // The run's terminal action assembles the fresh candidates as the next wave
     // (or finishes outreach if discovery came back empty). startRun dedupes — a
     // widen while any breadth run is live for this report is a no-op (wait).
-    const breadthCap = this.config.research.maxBreadthInquiries;
+    const genes = await this.tunables.forVersion({ workflowVersionId: inq.workflowVersionId });
+    const breadthCap = genes.breadthCap ?? this.config.research.maxBreadthInquiries;
     if (subs.length >= breadthCap) {
       await this.outreach.finishOutreach({ reportId });
       return;
@@ -284,7 +290,7 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     const exclude = subs.map((s) => s.name);
     const started = await this.startBreadthRun({
       reportId, epicId, purpose: BreadthPurpose.Widen,
-      count: Math.min(WIDEN_BATCH, breadthCap - subs.length), exclude,
+      count: Math.min(genes.widenBatch ?? WIDEN_BATCH, breadthCap - subs.length), exclude,
     });
     if (!started) this.logger.debug(`widen skipped for report ${reportId} — a breadth run is already live`);
   }
@@ -375,10 +381,18 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
    * mark is status hygiene for the UI — it no longer gates any flow.
    */
   private async reapSilentThreads(): Promise<void> {
-    const { replyTimeoutMinutes } = this.config.resilience;
-    const olderThan = new Date(Date.now() - replyTimeoutMinutes * 60_000);
+    const envTimeout = this.config.resilience.replyTimeoutMinutes;
+    // Per-report gene: the DB cut is the registry's LOWER bound (the earliest any
+    // report could time out); each candidate is then held against its own report's
+    // replyTimeoutMinutes (pinned version) before being marked.
+    const spec = (PHASE_TUNABLES[REPORT_WORKFLOW_KEY] ?? []).find((t) => t.key === 'replyTimeoutMinutes');
+    const now = Date.now();
+    const olderThan = new Date(now - Math.min(envTimeout, spec?.min ?? envTimeout) * 60_000);
     const stale = await this.repo.findStaleContactedInquiries({ olderThan });
     for (const s of stale) {
+      const genes = await this.tunables.forVersion({ workflowVersionId: s.report.workflowVersionId });
+      const replyTimeoutMinutes = genes.replyTimeoutMinutes ?? envTimeout;
+      if (s.updatedAt.getTime() > now - replyTimeoutMinutes * 60_000) continue; // silent, but not past THIS report's timeout yet
       this.logger.log(`reaper: inquiry "${s.name}" (${s.id}) silent for ${replyTimeoutMinutes} min — marking unresponsive (thread stays open)`);
       await this.repo.updateInquiry({ id: s.id, data: { status: InquiryStatus.Unresponsive } });
       await this.outbox.emit({ type: EventType.InquiryUpdated, reportId: s.reportId, epicId: s.epicId, inquiryId: s.id, data: { name: s.name, status: InquiryStatus.Unresponsive, reason: 'no reply yet — the thread stays open; a late reply re-evaluates the report' } });

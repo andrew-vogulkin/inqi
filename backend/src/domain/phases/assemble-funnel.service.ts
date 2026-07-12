@@ -9,7 +9,8 @@ import { SourcesService } from '../source/sources.service';
 import { OrchestratorRepository } from '../orchestrator/orchestrator.repository';
 import { OutreachControlService } from '../orchestrator/outreach-control.service';
 import { WorkflowEngine } from '../orchestrator/workflow-engine.service';
-import { assignWaves } from '../orchestrator/planning';
+import { ReportTunablesService } from '../orchestrator/report-tunables.service';
+import { assignWaves, escalatingWaves } from '../orchestrator/planning';
 import { DiscoveredProvider } from '../subject-providers/discovery.tokens';
 import { PhaseRunRepository } from './phase-run.repository';
 import { BreadthRunData } from './breadth-search.steps';
@@ -34,6 +35,7 @@ export class AssembleFunnelService implements OnModuleInit {
     private readonly sources: SourcesService,
     private readonly outreach: OutreachControlService,
     private readonly wf: WorkflowEngine,
+    private readonly tunables: ReportTunablesService,
   ) {}
 
   async onModuleInit() {
@@ -70,9 +72,11 @@ export class AssembleFunnelService implements OnModuleInit {
       await this.tolerantAdvance({ reportId, event: WorkflowEvent.FUNNEL_FAILED });
       return;
     }
-    const breadthCap = this.config.research.maxBreadthInquiries;
+    // Report genes (carrier B): cap + wave plan from the report's pinned version.
+    const genes = await this.tunables.forReport({ reportId });
+    const breadthCap = genes.breadthCap ?? this.config.research.maxBreadthInquiries;
     const strategy = OutreachStrategy.ESCALATING;
-    for (const c of assignWaves({ candidates: d.candidates.slice(0, breadthCap), strategy })) {
+    for (const c of assignWaves({ candidates: d.candidates.slice(0, breadthCap), strategy, waves: escalatingWaves(genes) })) {
       await this.createInquiry({ reportId, epicId: d.epicId, candidate: c, wave: c.wave });
     }
     this.logger.log(`funnel assembled from breadth run: ${Math.min(d.candidates.length, breadthCap)} candidates (cap ${breadthCap})`);
@@ -81,7 +85,8 @@ export class AssembleFunnelService implements OnModuleInit {
 
   /** Widen purpose: fresh candidates become the next wave (released immediately); empty → finish. */
   private async assembleWiden({ reportId, d }: { reportId: string; d: BreadthRunData }): Promise<void> {
-    const breadthCap = this.config.research.maxBreadthInquiries;
+    const genes = await this.tunables.forReport({ reportId });
+    const breadthCap = genes.breadthCap ?? this.config.research.maxBreadthInquiries;
     const epic = await this.repo.findEpicWithInquiries({ epicId: d.epicId });
     const existingNames = new Set(epic.inquiries.map((s) => s.name));
     const fresh = d.candidates

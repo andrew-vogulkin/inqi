@@ -1,4 +1,4 @@
-import { BreadthState, DepthState, PhaseKey } from '@inqi/shared';
+import { BreadthState, DepthState, PhaseKey, READY_MIN, ReportState } from '@inqi/shared';
 
 /**
  * The TUNABLE-PARAMETER registries for the engine-run research phases — stage 1
@@ -20,7 +20,22 @@ export interface TunableSpec {
   describe: string;
 }
 
+/** The parent report machine's workflow key — its genes ride the same registry. */
+export const REPORT_WORKFLOW_KEY = 'report';
+
 export const PHASE_TUNABLES: Partial<Record<string, TunableSpec[]>> = {
+  // The report lifecycle is run by WorkflowEngine, not PhaseEngine, so there is
+  // no run.data to pin into — consumers resolve these at action time through the
+  // report's pinned version (ReportTunablesService). Registry + bounds + publish
+  // gate + diagram notes are shared with the phases.
+  [REPORT_WORKFLOW_KEY]: [
+    { key: 'targetQualifiedOptions', state: ReportState.FUNNEL, min: 2, max: 8, fallback: READY_MIN, describe: 'qualified options that stop outreach (pinned into the Epic)' },
+    { key: 'firstWave', state: ReportState.FUNNEL, min: 1, max: 4, fallback: 1, describe: 'size of the first escalating wave' },
+    { key: 'waveGrowth', state: ReportState.FUNNEL, min: 2, max: 4, fallback: 3, describe: 'escalation multiplier — waves are [w, w·g, w·g²]' },
+    { key: 'breadthCap', state: ReportState.FUNNEL, min: 4, max: 16, fallback: null, describe: 'max breadth inquiries per report (env BREADTH_MAX_INQUIRIES)' },
+    { key: 'widenBatch', state: ReportState.OUTREACH, min: 2, max: 8, fallback: 6, describe: 'candidates asked of a widen breadth run' },
+    { key: 'replyTimeoutMinutes', state: ReportState.OUTREACH, min: 30, max: 1440, fallback: null, describe: 'silence before an inquiry is marked unresponsive (env REPLY_TIMEOUT_MINUTES)' },
+  ],
   [PhaseKey.BreadthSearch]: [
     { key: 'maxCycles', state: BreadthState.CHECKPOINT, min: 1, max: 8, fallback: null, describe: 'search→mine→qualify cycles before CAP_REACHED' },
     { key: 'poolCap', state: BreadthState.SEARCH, min: 8, max: 40, fallback: 24, describe: 'web hits kept per search cycle' },

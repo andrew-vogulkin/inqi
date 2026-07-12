@@ -24,11 +24,12 @@ function build({ purpose, candidates = CANDIDATES, existing = [], breadthCap = 8
   const sources = { addWebsearch: jest.fn() };
   const outreach = { releaseWave: jest.fn(), finishOutreach: jest.fn() };
   const wf = { advance: jest.fn() };
+  const tunables = { forReport: jest.fn().mockResolvedValue({}) }; // no genes set → env/constant fallbacks
   const svc = new AssembleFunnelService(
     boss as never, outbox as never, config as never, repo as never,
-    phaseRuns as never, sources as never, outreach as never, wf as never,
+    phaseRuns as never, sources as never, outreach as never, wf as never, tunables as never,
   );
-  return { svc, boss, outbox, repo, sources, outreach, wf };
+  return { svc, boss, outbox, repo, sources, outreach, wf, tunables };
 }
 
 describe('AssembleFunnelService — breadth run → funnel inquiries', () => {

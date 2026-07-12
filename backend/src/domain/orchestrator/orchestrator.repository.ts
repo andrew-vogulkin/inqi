@@ -74,7 +74,9 @@ export class OrchestratorRepository {
   findStaleContactedInquiries({ olderThan, tx }: { olderThan: Date; tx?: DbTx }) {
     return this.exec(tx).inquiry.findMany({
       where: { status: InquiryStatus.Contacted, updatedAt: { lt: olderThan } },
-      select: { id: true, name: true, reportId: true, epicId: true },
+      // updatedAt + the pinned version let the sweep apply each REPORT's own
+      // replyTimeoutMinutes gene (the query cut is only the registry's lower bound).
+      select: { id: true, name: true, reportId: true, epicId: true, updatedAt: true, report: { select: { workflowVersionId: true } } },
     });
   }
 
