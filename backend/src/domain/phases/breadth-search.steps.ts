@@ -10,6 +10,12 @@ import {
 } from '../subject-providers/breadth-lifecycle';
 import { PhaseStepRegistry, StepCtx, StepOutcome } from './phase-step.tokens';
 
+/** Zero-hit search cycles back off and retry (engine-suspension recovery), bounded. */
+const EMPTY_SEARCH_RETRIES = 2;
+const EMPTY_SEARCH_BACKOFF_MS = 75_000;
+/** Backoff slice: each slice heartbeats the shadow-run lease (30s) via ctx.log. */
+const EMPTY_SEARCH_HEARTBEAT_MS = 25_000;
+
 /** run.data carried across the breadth loop (pinned at startRun; patched every step). */
 export interface BreadthRunData {
   purpose: string;            // BreadthPurpose: funnel | widen
@@ -76,10 +82,27 @@ export class BreadthSearchSteps {
     return { event: BreadthEvent.QUERIES_FORMED, dataPatch: { queries } };
   }
 
-  /** C. Merge + dedupe every query's hits into one pool. */
+  /**
+   * C. Merge + dedupe every query's hits into one pool. A COMPLETELY empty pool is
+   * an infrastructure smell, not a verdict — SearXNG's upstream engines suspend for
+   * a minute+ after a burst and every query in that window returns 200-with-empty,
+   * which used to burn the run's relax/dry cycles in seconds. Back off and re-search
+   * (bounded) so an engine suspension doesn't read as "the web has no providers".
+   */
   private async search(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
-    const pool = await searchBreadthPool({ web: this.web, queries: d.queries, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger, cap: d.poolCap });
+    const args = { web: this.web, queries: d.queries, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger, cap: d.poolCap };
+    let pool = await searchBreadthPool(args);
+    for (let retry = 1; !pool.length && retry <= EMPTY_SEARCH_RETRIES; retry += 1) {
+      this.logger.warn(`discovery search returned ZERO hits across ${d.queries.length} queries (engine suspension?) — backing off ${EMPTY_SEARCH_BACKOFF_MS / 1000}s, retry ${retry}/${EMPTY_SEARCH_RETRIES}`);
+      // Sliced wait: each ctx.log heartbeats the shadow-run lease (30s), so one flat
+      // sleep longer than the lease would read as a stuck run to the reaper.
+      for (let waited = 0; waited < EMPTY_SEARCH_BACKOFF_MS; waited += EMPTY_SEARCH_HEARTBEAT_MS) {
+        await ctx.log({ message: `Web search unavailable (0 hits across every query) — waiting to retry (${Math.round((EMPTY_SEARCH_BACKOFF_MS - waited) / 1000)}s left, attempt ${retry}/${EMPTY_SEARCH_RETRIES})` });
+        await new Promise((r) => setTimeout(r, Math.min(EMPTY_SEARCH_HEARTBEAT_MS, EMPTY_SEARCH_BACKOFF_MS - waited)));
+      }
+      pool = await searchBreadthPool(args);
+    }
     return { event: BreadthEvent.POOL_READY, dataPatch: { pool } };
   }
 
