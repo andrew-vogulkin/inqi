@@ -49,10 +49,19 @@ describe('phase graphs — the seeded pre_research / breadth_search / depth_sear
     expect(relaxed?.to).toBe(BreadthState.SEARCH);
     const cont = BREADTH_SEARCH_GRAPH.transitions.find((t) => t.from === BreadthState.CHECKPOINT && t.event === BreadthEvent.CONTINUE);
     expect(cont?.guard).toBe(PhaseGuard.BreadthUnderCycleCap);
-    // Every result terminal hands the candidates to funnel assembly.
-    for (const event of [BreadthEvent.TARGET_MET, BreadthEvent.WENT_DRY, BreadthEvent.CAP_REACHED]) {
+    // Result terminals hand the candidates to funnel assembly — but DRY is not
+    // terminal at CHECKPOINT anymore: every dry verdict funnels through MARKETING
+    // (one category-language pass) and only its exhaustion completes the run.
+    for (const event of [BreadthEvent.TARGET_MET, BreadthEvent.CAP_REACHED]) {
       expect(BREADTH_SEARCH_GRAPH.transitions.find((t) => t.from === BreadthState.CHECKPOINT && t.event === event)?.action).toBe(PhaseAction.BreadthComplete);
     }
+    const dry = BREADTH_SEARCH_GRAPH.transitions.find((t) => t.from === BreadthState.CHECKPOINT && t.event === BreadthEvent.WENT_DRY);
+    expect(dry?.to).toBe(BreadthState.MARKETING);
+    const marketing = BREADTH_SEARCH_GRAPH.transitions.find((t) => t.from === BreadthState.MARKETING && t.event === BreadthEvent.MARKETING_QUERIES);
+    expect(marketing?.to).toBe(BreadthState.SEARCH);
+    const exhausted = BREADTH_SEARCH_GRAPH.transitions.find((t) => t.from === BreadthState.MARKETING && t.event === BreadthEvent.MARKETING_EXHAUSTED);
+    expect(exhausted?.to).toBe(BreadthState.WENT_DRY);
+    expect(exhausted?.action).toBe(PhaseAction.BreadthComplete);
   });
 
   it('depth_search: refine loops GATE → INVESTIGATE; PERSIST maps outcomes to matching terminals', () => {

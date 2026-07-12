@@ -119,14 +119,16 @@ export const BREADTH_SEARCH_GRAPH: PhaseGraph = {
     { from: BreadthState.MINE, event: BreadthEvent.CANDIDATES_MINED, to: BreadthState.QUALIFY, action: PhaseAction.EnqueueStep },
     { from: BreadthState.QUALIFY, event: BreadthEvent.CANDIDATES_QUALIFIED, to: BreadthState.CHECKPOINT, action: PhaseAction.EnqueueStep },
     { from: BreadthState.CHECKPOINT, event: BreadthEvent.TARGET_MET, to: BreadthState.TARGET_MET, action: PhaseAction.BreadthComplete },
-    { from: BreadthState.CHECKPOINT, event: BreadthEvent.WENT_DRY, to: BreadthState.WENT_DRY, action: PhaseAction.BreadthComplete },
+    // Dry is NOT terminal yet: every dry verdict funnels through MARKETING, which
+    // either spends its one category-language pass or exhausts to the real terminal.
+    { from: BreadthState.CHECKPOINT, event: BreadthEvent.WENT_DRY, to: BreadthState.MARKETING, action: PhaseAction.EnqueueStep },
     { from: BreadthState.CHECKPOINT, event: BreadthEvent.CAP_REACHED, to: BreadthState.CAP_REACHED, action: PhaseAction.BreadthComplete },
     { from: BreadthState.CHECKPOINT, event: BreadthEvent.CONTINUE, to: BreadthState.RELAX, guard: PhaseGuard.BreadthUnderCycleCap, action: PhaseAction.EnqueueStep },
     // RELAX loops to SEARCH (not FORM_QUERIES): the relax step itself produces the new queries.
     { from: BreadthState.RELAX, event: BreadthEvent.RELAXED, to: BreadthState.SEARCH, action: PhaseAction.EnqueueStep },
-    // Relaxation exhausted → one MARKETING pass: re-describe the subject in the short
-    // commercial category language businesses use for SEO ("tea cups supplier") and
-    // search once more before conceding dry. Its second visit exhausts to WENT_DRY.
+    // Relaxation exhausted → the same MARKETING pass: re-describe the subject in the
+    // short commercial category language businesses use for SEO ("tea cups supplier")
+    // and search once more before conceding dry. Its second visit exhausts to WENT_DRY.
     { from: BreadthState.RELAX, event: BreadthEvent.RELAX_EXHAUSTED, to: BreadthState.MARKETING, action: PhaseAction.EnqueueStep },
     { from: BreadthState.MARKETING, event: BreadthEvent.MARKETING_QUERIES, to: BreadthState.SEARCH, action: PhaseAction.EnqueueStep },
     { from: BreadthState.MARKETING, event: BreadthEvent.MARKETING_EXHAUSTED, to: BreadthState.WENT_DRY, action: PhaseAction.BreadthComplete },
