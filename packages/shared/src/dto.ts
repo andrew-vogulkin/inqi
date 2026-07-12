@@ -313,6 +313,10 @@ export interface ProvenanceDto {
   depth: ProvenanceDepth;
   /** True while the inquiry's depth research is still queued/running — sections below may still fill in. */
   researchPending?: boolean;
+  /** False when this dossier belongs to a contacted/vetted provider that did NOT qualify (unranked; scoring.rank = 0). */
+  qualified?: boolean;
+  /** The vet verdict's reason when `qualified` is false (customer-safe text from the research verdict). */
+  disqualifyReason?: string | null;
   /** AI transparency summaries — how inqi evaluated this option, per section + an overall ranking rationale. */
   summaries?: ProvenanceSummaries;
   /**

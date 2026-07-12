@@ -82,6 +82,18 @@ export class SnapshotsRepository {
   }
 
   /**
+   * A report's inquiry by provider name — the dossier fallback for a contacted/vetted
+   * provider that never became a ranked option (no Option finding to resolve through).
+   * `result` rides along: it holds the vet verdict's disqualify reason.
+   */
+  findInquiryByName({ reportId, name, tx }: { reportId: string; name: string; tx?: DbTx }) {
+    return this.exec(tx).inquiry.findFirst({
+      where: { reportId, name },
+      select: { id: true, epicId: true, status: true, background: true, qualityScore: true, researchPending: true, contact: true, result: true },
+    });
+  }
+
+  /**
    * The cached AI dossier summary for one option — keyed by inquiry when it has
    * one, else by the option ref stored in the finding data (option without inquiry).
    */

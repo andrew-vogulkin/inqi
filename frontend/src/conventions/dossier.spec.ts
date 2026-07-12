@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ResearchDepth, ResearchMethod, OutreachVariant, DossierOrigin } from './enums';
 import { ProvenanceDepth } from '@inqi/shared';
-import { deriveDepth, deriveMethods, outreachVariant, assembleDossier, depthFromProvenance, groupExchanges, groupByChannel, splitCitations, citedSections } from './dossier';
+import { deriveDepth, deriveMethods, outreachVariant, assembleDossier, applyProvenance, depthFromProvenance, groupExchanges, groupByChannel, splitCitations, citedSections } from './dossier';
 import { ReportOption } from '../api/types';
 import { dossierReducer, initialDossierState } from '../state/dossier.reducer';
 import { ActionType } from '../state/actions';
@@ -139,5 +139,34 @@ describe('splitCitations — overview [1]-[4] section references', () => {
   it('citedSections: distinct sections in first-mention order', () => {
     expect(citedSections('a [3] b [2] c [3] d [4]')).toEqual([3, 2, 4]);
     expect(citedSections('no citations here')).toEqual([]);
+  });
+});
+
+describe('applyProvenance — unqualified (failed-inquiry) dossiers', () => {
+  const provenance = {
+    web: [{ source: 'w', url: 'https://x', snippet: 's' }],
+    feedback: { rating: 0, sentiment: 0, themes: [], quotes: [] },
+    scoring: { feedbackScore: 0, priceScore: 0, blendedScore: 0, rank: 0 },
+    outreach: { persona: 'p', route: 'via inqi', outcome: 'not_contacted' as const, chain: [] },
+    depth: ProvenanceDepth.WebOnly,
+    qualified: false,
+    disqualifyReason: 'no evidence the vendor exists',
+  };
+
+  it('carries qualified=false + the disqualify reason into the VM (rank stays 0)', () => {
+    const vm = applyProvenance({ vm: assembleDossier({ option: { subjectProvider: 'X' }, rank: 0 }), provenance });
+    expect(vm.qualified).toBe(false);
+    expect(vm.disqualifyReason).toBe('no evidence the vendor exists');
+    expect(vm.scoring.rank).toBe(0);
+  });
+
+  it('a qualified provenance leaves the flag truthy and the reason null', () => {
+    const vm = applyProvenance({
+      vm: assembleDossier({ option: { subjectProvider: 'X' }, rank: 1 }),
+      provenance: { ...provenance, qualified: true, disqualifyReason: null, scoring: { ...provenance.scoring, rank: 1 } },
+    });
+    expect(vm.qualified).toBe(true);
+    expect(vm.disqualifyReason).toBeNull();
+    expect(vm.scoring.rank).toBe(1);
   });
 });

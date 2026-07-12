@@ -69,6 +69,8 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
   const pillLabel = streaming ? 'Researching' : badge.label;
   const pillTone = streaming ? StatusTone.Info : badge.tone;
   const dossierFor = (o: RankedOption) => report.reportId ? hrefFor({ route: Route.Dossier, params: { id: report.reportId, ref: optionId(o) } }) : undefined;
+  // Failed inquiries open a dossier too (resolved by provider name) — evaluate-it-yourself.
+  const failedDossierFor = (name: string) => report.reportId ? hrefFor({ route: Route.Dossier, params: { id: report.reportId, ref: name } }) : undefined;
   const countLabel = `${options.length} ${options.length === 1 ? 'option' : 'options'}${streaming ? ' so far' : ''}${lockedCount ? ` · ${lockedCount} locked` : ''}`;
 
   return (
@@ -127,7 +129,7 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
             ? <div style={{ marginTop: 14 }}>{streaming
               ? <EmptyState title="No options yet" hint="inqi is reaching out — qualified providers appear here live." />
               : <EmptyState title="No providers qualified this run" hint="The summary above explains why. Unresponsive providers may still reply — this report updates itself (and emails you) when they do. This run was not charged." />}
-              <FailedInquiries rows={report.failedInquiries ?? []} prominent /></div>
+              <FailedInquiries rows={report.failedInquiries ?? []} prominent dossierFor={failedDossierFor} /></div>
             : (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 2px 12px' }}>
@@ -140,14 +142,14 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
                   {options.map((o, i) => <OptionCard key={optionId(o)} option={o} rank={(o.rank ?? i + 1) - 1} best={lockedCount === 0 && i === 0} dossierHref={dossierFor(o)} />)}
                   {streaming && <StreamingCard />}
                 </div>
-                <FailedInquiries rows={report.failedInquiries ?? []} />
+                <FailedInquiries rows={report.failedInquiries ?? []} dossierFor={failedDossierFor} />
               </>
             )}
         </>
       ) : options.length === 0
         ? (streaming
           ? <EmptyState title="No options yet" hint="inqi is still reaching out — results appear here live." />
-          : <><EmptyState title="No providers qualified this run" hint="The summary above explains why. This run was not charged." /><FailedInquiries rows={report.failedInquiries ?? []} prominent /></>)
+          : <><EmptyState title="No providers qualified this run" hint="The summary above explains why. This run was not charged." /><FailedInquiries rows={report.failedInquiries ?? []} prominent dossierFor={failedDossierFor} /></>)
         : layout === ReportLayout.Split ? <SplitView report={report} options={options} countLabel={countLabel} streaming={streaming} />
           : <TableView options={options} streaming={streaming} />}
     </div>
@@ -155,26 +157,42 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
 }
 
 /**
- * Providers we contacted/vetted that did NOT make the list — an empty report shows
- * what was tried instead of a bare empty state; a full report keeps it as a quiet
- * footnote. Names only (customer-safe); status distinguishes vetted-out vs silent.
+ * Providers we contacted/vetted that did NOT make the list — rendered in the SAME
+ * card shape as the ranked options (unranked, muted, dashed border) so the customer
+ * reads them as options needing their own follow-up, not as fine print. Names only
+ * (customer-safe); status distinguishes vetted-out vs still-silent.
  */
-function FailedInquiries({ rows, prominent = false }: { rows: { name: string; status: string }[]; prominent?: boolean }) {
+function FailedInquiries({ rows, prominent = false, dossierFor }: { rows: { name: string; status: string }[]; prominent?: boolean; dossierFor?: (name: string) => string | undefined }) {
   if (!rows.length) return null;
   return (
-    <div data-testid="failed-inquiries" style={{ marginTop: 16, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: '14px 16px', opacity: prominent ? 1 : 0.85 }}>
-      <div style={{ fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: color.muted, marginBottom: 8 }}>
+    <div data-testid="failed-inquiries" style={{ marginTop: prominent ? 16 : 11, display: 'flex', flexDirection: 'column', gap: 11 }}>
+      <div style={{ fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: color.muted, margin: '0 2px' }}>
         {prominent ? `We reached ${rows.length} provider${rows.length === 1 ? '' : 's'} — none qualified` : 'Contacted, didn\u2019t make the list'}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {rows.map((r) => (
-          <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: fontSize.sm }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', flex: 'none', background: color.lineStrong }} />
-            <span style={{ color: color.inkSoft, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-            <span style={{ fontSize: fontSize.xs, color: color.subtle }}>{r.status === 'unresponsive' ? 'no reply yet' : 'didn\u2019t qualify'}</span>
-          </div>
-        ))}
+      {rows.map((r) => <FailedOptionCard key={r.name} row={r} dossierHref={dossierFor?.(r.name)} />)}
+    </div>
+  );
+}
+
+/** The OptionCard's muted sibling: unranked marker, name, the follow-up note, and its own dossier link. */
+function FailedOptionCard({ row, dossierHref }: { row: { name: string; status: string }; dossierHref?: string }) {
+  return (
+    <div data-testid="failed-option-row" style={{ background: color.surface, border: `1px dashed ${color.lineStrong}`, borderRadius: radius.lg, padding: '18px 20px', opacity: 0.8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ width: 30, height: 30, borderRadius: radius.md, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.md, fontWeight: fontWeight.semibold, fontFamily: font.mono, background: color.surfaceSunken, color: color.subtle }}>{'\u2013'}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: fontSize.h3, fontWeight: fontWeight.semibold, letterSpacing: '-.01em', color: color.inkSoft, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</div>
+        </div>
+        <span style={{ ...META_CHIP, flex: 'none' }}>
+          {row.status === 'unresponsive' ? 'no reply yet \u2014 requires manual research' : 'didn\u2019t qualify \u2014 requires manual research'}
+        </span>
       </div>
+      {dossierHref && (
+        <a href={dossierHref} style={{ display: 'flex', alignItems: 'center', marginTop: 14, paddingTop: 13, borderTop: `1px solid ${color.surfaceSunken}`, textDecoration: 'none' }}>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: color.brand }}>Evaluate this option {'→'}</span>
+        </a>
+      )}
     </div>
   );
 }

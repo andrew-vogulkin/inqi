@@ -58,4 +58,6 @@ export class OptionProvenanceDto {
   @ApiProperty({ enum: Object.values(ProvenanceDepth), example: ProvenanceDepth.WebOutreachFeedback }) depth!: ProvenanceDepth;
   @ApiPropertyOptional({ example: false, description: 'True while the inquiry’s depth research is still queued/running — sections may still fill in' }) researchPending?: boolean;
   @ApiPropertyOptional({ type: ProvenanceSummariesDto }) summaries?: ProvenanceSummariesDto;
+  @ApiPropertyOptional({ example: false, description: 'False when this provider was contacted/vetted but did NOT qualify (unranked; scoring.rank = 0)' }) qualified?: boolean;
+  @ApiPropertyOptional({ example: 'no evidence the vendor exists in the requested location', nullable: true, description: 'The vet verdict’s reason when qualified=false' }) disqualifyReason?: string | null;
 }

@@ -58,6 +58,10 @@ export interface DossierVM {
   summaries?: ProvenanceSummaries; // HP-20: AI transparency summaries per section (customer provenance only)
   /** Carry-it-forward links: the provider's site/socials + vendor email (real-mail mode). */
   reference?: ProvenanceReference;
+  /** False = contacted/vetted but did NOT qualify (unranked; rank is 0). Undefined reads as qualified. */
+  qualified?: boolean;
+  /** The vet verdict's reason when `qualified` is false. */
+  disqualifyReason?: string | null;
 }
 
 // ---- pure derivations (unit-tested) ---------------------------------------
@@ -188,6 +192,8 @@ export function applyProvenance({ vm, provenance }: { vm: DossierVM; provenance:
     scoring: { feedbackScore: provenance.scoring.feedbackScore, priceScore: provenance.scoring.priceScore, blendedScore: provenance.scoring.blendedScore, rank: provenance.scoring.rank },
     summaries: provenance.summaries,
     reference: provenance.reference,
+    qualified: provenance.qualified,
+    disqualifyReason: provenance.disqualifyReason ?? null,
   };
 }
 
