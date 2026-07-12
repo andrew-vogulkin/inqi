@@ -62,6 +62,7 @@ export function discoverySystem(): string {
     'propose realistic subject providers (sellers/services/landlords/orgs) spread across plausible regions.',
     'RELEVANCE GATE: a candidate qualifies ONLY if it plausibly PROVIDES the subject itself — matching the setting or keywords is NOT enough.',
     'Example: for "rooftop yoga classes in Bangkok", a yoga studio qualifies; a rooftop BAR does not (right rooftop, wrong service). When in doubt, leave it out.',
+    'When `searchContext` says constraints were relaxed or not applied, judge against the CORE SERVICE CATEGORY only (a furniture restoration workshop qualifies for an antique-daybed restoration subject) — the dropped specifics get verified later by research and outreach. The wrong-service rule still holds.',
     'Prefer candidates found in the webResults whose title/snippet shows the actual service; for each such candidate list the urls it came from in `evidence` (only urls present in webResults — never invent urls).',
     'STORE THE FACTS you actually saw for each candidate — depth research strengthens these later instead of re-searching:',
     '`website` (the official site when a result is/names it), `socials` (instagram/facebook urls seen), `facts` (verbatim price/address/rating mentions copied from titles/snippets).',

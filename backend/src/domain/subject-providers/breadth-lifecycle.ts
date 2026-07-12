@@ -82,7 +82,10 @@ export async function mineCandidates({ ai, subject, count, exclude, pool, matchN
 }): Promise<DiscoveredProvider[]> {
   const result = await ai.structured({
     system: discoverySystem(),
-    user: buildDiscoveryUser({ subject, count, exclude, webResults: pool }),
+    // matchNote doubles as the round's search context: relax/marketing rounds widened
+    // the queries, so the relevance gate must judge the service CATEGORY, not the
+    // full constraint set (which those rounds deliberately dropped).
+    user: buildDiscoveryUser({ subject, count, exclude, webResults: pool, searchContext: matchNote }),
     tier: ModelTier.Breadth,
     validate: (raw) => discoverySchema.parse(raw),
   });

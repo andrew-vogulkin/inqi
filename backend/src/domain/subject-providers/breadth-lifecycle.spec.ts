@@ -118,3 +118,19 @@ describe('marketingBreadthQueries — the last search pass in commercial categor
     expect(out).toBeNull();
   });
 });
+
+describe('mineCandidates — relax/marketing rounds widen the relevance gate', () => {
+  it('passes the round matchNote to the miner as searchContext', async () => {
+    const ai = aiReturning({ candidates: [] });
+    await mineCandidates({ ai: ai as never, subject: SUBJECT, count: 5, exclude: [], pool: POOL, matchNote: 'found via category-level marketing search', logger });
+    const call = (ai.structured as jest.Mock).mock.calls[0][0];
+    expect(JSON.parse(call.user).searchContext).toBe('found via category-level marketing search');
+  });
+
+  it('an exact round (no matchNote) sends no searchContext', async () => {
+    const ai = aiReturning({ candidates: [] });
+    await mineCandidates({ ai: ai as never, subject: SUBJECT, count: 5, exclude: [], pool: POOL, matchNote: null, logger });
+    const call = (ai.structured as jest.Mock).mock.calls[0][0];
+    expect(JSON.parse(call.user).searchContext).toBeUndefined();
+  });
+});

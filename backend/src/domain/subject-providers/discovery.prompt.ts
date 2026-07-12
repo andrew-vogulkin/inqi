@@ -48,13 +48,16 @@ export const discoveryMarketingSchema = z.object({
 // System prompt text lives centrally (inspectable + dynamic-ready); re-exported here.
 export { discoverySystem, discoveryQueriesSystem, discoveryFilterSystem, discoveryFallbackQueriesSystem, discoveryMarketingQueriesSystem } from '../../infra/ai/prompts';
 
-export const buildDiscoveryUser = ({ subject, count, exclude, webResults }: {
+export const buildDiscoveryUser = ({ subject, count, exclude, webResults, searchContext }: {
   subject: unknown; count: number; exclude: string[]; webResults?: Pick<WebResult, 'title' | 'url' | 'content'>[];
+  /** How this round searched (relaxed constraint / marketing-language pass) — widens the relevance gate to the service category. */
+  searchContext?: string | null;
 }): string =>
   JSON.stringify({
     subject,
     count,
     exclude,
+    ...(searchContext ? { searchContext } : {}),
     // Breadth search context: real web hits the model should mine for candidates (cite their urls as evidence).
     ...(webResults?.length ? { webResults } : {}),
   });
