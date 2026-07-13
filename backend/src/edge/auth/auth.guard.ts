@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
-import { UnauthorizedError } from '../../common/errors';
+import { ErrorCode, ForbiddenError, UnauthorizedError } from '../../common/errors';
+import { CustomerService } from '../../domain/customer/customer.service';
 import { AuthUser } from './auth.tokens';
 import { SessionService } from './session.service';
 
@@ -16,15 +17,23 @@ export function authenticate({ req, session }: { req: Request; session: SessionS
 /**
  * Real auth (HP-10): verifies the signed session and attaches `req.user`. Applied
  * to private endpoints; capability-token + public surfaces stay open.
+ *
+ * HP-25: also rejects a **suspended** account on every request (immediate lockout —
+ * a token minted before suspension stops working now, not at its 8h TTL). Admins are
+ * never suspendable, so this check only ever gates customer surfaces.
  * (The `canActivate(context)` signature is mandated by Nest's CanActivate contract.)
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private readonly session: SessionService) {}
+  constructor(private readonly session: SessionService, private readonly customers: CustomerService) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
-    (req as Request & { user: AuthUser }).user = authenticate({ req, session: this.session });
+    const user = authenticate({ req, session: this.session });
+    if (await this.customers.isSuspended({ id: user.sub })) {
+      throw new ForbiddenError({ code: ErrorCode.AccountSuspended, message: 'this account is suspended' });
+    }
+    (req as Request & { user: AuthUser }).user = user;
     return true;
   }
 }

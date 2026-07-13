@@ -23,6 +23,7 @@ import { AdminBoard } from './screens/AdminBoard';
 import { AdminReportFrame } from './screens/AdminReportFrame';
 import { RunControlsPanel } from './screens/RunControls';
 import { CreditTopup } from './screens/CreditTopup';
+import { AdminUsers } from './screens/AdminUsers';
 import { InquiryView } from './screens/InquiryView';
 import { CostReport } from './screens/CostReport';
 import { AuditTrail } from './screens/AuditTrail';
@@ -110,6 +111,7 @@ function content(match: RouteMatch): ReactNode {
     case Route.AdminRun: return <AdminReportFrame title="Run controls" basePath="/admin/run">{({ board }) => <RunControlsPanel board={board} />}</AdminReportFrame>;
     case Route.AdminCostOverview: return <AdminReportFrame title="Cost per report" basePath="/admin/cost">{({ reportId }) => <CostReport reportId={reportId} />}</AdminReportFrame>;
     case Route.AdminCredits: return <CreditTopup />;
+    case Route.AdminUsers: return <AdminUsers />;
     case Route.AdminAudit: return <AuditTrail />;
     case Route.AdminWorkflows: return <WorkflowVersions />;
     case Route.AdminReport: return <AdminBoard reportId={match.params.id} />;

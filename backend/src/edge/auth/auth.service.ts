@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AuthRole } from '@inqi/shared';
 import { PrismaService } from '../../infra/persistence/prisma.service';
 import { ConfigService } from '../../infra/config/config.service';
-import { ErrorCode, UnauthorizedError } from '../../common/errors';
+import { ErrorCode, ForbiddenError, UnauthorizedError } from '../../common/errors';
 import { CustomerService } from '../../domain/customer/customer.service';
 import { ReportService } from '../../domain/report/report.service';
 import { MAIL_PROVIDER, MailProvider } from '../../domain/source/mail.provider';
@@ -82,6 +82,10 @@ export class AuthService {
       return { customer, count };
     });
     if (count) this.logger.log(`linked ${count} prior report(ies) to ${customer.email}`);
+    // HP-25: a suspended account verifies its code but is refused a session.
+    if (customer.suspendedAt) {
+      throw new ForbiddenError({ code: ErrorCode.AccountSuspended, message: 'this account is suspended' });
+    }
     // The DB row is authoritative for role (admins are set manually).
     const role = customer.role as AuthRole;
     const token = this.session.sign({ sub: customer.id, email: customer.email, role });
@@ -98,6 +102,10 @@ export class AuthService {
     const customer = await this.customers.findById({ id: user.sub });
     if (!customer) {
       throw new UnauthorizedError({ code: ErrorCode.AuthInvalidToken, message: 'account no longer exists' });
+    }
+    // HP-25: refuse to prolong a suspended session.
+    if (customer.suspendedAt) {
+      throw new ForbiddenError({ code: ErrorCode.AccountSuspended, message: 'this account is suspended' });
     }
     const role = customer.role as AuthRole;
     const token = this.session.sign({ sub: customer.id, email: customer.email, role });

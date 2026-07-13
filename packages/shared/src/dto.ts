@@ -1,5 +1,5 @@
 import type { OutreachStrategy } from './workflow.js';
-import type { AuthRole, MessageDirection, MessageStatus, SearchFocus, SourceType } from './enums.js';
+import type { AccountStatus, AuthRole, MessageDirection, MessageStatus, SearchFocus, SourceType } from './enums.js';
 
 export interface CreateReportDto {
   /**
@@ -61,6 +61,31 @@ export interface ReportDto {
 export interface ReportSearchResultDto {
   rows: ReportDto[];
   /** Pass back as `cursor` to fetch the next (older) page; null = no more rows. */
+  nextCursor: string | null;
+}
+
+/** One account in the admin user directory (HP-25). Status is derived from suspension. */
+export interface UserRowDto {
+  id: string;
+  email: string;
+  name: string | null;
+  role: AuthRole;
+  /** Account registration date (createdAt), ISO-8601. */
+  registeredAt: string;
+  status: AccountStatus;
+  /** When the account was suspended, ISO-8601; null = active. */
+  suspendedAt: string | null;
+  credits: number;
+  /** Reports owned by this account (by FK or verified email). */
+  reportCount: number;
+}
+
+/**
+ * One page of the admin user directory (GET /admin/users) — **alphabetical by
+ * email**. `nextCursor` is the last row's email; null = no more rows.
+ */
+export interface UserSearchResultDto {
+  rows: UserRowDto[];
   nextCursor: string | null;
 }
 

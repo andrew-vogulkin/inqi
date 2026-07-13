@@ -106,15 +106,15 @@ async function installVersion({ key, version, status, states, transitions }: { k
 // (free-first, locked) report so FE-07 unlock and FE-08 provenance are exercisable.
 // ---------------------------------------------------------------------------
 
-async function upsertCustomer({ email, name, role, credits, freeReportUsed }: { email: string; name: string; role: string; credits: number; freeReportUsed: boolean }) {
+async function upsertCustomer({ email, name, role, credits, freeReportUsed, suspendedAt }: { email: string; name: string; role: string; credits: number; freeReportUsed: boolean; suspendedAt?: Date }) {
   return db.customer.upsert({
     where: { email },
-    update: { name, role, credits, freeReportUsed },
-    create: { email, name, role, credits, freeReportUsed },
+    update: { name, role, credits, freeReportUsed, suspendedAt: suspendedAt ?? null },
+    create: { email, name, role, credits, freeReportUsed, suspendedAt: suspendedAt ?? null },
   });
 }
 
-/** A directory of customers so HP-22 `GET /admin/customers?q=` returns real matches. */
+/** A directory of customers so HP-22 `GET /admin/customers?q=` + HP-25 `GET /admin/users` return real matches. */
 async function seedCustomers() {
   await upsertCustomer({ email: 'ops@inqi.example', name: 'Operator Ada', role: AuthRole.Admin, credits: 0, freeReportUsed: true });
   const customers = await Promise.all([
@@ -122,6 +122,7 @@ async function seedCustomers() {
     upsertCustomer({ email: 'omar.haddad@example.com', name: 'Omar Haddad', role: AuthRole.Customer, credits: 0, freeReportUsed: false }), // still owed a free report
     upsertCustomer({ email: 'mei.tan@example.com', name: 'Mei Tan', role: AuthRole.Customer, credits: 5, freeReportUsed: true }),
     upsertCustomer({ email: 'lukas.berg@example.com', name: 'Lukas Berg', role: AuthRole.Customer, credits: 1, freeReportUsed: true }), // 1 credit → can unlock a freemium report
+    upsertCustomer({ email: 'raj.patel@example.com', name: 'Raj Patel', role: AuthRole.Customer, credits: 0, freeReportUsed: true, suspendedAt: new Date('2026-07-05T10:00:00Z') }), // HP-25: suspended fixture
   ]);
   console.log(`Seeded ${customers.length + 1} customers (1 admin) for the directory/search`);
   return customers;

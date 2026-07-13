@@ -36,6 +36,11 @@ export const Paths = {
   // admin report search (the operator report picker) — `q`/`limit`/`cursor` are querystring params
   adminReports: () => '/admin/reports',
 
+  // admin user directory (HP-25) — `q`/`status`/`limit`/`cursor` are querystring params
+  adminUsers: () => '/admin/users',
+  adminUserSuspend: (id: string) => `/admin/users/${id}/suspend`,
+  adminUserReactivate: (id: string) => `/admin/users/${id}/reactivate`,
+
   // HP-21: freemium snapshot unlock (owner; charges 1 credit)
   snapshotUnlock: (id: string) => `/snapshots/${id}/unlock`,
 
