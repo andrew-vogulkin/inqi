@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { EventType, NotificationKind, QueueJob } from '@inqi/shared';
+import { EventType, NotificationKind, QueueJob, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ConfigService } from '../../infra/config/config.service';
+import { UsageService } from '../../infra/usage/usage.service';
 import { NotificationRepository } from './notification.repository';
 import { NOTIFICATION_CHANNEL, NotificationChannel } from './notification.tokens';
 import { TemplateContext, TemplateOption, isReminderDue, renderNotification } from './notification.templates';
@@ -28,6 +29,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     private readonly outbox: OutboxService,
     private readonly config: ConfigService,
     @Inject(NOTIFICATION_CHANNEL) private readonly channel: NotificationChannel,
+    private readonly usage: UsageService,
   ) {}
 
   async onModuleInit() {
@@ -50,6 +52,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     if (!ctx) return; // e.g. needs-you with no questionnaire — nothing sensible to send
     const { subject, body } = renderNotification({ kind, ctx });
     await this.channel.send({ to: inq.customerEmail, subject, body });
+    void this.usage.recordAction({ reportId, kind: UsageKind.EmailSent }); // cost accounting (HP-15): notification mail = one send
     await this.outbox.emit({ type: EventType.NotificationSent, reportId, data: { kind, to: inq.customerEmail } });
     this.logger.log(`notification ${kind} sent to ${inq.customerEmail}`);
   }
@@ -78,6 +81,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
       `View: ${this.reportUrl(reportId)}`,
     ].join('\n');
     for (const to of admins) await this.channel.send({ to, subject, body });
+    void this.usage.recordAction({ reportId, kind: UsageKind.EmailSent, quantity: admins.length }); // cost accounting (HP-15)
     this.logger.log(`freemium-report admin alert for ${ref} sent to ${admins.length} admin(s)`);
   }
 
@@ -137,6 +141,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
         if ((await this.repo.claimReminder({ id: q.id })) !== 1) continue; // someone else claimed it
         const { subject, body } = renderNotification({ kind: NotificationKind.QuestionnaireReminder, ctx: { questionnaireUrl: this.questionnaireUrl(q.token), expiresAt: q.expiresAt } });
         await this.channel.send({ to: email, subject, body });
+        void this.usage.recordAction({ reportId: q.reportId, kind: UsageKind.EmailSent }); // cost accounting (HP-15)
         await this.outbox.emit({ type: EventType.NotificationSent, reportId: q.reportId, data: { kind: NotificationKind.QuestionnaireReminder, to: email } });
         this.logger.log(`questionnaire reminder sent to ${email}`);
       }

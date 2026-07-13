@@ -182,6 +182,7 @@ export const UsageKind = {
   ReplyProcessed: 'reply_processed',
   DiscoveryCall: 'discovery_call',
   BackgroundResearch: 'background_research',
+  WebSearch: 'web_search',
 } as const;
 export type UsageKind = (typeof UsageKind)[keyof typeof UsageKind];
 

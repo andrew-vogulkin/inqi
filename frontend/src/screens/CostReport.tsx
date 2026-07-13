@@ -82,6 +82,12 @@ export function CostReport({ reportId }: { reportId: string }) {
                 <Td right><MonoRef muted>{r.action === view.outreach[0].action ? formatUsd({ amount: view.outreachUsd, currency: view.currency }) : ''}</MonoRef></Td>
               </tr>
             ))}
+            <tr style={{ borderTop: `1px solid ${color.line}` }} data-testid="cost-websearch">
+              <Td>Web searches · {view.webSearch.provider}</Td>
+              <Td right><MonoRef muted>—</MonoRef></Td>
+              <Td right><MonoRef>{formatInt({ value: view.webSearch.calls })}</MonoRef></Td>
+              <Td right><MonoRef muted>{formatUsd({ amount: view.webSearch.estUsd, currency: view.currency })}</MonoRef></Td>
+            </tr>
             <tr style={{ borderTop: `2px solid ${color.lineStrong}` }}>
               <Td><b>Grand total</b></Td><Td /><Td />
               <Td right><MonoRef><b data-testid="cost-grandtotal">{formatUsd({ amount: view.totalUsd, currency: view.currency })}</b></MonoRef></Td>

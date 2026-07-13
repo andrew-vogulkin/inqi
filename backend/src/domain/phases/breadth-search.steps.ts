@@ -6,9 +6,15 @@ import { UsageService } from '../../infra/usage/usage.service';
 import { DiscoveredProvider } from '../subject-providers/discovery.tokens';
 import {
   BreadthPoolHit, BreadthSubject, decideBreadthCheckpoint, fallbackCandidates, formBreadthQueries,
-  mineCandidates, naiveBreadthQuery, qualifyCandidates, relaxBreadthQueries, searchBreadthPool,
+  marketingBreadthQueries, mineCandidates, naiveBreadthQuery, qualifyCandidates, relaxBreadthQueries, searchBreadthPool,
 } from '../subject-providers/breadth-lifecycle';
 import { PhaseStepRegistry, StepCtx, StepOutcome } from './phase-step.tokens';
+
+/** Zero-hit search cycles back off and retry (engine-suspension recovery), bounded. */
+const EMPTY_SEARCH_RETRIES = 2;
+const EMPTY_SEARCH_BACKOFF_MS = 75_000;
+/** Backoff slice: each slice heartbeats the shadow-run lease (30s) via ctx.log. */
+const EMPTY_SEARCH_HEARTBEAT_MS = 25_000;
 
 /** run.data carried across the breadth loop (pinned at startRun; patched every step). */
 export interface BreadthRunData {
@@ -27,6 +33,7 @@ export interface BreadthRunData {
   gainedThisCycle: number;
   dryRounds: number;
   matchNote: string | null;   // set by relax rounds — their finds only partially match
+  marketingDone?: boolean;    // the MARKETING pass runs once per run; its second visit exhausts
   notes: string[];
   // Stage-1 tunables (docs/research-phase-evolution.md) — pinned by the engine when
   // the active definition's state configs set them; absent = today's constants.
@@ -57,6 +64,7 @@ export class BreadthSearchSteps {
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.QUALIFY, handler: { execute: (ctx) => this.qualify(ctx) } });
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.CHECKPOINT, handler: { execute: (ctx) => this.checkpoint(ctx) } });
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.RELAX, handler: { execute: (ctx) => this.relax(ctx) } });
+    registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.MARKETING, handler: { execute: (ctx) => this.marketing(ctx) } });
   }
 
   private data(ctx: StepCtx): BreadthRunData {
@@ -76,10 +84,27 @@ export class BreadthSearchSteps {
     return { event: BreadthEvent.QUERIES_FORMED, dataPatch: { queries } };
   }
 
-  /** C. Merge + dedupe every query's hits into one pool. */
+  /**
+   * C. Merge + dedupe every query's hits into one pool. A COMPLETELY empty pool is
+   * an infrastructure smell, not a verdict — SearXNG's upstream engines suspend for
+   * a minute+ after a burst and every query in that window returns 200-with-empty,
+   * which used to burn the run's relax/dry cycles in seconds. Back off and re-search
+   * (bounded) so an engine suspension doesn't read as "the web has no providers".
+   */
   private async search(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
-    const pool = await searchBreadthPool({ web: this.web, queries: d.queries, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger, cap: d.poolCap });
+    const args = { web: this.web, queries: d.queries, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger, cap: d.poolCap };
+    let pool = await searchBreadthPool(args);
+    for (let retry = 1; !pool.length && retry <= EMPTY_SEARCH_RETRIES; retry += 1) {
+      this.logger.warn(`discovery search returned ZERO hits across ${d.queries.length} queries (engine suspension?) — backing off ${EMPTY_SEARCH_BACKOFF_MS / 1000}s, retry ${retry}/${EMPTY_SEARCH_RETRIES}`);
+      // Sliced wait: each ctx.log heartbeats the shadow-run lease (30s), so one flat
+      // sleep longer than the lease would read as a stuck run to the reaper.
+      for (let waited = 0; waited < EMPTY_SEARCH_BACKOFF_MS; waited += EMPTY_SEARCH_HEARTBEAT_MS) {
+        await ctx.log({ message: `Web search unavailable (0 hits across every query) — waiting to retry (${Math.round((EMPTY_SEARCH_BACKOFF_MS - waited) / 1000)}s left, attempt ${retry}/${EMPTY_SEARCH_RETRIES})` });
+        await new Promise((r) => setTimeout(r, Math.min(EMPTY_SEARCH_HEARTBEAT_MS, EMPTY_SEARCH_BACKOFF_MS - waited)));
+      }
+      pool = await searchBreadthPool(args);
+    }
     return { event: BreadthEvent.POOL_READY, dataPatch: { pool } };
   }
 
@@ -153,6 +178,36 @@ export class BreadthSearchSteps {
       dataPatch: {
         queries: relaxed.queries,
         matchNote: `found without "${relaxed.relaxed}" — confirm via research/outreach`,
+        notes: [...d.notes, note],
+      },
+    };
+  }
+
+  /**
+   * G. The marketing pass — the last rung of the fallback ladder (exact → relaxed →
+   * category language). Re-describes the subject as the short commercial phrases
+   * businesses use for SEO ("tea cups supplier Bangkok") and searches once more;
+   * runs once per run — its second visit (or a failed formation) exhausts to dry.
+   */
+  private async marketing(ctx: StepCtx): Promise<StepOutcome> {
+    const d = this.data(ctx);
+    if (d.marketingDone) {
+      const note = `marketing-language pass already spent — stopping at ${d.candidates.length}/${d.count}`;
+      await ctx.log({ message: `Discovery: ${note}` });
+      return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { notes: [...d.notes, note] } };
+    }
+    const queries = await marketingBreadthQueries({ ai: this.ai, subject: d.subject, priorQueries: d.queries, logger: this.logger });
+    if (!queries) {
+      return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { marketingDone: true, notes: [...d.notes, `marketing query formation failed — stopping at ${d.candidates.length}/${d.count}`] } };
+    }
+    const note = `constraints exhausted — re-searching in marketing language: ${queries.map((q) => `"${q}"`).join(', ')}`;
+    await ctx.log({ message: `Discovery: ${note}` });
+    return {
+      event: BreadthEvent.MARKETING_QUERIES,
+      dataPatch: {
+        marketingDone: true,
+        queries,
+        matchNote: 'found via category-level marketing search — the request’s specific constraints were NOT applied; confirm every one via research/outreach',
         notes: [...d.notes, note],
       },
     };

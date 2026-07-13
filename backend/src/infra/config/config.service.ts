@@ -31,6 +31,8 @@ export interface PriceTable {
   perDiscoveryCall: number;
   perBackgroundResearch: number;
   perReplyProcessed: number;
+  /** Per web-search call (each query the pipeline fires at the search provider). */
+  perWebSearch: number;
 }
 
 /** Defaults — overridable wholesale via `PRICE_TABLE_JSON`. qwen_local (`qwen`) is free. */
@@ -43,11 +45,12 @@ const DEFAULT_PRICE_TABLE: PriceTable = {
     'qwen-max': { promptPer1k: 0.0024, completionPer1k: 0.0096 },
     'text-embedding-v3': { promptPer1k: 0.00007, completionPer1k: 0 },
   },
-  perEmail: 0,             // local capture; set for a real ESP
+  perEmail: 0.0015,        // Postmark cheapest plan ($15 / 10k emails) = $1.50 per 1k
   perEmbedding: 0,
   perDiscoveryCall: 0,
   perBackgroundResearch: 0,
   perReplyProcessed: 0,
+  perWebSearch: 0.0005,    // self-hosted SearXNG amortized at $0.50 per 1k searches
 };
 
 /**
@@ -304,7 +307,12 @@ export class ConfigService {
   get prices(): PriceTable {
     const raw = process.env.PRICE_TABLE_JSON;
     if (raw) {
-      try { return JSON.parse(raw) as PriceTable; } catch { /* fall through to defaults */ }
+      // Merge over the defaults so an env table written before a price field existed
+      // (e.g. perWebSearch) never yields undefined → NaN in the cost rollup.
+      try {
+        const parsed = JSON.parse(raw) as Partial<PriceTable>;
+        return { ...DEFAULT_PRICE_TABLE, ...parsed, models: { ...DEFAULT_PRICE_TABLE.models, ...(parsed.models ?? {}) } };
+      } catch { /* fall through to defaults */ }
     }
     return DEFAULT_PRICE_TABLE;
   }

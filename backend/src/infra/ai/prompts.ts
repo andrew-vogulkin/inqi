@@ -62,6 +62,7 @@ export function discoverySystem(): string {
     'propose realistic subject providers (sellers/services/landlords/orgs) spread across plausible regions.',
     'RELEVANCE GATE: a candidate qualifies ONLY if it plausibly PROVIDES the subject itself — matching the setting or keywords is NOT enough.',
     'Example: for "rooftop yoga classes in Bangkok", a yoga studio qualifies; a rooftop BAR does not (right rooftop, wrong service). When in doubt, leave it out.',
+    'When `searchContext` says constraints were relaxed or not applied, judge against the CORE SERVICE CATEGORY only (a furniture restoration workshop qualifies for an antique-daybed restoration subject) — the dropped specifics get verified later by research and outreach. The wrong-service rule still holds.',
     'Prefer candidates found in the webResults whose title/snippet shows the actual service; for each such candidate list the urls it came from in `evidence` (only urls present in webResults — never invent urls).',
     'STORE THE FACTS you actually saw for each candidate — depth research strengthens these later instead of re-searching:',
     '`website` (the official site when a result is/names it), `socials` (instagram/facebook urls seen), `facts` (verbatim price/address/rating mentions copied from titles/snippets).',
@@ -92,6 +93,17 @@ export function discoveryFallbackQueriesSystem(): string {
     'Example: "rooftop yoga studio Bangkok" → drop "rooftop" → "yoga studio Bangkok" (the relaxed dimension gets confirmed later via research/outreach).',
     'Rules: relax exactly ONE constraint per round; NEVER drop the service itself or the location; do not repeat the prior queries.',
     'Respond as strict JSON: { "relaxed": string (the one constraint you dropped, e.g. "rooftop"), "queries": string[] }.',
+  ].join(' ');
+}
+
+/** Discovery last resort — re-describe the subject in the commercial category language businesses use for SEO. */
+export function discoveryMarketingQueriesSystem(): string {
+  return [
+    "[stage:discovery] Constraint relaxation is exhausted — this is the LAST search pass before the run concedes.",
+    "Forget the request's specifics. Re-describe the subject the way a BUSINESS in that trade markets itself online — the short commercial category phrases its homepage and SEO would use.",
+    'Examples: "supplier of 5000 biodegradable bubble tea cups, Bangkok" → "tea cups supplier Bangkok", "food packaging supplier Thailand"; "restore an antique teak daybed, Chiang Mai" → "antique restoration workshop Chiang Mai", "furniture restoration Chiang Mai"; "repair a vintage 1970s Omega Seamaster, Bangkok" → "watch repair Bangkok", "vintage watch service Bangkok".',
+    'Rules: 3-6 queries of 2-4 words plus the location; category language ONLY (drop quantities, materials, model names, eras, urgency); keep the SERVICE as the head of every query; include ONE query without the location for national/online suppliers.',
+    'Respond as strict JSON: { "queries": string[] }.',
   ].join(' ');
 }
 

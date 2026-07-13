@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { UsageKind } from '@inqi/shared';
 import { ConfigService } from '../config/config.service';
+import { UsageService } from '../usage/usage.service';
+import { UsageContextService } from '../usage/usage-context.service';
 import { ErrorCode, UpstreamError } from '../../common/errors';
 import { WebSearchProvider } from './websearch.tokens';
 import {
@@ -9,6 +12,9 @@ import {
 } from './websearch.tools';
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The provider label stamped on web-search usage rows (the cost view shows it). */
+export const WEB_SEARCH_PROVIDER_LABEL = 'searxng';
 
 /** Subset of a SearXNG `format=json` response we read. */
 interface SearxResponse {
@@ -35,7 +41,12 @@ export class SearxngWebSearchProvider implements WebSearchProvider {
   private readonly waiters: Array<() => void> = [];
   private lastStart = 0;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    // Optional so unit tests can construct the provider bare; recording is best-effort.
+    @Optional() private readonly usage?: UsageService,
+    @Optional() private readonly usageCtx?: UsageContextService,
+  ) {}
 
   /** The tool definitions to advertise to the model (drop into an OpenAI `tools` array). */
   get tools() {
@@ -69,6 +80,9 @@ export class SearxngWebSearchProvider implements WebSearchProvider {
 
   /** General/map/social-media web search → normalized hits (capped at maxResults). */
   async webSearch(args: WebSearchArgs): Promise<WebResult[]> {
+    // Cost accounting (HP-15): one row per logical search, attributed to the report
+    // via the async-local usage context (same mechanism as AI token attribution).
+    void this.usage?.recordAction({ reportId: this.usageCtx?.reportId(), kind: UsageKind.WebSearch, model: WEB_SEARCH_PROVIDER_LABEL });
     const params = {
       q: args.query,
       categories: args.category, // URLSearchParams encodes the space in "social media"

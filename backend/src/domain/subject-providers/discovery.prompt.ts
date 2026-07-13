@@ -40,16 +40,24 @@ export const discoveryFallbackSchema = z.object({
   queries: z.array(z.string().min(3)).min(3).max(12),
 });
 
-// System prompt text lives centrally (inspectable + dynamic-ready); re-exported here.
-export { discoverySystem, discoveryQueriesSystem, discoveryFilterSystem, discoveryFallbackQueriesSystem } from '../../infra/ai/prompts';
+/** Marketing-round output — short commercial category queries (the last search pass). */
+export const discoveryMarketingSchema = z.object({
+  queries: z.array(z.string().min(3)).min(2).max(8),
+});
 
-export const buildDiscoveryUser = ({ subject, count, exclude, webResults }: {
+// System prompt text lives centrally (inspectable + dynamic-ready); re-exported here.
+export { discoverySystem, discoveryQueriesSystem, discoveryFilterSystem, discoveryFallbackQueriesSystem, discoveryMarketingQueriesSystem } from '../../infra/ai/prompts';
+
+export const buildDiscoveryUser = ({ subject, count, exclude, webResults, searchContext }: {
   subject: unknown; count: number; exclude: string[]; webResults?: Pick<WebResult, 'title' | 'url' | 'content'>[];
+  /** How this round searched (relaxed constraint / marketing-language pass) — widens the relevance gate to the service category. */
+  searchContext?: string | null;
 }): string =>
   JSON.stringify({
     subject,
     count,
     exclude,
+    ...(searchContext ? { searchContext } : {}),
     // Breadth search context: real web hits the model should mine for candidates (cite their urls as evidence).
     ...(webResults?.length ? { webResults } : {}),
   });
@@ -59,6 +67,10 @@ export const buildDiscoveryQueriesUser = ({ subject }: { subject: unknown }): st
 export const buildDiscoveryFallbackUser = ({ subject, priorQueries, qualifiedCount, needed }: {
   subject: unknown; priorQueries: string[]; qualifiedCount: number; needed: number;
 }): string => JSON.stringify({ subject, priorQueries, conversion: `${qualifiedCount} of ${needed} qualified` });
+
+export const buildDiscoveryMarketingUser = ({ subject, priorQueries }: {
+  subject: unknown; priorQueries: string[];
+}): string => JSON.stringify({ subject, priorQueries });
 
 export const buildDiscoveryFilterUser = ({ subject, candidates }: {
   subject: unknown;

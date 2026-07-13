@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { WebSearchDriver } from '@inqi/shared';
 import { ConfigService } from '../config/config.service';
+import { UsageService } from '../usage/usage.service';
+import { UsageContextService } from '../usage/usage-context.service';
 import { WEB_SEARCH, WebSearchProvider } from './websearch.tokens';
 import { SearxngWebSearchProvider } from './searxng.provider';
 
@@ -15,16 +17,16 @@ import { SearxngWebSearchProvider } from './searxng.provider';
   providers: [
     {
       provide: WEB_SEARCH,
-      useFactory: (config: ConfigService): WebSearchProvider => {
+      useFactory: (config: ConfigService, usage: UsageService, usageCtx: UsageContextService): WebSearchProvider => {
         switch (config.webSearchDriver) {
           case WebSearchDriver.Searxng:
-            return new SearxngWebSearchProvider(config);
+            return new SearxngWebSearchProvider(config, usage, usageCtx);
           // case WebSearchDriver.Cloud: return new CloudWebSearchProvider(config); // future hosted search API
           default:
             throw new Error(`unsupported WEBSEARCH_DRIVER: ${config.webSearchDriver}`);
         }
       },
-      inject: [ConfigService],
+      inject: [ConfigService, UsageService, UsageContextService],
     },
   ],
   exports: [WEB_SEARCH],
