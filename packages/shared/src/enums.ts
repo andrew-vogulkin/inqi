@@ -215,6 +215,8 @@ export const AuditAction = {
   PublishWorkflow: 'publish_workflow',
   Topup: 'topup', // admin manual credit top-up (HP-19)
   UnlockReport: 'unlock_report', // freemium snapshot unlock charge (HP-21)
+  SuspendUser: 'suspend_user', // admin suspended a customer account (HP-25)
+  ReactivateUser: 'reactivate_user', // admin lifted a suspension (HP-25)
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 
@@ -247,6 +249,17 @@ export const AuthRole = {
   Admin: 'admin',
 } as const;
 export type AuthRole = (typeof AuthRole)[keyof typeof AuthRole];
+
+/**
+ * Account lifecycle status (HP-25) — derived from `Customer.suspendedAt`:
+ * `null` → active; a timestamp → suspended (an admin locked the account out).
+ * A suspended account is refused a session and rejected mid-flight by the guards.
+ */
+export const AccountStatus = {
+  Active: 'active',
+  Suspended: 'suspended',
+} as const;
+export type AccountStatus = (typeof AccountStatus)[keyof typeof AccountStatus];
 
 /**
  * Customer's ranking priority for a report (`Report.focus`) — steers what depth

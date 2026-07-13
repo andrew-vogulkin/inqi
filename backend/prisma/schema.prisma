@@ -130,6 +130,12 @@ model Customer {
   freeReportUsed Boolean @default(false) // HP-21: the one free (freemium) report has been granted
   createdAt DateTime @default(now())
 
+  // HP-25: account suspension. null = active; a timestamp = suspended (admin locked out).
+  // A suspended account is refused a new session and rejected mid-flight by AuthGuard.
+  suspendedAt     DateTime?
+  suspendedReason String?   // optional operator note captured at suspend time
+  suspendedById   String?   // Customer.id of the admin who suspended (attribution)
+
   reports Report[]
   ledger  CreditLedger[]
 }

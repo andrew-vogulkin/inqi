@@ -19,8 +19,14 @@ export function ReportPicker({ activeId, onPick, onDefault }: {
   /** Fired once after the initial page loads: the most recent report, or null when there are none. */
   onDefault?: (report: ReportDto | null) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  // A `?q=` in the hash (e.g. the user directory's "View this user's reports →")
+  // pre-seeds and opens the picker filtered to that email.
+  const seededQuery = useRef<string>((() => {
+    const qp = window.location.hash.split('?')[1];
+    return qp ? new URLSearchParams(qp).get('q') ?? '' : '';
+  })());
+  const [open, setOpen] = useState(!!seededQuery.current);
+  const [query, setQuery] = useState(seededQuery.current);
   const [rows, setRows] = useState<ReportDto[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

@@ -21,6 +21,7 @@ export const Route = {
   AdminRun: '/admin/run',                 // FE-12 run controls (top-level; auto-selects a report)
   AdminCostOverview: '/admin/cost',       // FE-13 cost (top-level; auto-selects a report)
   AdminCredits: '/admin/topup',           // FE-16 operator credit top-up
+  AdminUsers: '/admin/users',             // FE-18 user directory + suspension (HP-25)
   AdminAudit: '/admin/audit',
   AdminWorkflows: '/admin/workflows',
   AdminReport: '/admin/r/:id',
@@ -54,6 +55,7 @@ export const ROUTE_META: Record<Route, RouteMeta> = {
   [Route.AdminRun]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },            // FE-12 run controls (top-level)
   [Route.AdminCostOverview]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },   // FE-13 cost (top-level)
   [Route.AdminCredits]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },        // FE-16 credit top-up
+  [Route.AdminUsers]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },          // FE-18 user directory (HP-25)
   [Route.AdminAudit]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },          // FE-14 audit trail
   [Route.AdminWorkflows]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },      // FE-15 workflow versions
   [Route.AdminReport]: { layout: LayoutMode.Admin, requiresAuth: true, adminOnly: true },

@@ -16,6 +16,7 @@ export const ErrorCode = {
   AuthTokenExpired: 'AUTH_TOKEN_EXPIRED',
   AuthInvalidToken: 'AUTH_INVALID_TOKEN',
   AuthInvalidCode: 'AUTH_INVALID_CODE', // two-step email sign-in: the MFA code did not match
+  AccountSuspended: 'ACCOUNT_SUSPENDED', // HP-25: the account is suspended (sign-in refused / session rejected)
 
   // domain
   ReportNotFound: 'REPORT_NOT_FOUND',

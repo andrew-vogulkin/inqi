@@ -1,10 +1,11 @@
-import { Paths, SearchFocus } from '@inqi/shared';
+import { Paths, SearchFocus, AccountStatus } from '@inqi/shared';
 import { request, HttpMethod } from './client';
 import {
   SessionDto, ReportDto, LiveReportDto, ReportSnapshotDto, CreditsDto,
   QuestionnaireDto, CostSummaryDto, WorkflowVersionDto, ReportBoardDto, ThreadMessageDto,
   AuditResultDto, WorkflowInspectDto, VersionDiffResultDto, PublishResultDto,
   CustomerDirectoryDto, ProvenanceDto, UnlockResultDto, ReportSearchResultDto,
+  UserRowDto, UserSearchResultDto,
 } from './types';
 
 /** Auth — two-step email sign-in: request a code, then verify it (mock transport: 123456). */
@@ -63,6 +64,13 @@ export const adminApi = {
   // Operator report picker: newest-first, cursor-paginated; q matches ref / email / request text.
   searchReports: ({ q, cursor, limit }: { q?: string; cursor?: string; limit?: number } = {}) =>
     request<ReportSearchResultDto>({ method: HttpMethod.Get, path: Paths.adminReports(), query: { q: q || undefined, cursor, limit } }),
+  // HP-25: admin user directory — alphabetical by email, cursor-paginated; q matches email/name.
+  searchUsers: ({ q, status, cursor, limit }: { q?: string; status?: AccountStatus; cursor?: string; limit?: number } = {}) =>
+    request<UserSearchResultDto>({ method: HttpMethod.Get, path: Paths.adminUsers(), query: { q: q || undefined, status, cursor, limit } }),
+  suspendUser: ({ id, reason }: { id: string; reason?: string }) =>
+    request<UserRowDto>({ method: HttpMethod.Post, path: Paths.adminUserSuspend(id), body: { reason } }),
+  reactivateUser: ({ id }: { id: string }) =>
+    request<UserRowDto>({ method: HttpMethod.Post, path: Paths.adminUserReactivate(id) }),
   cost: ({ reportId }: { reportId: string }) => request<CostSummaryDto>({ method: HttpMethod.Get, path: Paths.reportCost(reportId) }),
   // FE-14 audit trail. `types` is a comma list of AuditEntryType buckets; omitted = All.
   audit: ({ reportId, types }: { reportId?: string; types?: string } = {}) =>

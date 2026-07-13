@@ -8,6 +8,8 @@ export type {
   SessionDto,
   ReportDto,
   ReportSearchResultDto,
+  UserRowDto,
+  UserSearchResultDto,
   ReportOption,
   LiveReportDto,
   ReportSnapshotDto,
