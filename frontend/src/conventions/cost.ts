@@ -5,6 +5,15 @@ import { CostSummaryDto } from '../api/types';
  * grand total must reconcile: Σ perModel.estUsd + outreach.estUsd === grandTotalUsd.
  */
 
+/** Friendly labels for the web-search per-phase breakdown (keyed by WebSearchSource). */
+export const WEB_SEARCH_SOURCE_LABEL: Record<string, string> = {
+  subject_build: 'Subject build',
+  breadth_search: 'Breadth search',
+  depth_search: 'Depth search',
+  resource_get: 'Resource get',
+  other: 'Other',
+};
+
 /** The three summary tiles. */
 export const CostMetric = {
   Total: 'total',
@@ -52,8 +61,9 @@ export interface CostView {
   perModel: PerModelRow[];
   outreach: OutreachRow[];
   outreachUsd: number;
-  /** Every web search fired for the report, with the serving provider (searxng / a hosted API). */
-  webSearch: { calls: number; provider: string; estUsd: number };
+  /** Every web search fired for the report, with the serving provider (searxng / a hosted API)
+   *  and a per-phase breakdown (subject build / breadth / depth / resource get). */
+  webSearch: { calls: number; provider: string; estUsd: number; bySource: { source: string; calls: number }[] };
   sumUsd: number;       // Σ perModel.estUsd + outreach.estUsd + webSearch.estUsd
   reconciles: boolean;  // |sumUsd − totalUsd| < epsilon
 }
@@ -63,8 +73,10 @@ const EPSILON = 1e-6;
 /** Derive tiles + line items from the cost DTO, with the reconciliation check. */
 export function deriveCostView({ cost }: { cost: CostSummaryDto }): CostView {
   const perModelUsd = cost.perModel.reduce((acc, m) => acc + m.estUsd, 0);
-  // Back-compat: a cached/old payload without webSearch reads as zero calls.
-  const webSearch = cost.webSearch ?? { calls: 0, provider: 'searxng', estUsd: 0 };
+  // Back-compat: a cached/old payload without webSearch (or without the per-source
+  // breakdown) still renders — missing pieces read as empty/zero.
+  const rawWs = cost.webSearch ?? { calls: 0, provider: 'searxng', estUsd: 0, bySource: [] };
+  const webSearch = { ...rawWs, bySource: rawWs.bySource ?? [] };
   const sumUsd = perModelUsd + cost.outreach.estUsd + webSearch.estUsd;
   const outreach = OUTREACH_ACTIONS.map((action) => ({ action, count: cost.outreach[action] }));
   const outreachActions = outreach.reduce((acc, r) => acc + r.count, 0);

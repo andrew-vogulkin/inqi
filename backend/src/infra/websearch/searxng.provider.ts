@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { UsageKind } from '@inqi/shared';
+import { UsageKind, WebSearchSource } from '@inqi/shared';
 import { ConfigService } from '../config/config.service';
 import { UsageService } from '../usage/usage.service';
 import { UsageContextService } from '../usage/usage-context.service';
@@ -15,6 +15,16 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 /** The provider label stamped on web-search usage rows (the cost view shows it). */
 export const WEB_SEARCH_PROVIDER_LABEL = 'searxng';
+
+/** Map the async-local usage stage → the cost-breakdown source bucket (HP-15). */
+function sourceForStage(stage?: string): WebSearchSource {
+  switch (stage) {
+    case WebSearchSource.SubjectBuild: return WebSearchSource.SubjectBuild;   // 'subject_build'
+    case WebSearchSource.BreadthSearch: return WebSearchSource.BreadthSearch; // 'breadth_search'
+    case WebSearchSource.DepthSearch: return WebSearchSource.DepthSearch;     // 'depth_search'
+    default: return WebSearchSource.Other; // pre_research / reactor / unset
+  }
+}
 
 /** Subset of a SearXNG `format=json` response we read. */
 interface SearxResponse {
@@ -64,7 +74,9 @@ export class SearxngWebSearchProvider implements WebSearchProvider {
       const raw = this.parseArgs(args);
       switch (name as WebSearchToolName) {
         case 'web_search':
-          return JSON.stringify(await this.webSearch(webSearchArgsSchema.parse(raw)));
+          // Agent-initiated tool call → attributed to `resource_get` (on-demand
+          // resource retrieval), distinct from the pipeline's lifecycle searches.
+          return JSON.stringify(await this.webSearch(webSearchArgsSchema.parse(raw), { source: WebSearchSource.ResourceGet }));
         case 'translate':
           return await this.translate(translateArgsSchema.parse(raw));
         case 'currency_convert':
@@ -79,10 +91,12 @@ export class SearxngWebSearchProvider implements WebSearchProvider {
   }
 
   /** General/map/social-media web search → normalized hits (capped at maxResults). */
-  async webSearch(args: WebSearchArgs): Promise<WebResult[]> {
+  async webSearch(args: WebSearchArgs, opts?: { source?: WebSearchSource }): Promise<WebResult[]> {
     // Cost accounting (HP-15): one row per logical search, attributed to the report
-    // via the async-local usage context (same mechanism as AI token attribution).
-    void this.usage?.recordAction({ reportId: this.usageCtx?.reportId(), kind: UsageKind.WebSearch, model: WEB_SEARCH_PROVIDER_LABEL });
+    // via the async-local usage context. `source` = the caller's explicit bucket
+    // (the agent tool), else derived from the current phase stage.
+    const source = opts?.source ?? sourceForStage(this.usageCtx?.current()?.stage);
+    void this.usage?.recordAction({ reportId: this.usageCtx?.reportId(), kind: UsageKind.WebSearch, model: WEB_SEARCH_PROVIDER_LABEL, source });
     const params = {
       q: args.query,
       categories: args.category, // URLSearchParams encodes the space in "social media"

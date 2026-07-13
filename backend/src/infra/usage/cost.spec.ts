@@ -1,4 +1,4 @@
-import { UsageKind } from '@inqi/shared';
+import { UsageKind, WebSearchSource } from '@inqi/shared';
 import type { PriceTable } from '../config/config.service';
 import { rollupCost, UsageRow } from './cost';
 
@@ -48,21 +48,41 @@ describe('rollupCost', () => {
 });
 
 describe('rollupCost — web searches (HP-15 extension)', () => {
-  const search = (q = 1, model = 'searxng'): UsageRow => ({ kind: UsageKind.WebSearch, model, promptTokens: 0, completionTokens: 0, totalTokens: 0, quantity: q });
+  const search = (q = 1, model = 'searxng', source?: string): UsageRow => ({ kind: UsageKind.WebSearch, model, source, promptTokens: 0, completionTokens: 0, totalTokens: 0, quantity: q });
 
   it('counts calls, carries the provider label, and prices per call into the grand total', () => {
     const s = rollupCost({ usageRecords: [search(), search(), search(3)], priceTable: prices });
-    expect(s.webSearch).toEqual({ calls: 5, provider: 'searxng', estUsd: 0.0025 });
+    // No source on these rows → they aggregate under `other`.
+    expect(s.webSearch).toEqual({ calls: 5, provider: 'searxng', estUsd: 0.0025, bySource: [{ source: WebSearchSource.Other, calls: 5 }] });
     expect(s.grandTotalUsd).toBeCloseTo(0.0025, 6);
   });
 
-  it('no searches → zero row with the default provider label', () => {
+  it('no searches → zero row with the default provider label and empty breakdown', () => {
     const s = rollupCost({ usageRecords: [], priceTable: prices });
-    expect(s.webSearch).toEqual({ calls: 0, provider: 'searxng', estUsd: 0 });
+    expect(s.webSearch).toEqual({ calls: 0, provider: 'searxng', estUsd: 0, bySource: [] });
   });
 
   it('mixed providers join their labels', () => {
     const s = rollupCost({ usageRecords: [search(1, 'searxng'), search(1, 'brave')], priceTable: prices });
     expect(s.webSearch.provider).toBe('searxng, brave');
+  });
+
+  it('breaks the count down by phase source, in stable phase order', () => {
+    const s = rollupCost({
+      usageRecords: [
+        search(2, 'searxng', WebSearchSource.DepthSearch),
+        search(3, 'searxng', WebSearchSource.BreadthSearch),
+        search(1, 'searxng', WebSearchSource.ResourceGet),
+        search(1, 'searxng', WebSearchSource.BreadthSearch),
+      ],
+      priceTable: prices,
+    });
+    expect(s.webSearch.calls).toBe(7);
+    // Emitted subject_build → breadth → depth → resource_get → other.
+    expect(s.webSearch.bySource).toEqual([
+      { source: WebSearchSource.BreadthSearch, calls: 4 },
+      { source: WebSearchSource.DepthSearch, calls: 2 },
+      { source: WebSearchSource.ResourceGet, calls: 1 },
+    ]);
   });
 });

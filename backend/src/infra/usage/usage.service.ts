@@ -29,11 +29,12 @@ export class UsageService {
     }
   }
 
-  /** Record a counted outreach/agent action (email_sent, reply_processed, discovery_call, background_research). */
-  async recordAction({ reportId, kind, quantity = 1, model }: { reportId?: string; kind: UsageKind; quantity?: number; model?: string }): Promise<void> {
+  /** Record a counted outreach/agent action (email_sent, reply_processed, discovery_call, background_research, web_search).
+   *  `source` attributes a web_search to the pipeline phase that fired it (HP-15 breakdown). */
+  async recordAction({ reportId, kind, quantity = 1, model, source }: { reportId?: string; kind: UsageKind; quantity?: number; model?: string; source?: string }): Promise<void> {
     if (!reportId) return;
     try {
-      await this.db.usageRecord.create({ data: { reportId, kind, quantity, ...(model ? { model } : {}) } });
+      await this.db.usageRecord.create({ data: { reportId, kind, quantity, ...(model ? { model } : {}), ...(source ? { source } : {}) } });
     } catch (e) {
       this.logger.warn(`usage record (${kind}) failed: ${(e as Error).message}`);
     }

@@ -1,5 +1,5 @@
 import type { OutreachStrategy } from './workflow.js';
-import type { AccountStatus, AuthRole, MessageDirection, MessageStatus, SearchFocus, SourceType } from './enums.js';
+import type { AccountStatus, AuthRole, MessageDirection, MessageStatus, SearchFocus, SourceType, WebSearchSource } from './enums.js';
 
 export interface CreateReportDto {
   /**
@@ -179,10 +179,17 @@ export interface CostSummaryDto {
   currency: string;
   perModel: { model: string; promptTokens: number; completionTokens: number; estUsd: number }[];
   outreach: { emails: number; replies: number; discovery: number; research: number; embeddings: number; estUsd: number };
-  /** Every web search the pipeline fired for this report, with the serving provider. */
-  webSearch: { calls: number; provider: string; estUsd: number };
+  /** Every web search the pipeline fired for this report, with the serving provider
+   *  and a per-phase breakdown (subject build / breadth / depth / resource get). */
+  webSearch: { calls: number; provider: string; estUsd: number; bySource: WebSearchSourceCount[] };
   tokenTotal: number;
   grandTotalUsd: number;
+}
+
+/** Web-search calls attributed to one pipeline phase (HP-15 cost breakdown). */
+export interface WebSearchSourceCount {
+  source: WebSearchSource;
+  calls: number;
 }
 
 /** One channel source record under an inquiry (Source rows). */

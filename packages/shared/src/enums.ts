@@ -251,6 +251,21 @@ export const AuthRole = {
 export type AuthRole = (typeof AuthRole)[keyof typeof AuthRole];
 
 /**
+ * Which pipeline phase fired a web search (HP-15 cost breakdown). Mirrors the
+ * async-local usage `stage`; `resource_get` is the agent's on-demand `web_search`
+ * tool (distinct from the pipeline's own lifecycle searches). `other` catches
+ * anything unattributed (pre-source-tracking rows, reactor, pre_research).
+ */
+export const WebSearchSource = {
+  SubjectBuild: 'subject_build',
+  BreadthSearch: 'breadth_search',
+  DepthSearch: 'depth_search',
+  ResourceGet: 'resource_get',
+  Other: 'other',
+} as const;
+export type WebSearchSource = (typeof WebSearchSource)[keyof typeof WebSearchSource];
+
+/**
  * Account lifecycle status (HP-25) — derived from `Customer.suspendedAt`:
  * `null` → active; a timestamp → suspended (an admin locked the account out).
  * A suspended account is refused a session and rejected mid-flight by the guards.
