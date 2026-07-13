@@ -13,6 +13,7 @@ import { ReportContextService } from '../report/report-context.service';
 import { getPersona } from './personas';
 import { AgentRepository } from './agent.repository';
 import { IntakeService, IntakeAck } from './intake.service';
+import { QuestionnaireService } from '../questionnaire/questionnaire.service';
 import { ReplyDecision, ReplyIntent } from './agent.types';
 import { replyEvaluateSystem, replyEvaluateSchema, replyAnswerSystem, replyAnswerSchema, replyDraftCheckSystem, replyDraftCheckSchema } from './reply.prompt';
 
@@ -51,6 +52,7 @@ export class AgentService implements OnModuleInit {
     private readonly reportContext: ReportContextService,
     private readonly usage: UsageService,
     private readonly intake: IntakeService,
+    private readonly questionnaire: QuestionnaireService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
   ) {}
 
@@ -67,6 +69,10 @@ export class AgentService implements OnModuleInit {
     if (this.intake.isIntakeAddress(email.toAddr)) {
       return this.intake.createReportFromEmail({ fromAddr: email.fromAddr, subject: email.subject, body: email.body });
     }
+    // HP-27: a reply to a questionnaire reply address settles the questionnaire
+    // (email-origin scope confirmation) — not a vendor thread reply.
+    const qr = await this.questionnaire.handleEmailReply({ toAddr: email.toAddr, body: email.body });
+    if (qr.handled) return { intake: true, reportId: qr.reportId ?? '', ref: null };
     const r = await this.outreach.ingestInbound(email);
     if (r.duplicate) return r;
     if (r.blocked) {

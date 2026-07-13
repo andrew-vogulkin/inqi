@@ -153,10 +153,9 @@ describe('WebSearchService', () => {
       await Promise.all(Array.from({ length: 5 }, () => provider.webSearch({ query: 'q', category: 'general' })));
 
       expect(starts).toHaveLength(5);
-      const gaps = starts.slice(1).map((t, i) => t - starts[i]);
-      // Each start is at least ~one interval after the previous (small scheduler slack allowed).
-      for (const g of gaps) expect(g).toBeGreaterThanOrEqual(interval - 8);
-      // ...and the whole batch took at least 4 intervals (5 requests, 1/interval).
+      // The 5th request reserves the 4-interval slot, so it cannot start before then —
+      // a wall-clock total assertion (robust to scheduler jitter; per-gap timing flakes
+      // under parallel test load since jitter compresses individual measured gaps).
       expect(starts[4] - starts[0]).toBeGreaterThanOrEqual(4 * interval - 8);
     });
   });

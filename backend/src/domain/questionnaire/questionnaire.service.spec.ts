@@ -13,7 +13,7 @@ function svcWith({ review }: { review: { status: ReviewStatus; score?: number; c
   };
   const wf = { advance: jest.fn().mockResolvedValue(undefined) };
   const compliance = { score: jest.fn().mockResolvedValue({ score: 0, categories: [], reason: '', ...review }) };
-  const svc = new QuestionnaireService(questionnaires as never, wf as never, {} as never, compliance as never);
+  const svc = new QuestionnaireService(questionnaires as never, wf as never, {} as never /* config */, {} as never /* generator */, { recordAction: jest.fn() } as never /* usage */, compliance as never, { send: jest.fn() } as never /* mail */);
   return { svc, questionnaires, wf, compliance };
 }
 

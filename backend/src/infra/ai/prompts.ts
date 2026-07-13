@@ -148,6 +148,21 @@ export function questionnaireAutofillSystem(): string {
 }
 
 /**
+ * HP-27: parse a customer's free-text EMAIL reply to the scope questionnaire into
+ * the structured answer map. The customer replied in prose, not a form — map what
+ * they said onto the given options, and read whether they confirmed the scope.
+ */
+export function questionnaireReplyParseSystem(): string {
+  return [
+    '[stage:questionnaire-reply] The customer replied to a scope questionnaire by EMAIL, in free text. Map their reply onto the structured questions.',
+    'You get the questions (each with its allowed options + whether multiple may be chosen) and the raw email reply.',
+    'Respond with STRICT JSON only: { "answers": { "<question_id>": "<chosen option, or comma-joined options for multi>" }, "confirmedSubject": boolean }.',
+    'For each question choose the option(s) best matching what the customer wrote; if they did not address it, use "Decide for me" (always an allowed option). Never invent options outside the given list.',
+    '"confirmedSubject" is true unless the customer clearly objected to the scope / asked to change the request — a plain answer or "yes/go ahead" means confirmed.',
+  ].join('\n');
+}
+
+/**
  * The customer's ranking priority, phrased for the depth prompts. Price → hunt the
  * publicly announced price; quality → evaluate presence + number of mentions/reviews.
  */

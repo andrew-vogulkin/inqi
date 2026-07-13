@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { EventType, NotificationKind, QueueJob, UsageKind } from '@inqi/shared';
+import { EventType, NotificationKind, QueueJob, ReportOrigin, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ConfigService } from '../../infra/config/config.service';
@@ -93,12 +93,15 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
 
   /** Per-kind template context; null → skip the send (nothing sensible to say). */
   private async buildContext({ kind, reportId, inq }: {
-    kind: NotificationKind; reportId: string; inq: { denyReason: string | null; rawRequest: string };
+    kind: NotificationKind; reportId: string; inq: { denyReason: string | null; rawRequest: string; origin: string };
   }): Promise<TemplateContext | null> {
     switch (kind) {
       case NotificationKind.ReportReceived:
         return { reportUrl: this.reportUrl(reportId), request: inq.rawRequest };
       case NotificationKind.QuestionnaireRequest: {
+        // HP-27: an email-originated report gets the questions AS AN EMAIL (with a
+        // reply address) from the send step — not this web-link notification.
+        if (inq.origin === ReportOrigin.Email) return null;
         const q = await this.repo.findQuestionnaireByReport({ reportId });
         if (!q || q.confirmed) return null; // no questionnaire (denied earlier) or already confirmed — don't nag
         return { questionnaireUrl: this.questionnaireUrl(q.token), expiresAt: q.expiresAt };

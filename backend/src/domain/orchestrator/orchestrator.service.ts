@@ -154,10 +154,13 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
           await this.wf.advance({ reportId, event: WorkflowEvent.QUESTIONNAIRE_FILLED });
           return;
         }
-        // Otherwise the questionnaire waits on the customer. The email itself is sent
-        // by the `needs-you` lifecycle handler; this stage records the link.
+        // Otherwise the questionnaire waits on the customer. Dispatch it on the right
+        // channel: an email-originated report gets the questions BY EMAIL (reply-to a
+        // per-questionnaire address); a web report relies on the `needs-you` link email
+        // that already fired. This stage also records the web link on the timeline.
+        await this.questionnaire.dispatch({ reportId });
         const link = await this.questionnaire.linkForReport({ reportId });
-        await log({ message: 'Questionnaire link emailed to customer (needs-you lifecycle)', data: { link } });
+        await log({ message: 'Questionnaire dispatched to customer (email reply-loop or web link)', data: { link } });
       },
     });
   }

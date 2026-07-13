@@ -24,6 +24,16 @@ export class QuestionnaireRepository {
     return this.exec(tx).questionnaire.findUnique({ where: { reportId } });
   }
 
+  /** HP-27: resolve the questionnaire that owns a per-questionnaire inbound reply address. */
+  findByReplyAddress({ replyAddress, tx }: { replyAddress: string; tx?: DbTx }) {
+    return this.exec(tx).questionnaire.findUnique({ where: { replyAddress } });
+  }
+
+  /** HP-27: the fields the send step needs to decide how to reach the customer. */
+  reportDispatch({ reportId, tx }: { reportId: string; tx?: DbTx }) {
+    return this.exec(tx).report.findUnique({ where: { id: reportId }, select: { origin: true, customerEmail: true } });
+  }
+
   /** HP-24: the owner-identifying fields of the report this questionnaire belongs to. */
   reportOwner({ reportId, tx }: { reportId: string; tx?: DbTx }) {
     return this.exec(tx).report.findUnique({ where: { id: reportId }, select: { customerId: true, customerEmail: true } });
