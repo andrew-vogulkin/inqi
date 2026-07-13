@@ -71,7 +71,7 @@ export class AgentService implements OnModuleInit {
     }
     // HP-27: a reply to a questionnaire reply address settles the questionnaire
     // (email-origin scope confirmation) — not a vendor thread reply.
-    const qr = await this.questionnaire.handleEmailReply({ toAddr: email.toAddr, body: email.body });
+    const qr = await this.questionnaire.handleEmailReply({ toAddr: email.toAddr, fromAddr: email.fromAddr, body: email.body });
     if (qr.handled) return { intake: true, reportId: qr.reportId ?? '', ref: null };
     const r = await this.outreach.ingestInbound(email);
     if (r.duplicate) return r;

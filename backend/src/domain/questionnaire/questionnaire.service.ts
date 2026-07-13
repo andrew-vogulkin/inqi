@@ -168,15 +168,29 @@ export class QuestionnaireService {
    * text into answers and settle the questionnaire. Idempotent (already-confirmed →
    * no-op). Returns whether this inbound was a questionnaire reply (so the caller
    * doesn't also run the vendor reply loop).
+   *
+   * Authorization is TWO factors: (1) the unguessable reply address, and (2) the
+   * sender must be the report owner. A reply from any other address is recognized
+   * (so it isn't misrouted to the vendor loop) but is IGNORED — a leaked/forwarded
+   * reply address alone must not let a third party answer someone's questionnaire.
    */
-  async handleEmailReply({ toAddr, body }: { toAddr: string; body: string }): Promise<{ handled: boolean; reportId?: string }> {
+  async handleEmailReply({ toAddr, fromAddr, body }: { toAddr: string; fromAddr?: string; body: string }): Promise<{ handled: boolean; reportId?: string; authorized?: boolean }> {
     const q = await this.questionnaires.findByReplyAddress({ replyAddress: (toAddr ?? '').trim().toLowerCase() });
     if (!q) return { handled: false };
-    if (q.confirmed) return { handled: true, reportId: q.reportId }; // already filled — idempotent
+    if (q.confirmed) return { handled: true, reportId: q.reportId, authorized: true }; // already filled — idempotent
+
+    const owner = await this.questionnaires.reportDispatch({ reportId: q.reportId });
+    const ownerEmail = (owner?.customerEmail ?? '').trim().toLowerCase();
+    const from = (fromAddr ?? '').trim().toLowerCase();
+    if (!from || from !== ownerEmail) {
+      this.logger.warn(`unauthorized questionnaire reply to ${toAddr} from "${fromAddr ?? ''}" (owner ${ownerEmail}) — ignored`);
+      return { handled: true, reportId: q.reportId, authorized: false }; // recognized, but NOT the owner → no answers applied
+    }
+
     const questions = (q.questions as unknown as QuestionnaireQuestion[]) ?? [];
     const { answers, confirmedSubject } = await this.generator.parseReply({ questions, replyBody: body });
     await this.submitFromEmail({ reportId: q.reportId, answers, confirmedSubject });
-    return { handled: true, reportId: q.reportId };
+    return { handled: true, reportId: q.reportId, authorized: true };
   }
 
   /** System submit (no ownership check — the secret reply address IS the authorization). */
