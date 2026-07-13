@@ -1,0 +1,30 @@
+# Dedicated dev SearXNG — an isolated engine pool for the dev env, so dev searches
+# don't contend with the shared home-lab `orange` instance (which local + employees
+# also hit). Internal-only: reachable at http://searxng:8080 on the compose network;
+# the inqi backend is the only caller. Inherits the image defaults, overriding only
+# what we need.
+use_default_settings: true
+
+general:
+  instance_name: "inqi-dev-search"
+  # No public UI stats/metrics on an internal instance.
+  enable_metrics: false
+
+server:
+  # CSRF/token signing key (not a data credential; this instance is internal-only).
+  secret_key: "d5ca377701e1580bc4eaac1a6cd275c614f199585aed95154da091a79f3134ac"
+  # No bot/rate limiter → no Redis/Valkey dependency. Safe because the only client
+  # is our backend on the private compose network.
+  limiter: false
+  image_proxy: false
+
+search:
+  # Enable the JSON API the backend uses (default settings ship HTML only).
+  formats:
+    - html
+    - json
+  safe_search: 0
+  autocomplete: ""
+
+# Keep the image's default engine set; a fresh instance on the dev host's egress IP
+# gets its own rate-limit budget with the public engines.
