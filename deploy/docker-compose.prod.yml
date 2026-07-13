@@ -48,6 +48,17 @@ services:
       - "orange.tail035fe2.ts.net:100.94.153.122"
     # No published port — Caddy proxies to backend:4000 on the compose network.
 
+  # Dedicated dev SearXNG (isolated engine pool — see deploy/searxng/settings.yml).
+  # Internal-only; the backend reaches it at http://searxng:8080 on the compose
+  # network via WEBSEARCH_BASE_URL. Splits dev's engine rate-limit budget from the
+  # shared home-lab `orange` instance.
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    # No published port — only the backend calls it, on the compose network.
+
   frontend:
     image: ${INQI_FRONTEND_IMAGE:?set INQI_FRONTEND_IMAGE in .env}
     restart: unless-stopped
