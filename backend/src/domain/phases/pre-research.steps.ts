@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ComplianceKind, ModelTier, PhaseKey, PreResearchEvent, PreResearchState, ReviewStatus } from '@inqi/shared';
 import { PrismaService } from '../../infra/persistence/prisma.service';
+import { ConfigService } from '../../infra/config/config.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { ComplianceBlockedError } from '../../common/errors';
 import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
@@ -39,6 +40,7 @@ export class PreResearchSteps {
   constructor(
     registry: PhaseStepRegistry,
     private readonly db: PrismaService,
+    private readonly config: ConfigService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     @Inject(COMPLIANCE_SCORER) private readonly compliance: ComplianceScorer,
     private readonly subjects: SubjectsService,
@@ -140,9 +142,10 @@ export class PreResearchSteps {
 
   /** Compliance-gate + create the questionnaire — a block denies the report through the DENIED terminal. */
   private async questionnaireGate({ run, report, log }: StepCtx): Promise<StepOutcome> {
-    const { questions } = (run.data ?? {}) as PreResearchRunData;
+    const { questions, enriched } = (run.data ?? {}) as PreResearchRunData;
+    const qs = questions ?? [];
     try {
-      await this.questionnaire.createForReport({ reportId: report.id, questions: questions ?? [] });
+      await this.questionnaire.createForReport({ reportId: report.id, questions: qs });
     } catch (e) {
       if (e instanceof ComplianceBlockedError) {
         await this.setDenyReason({ reportId: report.id, denyReason: `questionnaire_compliance: ${String(e.details.reason ?? '')}` });
@@ -150,6 +153,20 @@ export class PreResearchSteps {
         return { event: PreResearchEvent.QUESTIONNAIRE_BLOCKED };
       }
       throw e;
+    }
+    // Autopilot (HP-26): try to answer it ourselves. If the model can infer every
+    // decisive dimension, we confirm the questionnaire here and the report runs
+    // straight through (the send step skips the email + advances). Only when the
+    // model flags a decisive question it can't infer do we leave it for the customer.
+    if (this.config.autopilotQuestionnaire) {
+      const subject = enriched ? { title: enriched.title, summary: enriched.summary } : null;
+      const { answers, needsHuman, reason } = await this.questionnaireGen.autoAnswer({ rawRequest: report.rawRequest, subject, questions: qs });
+      if (needsHuman) {
+        await log({ message: 'Autopilot deferred the questionnaire to the customer (needs input)', data: { reason } });
+      } else {
+        const confirmed = await this.questionnaire.autofill({ reportId: report.id, answers });
+        await log({ message: confirmed ? 'Autopilot answered the questionnaire — proceeding without the customer' : 'Autopilot answers were compliance-blocked — asking the customer', data: { reason } });
+      }
     }
     return { event: PreResearchEvent.QUESTIONNAIRE_OK };
   }

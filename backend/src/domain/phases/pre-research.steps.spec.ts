@@ -5,28 +5,38 @@ import { PhaseStepRegistry, StepCtx } from './phase-step.tokens';
 
 const REPORT = { id: 'r1', rawRequest: 'a weekly tennis coach near Porto' };
 
-function build({ review, verdict, createThrows }: {
+function build({ review, verdict, createThrows, autopilot, autoAnswer }: {
   review?: { status: string; reason?: string; categories?: string[]; score?: number };
   verdict?: unknown | Error;
   createThrows?: Error;
+  autopilot?: boolean;
+  autoAnswer?: { answers: Record<string, string>; needsHuman: boolean; reason?: string };
 } = {}) {
   const registry = new PhaseStepRegistry();
   const db = { report: { update: jest.fn() }, subject: { findUnique: jest.fn().mockResolvedValue(null) } };
+  const config = { autopilotQuestionnaire: autopilot ?? false };
   const ai = {
     isConfigured: () => verdict !== undefined,
     structured: verdict instanceof Error ? jest.fn().mockRejectedValue(verdict) : jest.fn().mockResolvedValue(verdict),
   };
   const compliance = { score: jest.fn().mockResolvedValue(review ?? { status: ReviewStatus.Passed, categories: [], score: 0 }) };
   const subjects = { createFromReport: jest.fn() };
-  const questionnaire = { createForReport: createThrows ? jest.fn().mockRejectedValue(createThrows) : jest.fn().mockResolvedValue('token') };
-  const questionnaireGen = { generate: jest.fn().mockResolvedValue([{ id: 'q1', type: 'select', prompt: 'when?', options: ['am', 'pm'] }]) };
-  new PreResearchSteps(registry, db as never, ai as never, compliance as never, subjects as never, questionnaire as never, questionnaireGen as never);
+  const questionnaire = {
+    createForReport: createThrows ? jest.fn().mockRejectedValue(createThrows) : jest.fn().mockResolvedValue('token'),
+    autofill: jest.fn().mockResolvedValue(true),
+    isConfirmed: jest.fn().mockResolvedValue(false),
+  };
+  const questionnaireGen = {
+    generate: jest.fn().mockResolvedValue([{ id: 'q1', type: 'select', prompt: 'when?', options: ['am', 'pm'] }]),
+    autoAnswer: jest.fn().mockResolvedValue(autoAnswer ?? { answers: { q1: 'am' }, needsHuman: false }),
+  };
+  new PreResearchSteps(registry, db as never, config as never, ai as never, compliance as never, subjects as never, questionnaire as never, questionnaireGen as never);
   const ctx = (state: string, data: Record<string, unknown> = {}): StepCtx => ({
     run: { id: 'run1', key: 'pre_research', state, data, reportId: 'r1', inquiryId: null } as never,
     report: REPORT as never, inquiry: null, log: jest.fn(),
   });
   const step = (state: string, data?: Record<string, unknown>) => registry.find({ key: 'pre_research', state })!.execute(ctx(state, data));
-  return { step, db, subjects, questionnaire };
+  return { step, db, subjects, questionnaire, questionnaireGen };
 }
 
 describe('pre_research step handlers', () => {
@@ -67,5 +77,27 @@ describe('pre_research step handlers', () => {
 
     const broken = build({ createThrows: new Error('db down') });
     await expect(broken.step(PreResearchState.QUESTIONNAIRE_GATE, { questions: [] })).rejects.toThrow('db down');
+  });
+
+  it('QUESTIONNAIRE_GATE autopilot: confident inference auto-fills the questionnaire (no human)', async () => {
+    const { step, questionnaire, questionnaireGen } = build({ autopilot: true, autoAnswer: { answers: { q1: 'am' }, needsHuman: false } });
+    const out = await step(PreResearchState.QUESTIONNAIRE_GATE, { questions: [{ id: 'q1', type: 'select', prompt: 'when?', options: ['am', 'pm'] }] });
+    expect(out.event).toBe(PreResearchEvent.QUESTIONNAIRE_OK);
+    expect(questionnaireGen.autoAnswer).toHaveBeenCalled();
+    expect(questionnaire.autofill).toHaveBeenCalledWith(expect.objectContaining({ answers: { q1: 'am' } }));
+  });
+
+  it('QUESTIONNAIRE_GATE autopilot: needsHuman defers to the customer (no autofill)', async () => {
+    const { step, questionnaire } = build({ autopilot: true, autoAnswer: { answers: {}, needsHuman: true, reason: 'hard budget' } });
+    const out = await step(PreResearchState.QUESTIONNAIRE_GATE, { questions: [{ id: 'q1', type: 'select', prompt: 'when?', options: ['am', 'pm'] }] });
+    expect(out.event).toBe(PreResearchEvent.QUESTIONNAIRE_OK);
+    expect(questionnaire.autofill).not.toHaveBeenCalled();
+  });
+
+  it('QUESTIONNAIRE_GATE with autopilot off: never auto-answers (unchanged human path)', async () => {
+    const { step, questionnaire, questionnaireGen } = build({ autopilot: false });
+    await step(PreResearchState.QUESTIONNAIRE_GATE, { questions: [{ id: 'q1', type: 'select', prompt: 'when?', options: ['am', 'pm'] }] });
+    expect(questionnaireGen.autoAnswer).not.toHaveBeenCalled();
+    expect(questionnaire.autofill).not.toHaveBeenCalled();
   });
 });

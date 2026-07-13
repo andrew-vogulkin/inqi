@@ -87,4 +87,36 @@ export class QuestionnaireService {
     await this.wf.advance({ reportId: q.reportId, event: WorkflowEvent.QUESTIONNAIRE_FILLED }); // -> ENRICHMENT
     return { ok: true };
   }
+
+  /**
+   * Autopilot (HP-26): persist agent-inferred answers and mark the questionnaire
+   * confirmed, so the pipeline can proceed without the customer. Runs the SAME
+   * compliance gate as {@link submit} — blocked answers are recorded but NOT
+   * confirmed, so the report falls back to the human questionnaire path. Does NOT
+   * advance the workflow (the report is still in pre-research); the report leaves
+   * QUESTIONNAIRE_SENT via the send step once it sees `confirmed`. Returns whether
+   * the questionnaire was auto-confirmed.
+   */
+  async autofill({ reportId, answers }: { reportId: string; answers: Record<string, string> }): Promise<boolean> {
+    const q = await this.questionnaires.findByReport({ reportId });
+    if (!q) return false;
+    const text = Object.values(answers).filter((v) => String(v ?? '').trim()).join('\n');
+    const review = text ? await this.compliance.score({ kind: ComplianceKind.QuestionnaireAnswers, text }) : null;
+    if (review?.status === ReviewStatus.Blocked) {
+      // Record the verdict for audit, leave unconfirmed → the customer is asked instead.
+      await this.questionnaires.update({ token: q.token, data: { reviewStatus: review.status, riskScore: review.score } });
+      return false;
+    }
+    await this.questionnaires.update({
+      token: q.token,
+      data: { answers: answers as unknown as Prisma.InputJsonValue, confirmed: true, filledAt: new Date(), ...(review ? { reviewStatus: review.status, riskScore: review.score } : {}) },
+    });
+    return true;
+  }
+
+  /** Whether the report's questionnaire is confirmed (auto-filled or human-submitted). */
+  async isConfirmed({ reportId }: { reportId: string }): Promise<boolean> {
+    const q = await this.questionnaires.findByReport({ reportId });
+    return !!q?.confirmed;
+  }
 }

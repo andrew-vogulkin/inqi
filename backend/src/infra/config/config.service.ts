@@ -84,8 +84,27 @@ export class ConfigService {
     return process.env.INBOUND_DOMAIN ?? 'reply.inqi.example';
   }
 
+  /**
+   * HP-27: the intake address. An inbound email TO this address starts a brand-new
+   * report owned by the sender (no session, auto-created account). Empty → the
+   * email-intake path is disabled. Matched case-insensitively on the full address.
+   */
+  get intakeAddress(): string {
+    return (process.env.INTAKE_ADDRESS ?? 'intake_inqi@monkeycode.io').trim().toLowerCase();
+  }
+
   get questionnaireTtlHours(): number {
     return Number(process.env.QUESTIONNAIRE_TTL_HOURS ?? 72);
+  }
+
+  /**
+   * Autopilot (HP-26): when true (default), pre-research auto-answers the scope
+   * questionnaire from the request and runs straight through — the human is only
+   * asked when the model itself flags a question it can't confidently infer.
+   * Set AUTOPILOT_QUESTIONNAIRE=false to always require the customer to fill it.
+   */
+  get autopilotQuestionnaire(): boolean {
+    return (process.env.AUTOPILOT_QUESTIONNAIRE ?? 'true') !== 'false';
   }
 
   /** When true, the pipeline fabricates inbound replies so it runs end-to-end without a mail provider. */

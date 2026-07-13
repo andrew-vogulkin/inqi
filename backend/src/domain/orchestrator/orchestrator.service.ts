@@ -141,14 +141,21 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
     await this.phases.startRun({ key: PhaseKey.PreResearch, reportId, data: {} });
   }
 
-  // 2.1 Build + send the questionnaire (temp link).
+  // 2.1 Build + send the questionnaire (temp link) — or, in autopilot, skip it.
   private async sendQuestionnaire({ reportId }: { reportId: string }): Promise<void> {
     await this.activity.runStage({
       reportId, stage: AgentStage.SendQuestionnaire,
       fn: async (log) => {
-        // The questionnaire was compliance-gated + created during pre-research. The email
-        // itself is sent by the `needs-you` lifecycle handler when QUESTIONNAIRE_SENT was
-        // entered — this stage just records the link on the activity timeline.
+        // Autopilot (HP-26): pre-research already auto-answered + confirmed the
+        // questionnaire. The `needs-you` email self-suppresses on a confirmed
+        // questionnaire, so we just advance the report past the human gate.
+        if (await this.questionnaire.isConfirmed({ reportId })) {
+          await log({ message: 'Autopilot: questionnaire auto-answered — skipping the customer, proceeding to enrichment' });
+          await this.wf.advance({ reportId, event: WorkflowEvent.QUESTIONNAIRE_FILLED });
+          return;
+        }
+        // Otherwise the questionnaire waits on the customer. The email itself is sent
+        // by the `needs-you` lifecycle handler; this stage records the link.
         const link = await this.questionnaire.linkForReport({ reportId });
         await log({ message: 'Questionnaire link emailed to customer (needs-you lifecycle)', data: { link } });
       },

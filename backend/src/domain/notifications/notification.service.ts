@@ -120,11 +120,17 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     const snapshot = await this.repo.findSnapshotByReport({ reportId });
     if (!snapshot || (snapshot.freemium && !snapshot.unlocked)) return {};
     const ranked = Array.isArray(snapshot.options) ? (snapshot.options as Record<string, unknown>[]) : [];
-    const options: TemplateOption[] = ranked.slice(0, EMAIL_TOP_OPTIONS).map((o) => ({
-      name: String(o.subjectProvider ?? ''),
-      price: typeof o.price === 'number' ? o.price : null,
-      currency: typeof o.currency === 'string' ? o.currency : null,
-    })).filter((o) => o.name);
+    const options: TemplateOption[] = ranked.slice(0, EMAIL_TOP_OPTIONS).map((o) => {
+      const name = String(o.subjectProvider ?? '');
+      const ref = String(o.ref ?? o.subjectProvider ?? '');
+      return {
+        name,
+        price: typeof o.price === 'number' ? o.price : null,
+        currency: typeof o.currency === 'string' ? o.currency : null,
+        // HP-27: a direct deep link to each option's dossier, so the emailed report is actionable.
+        link: name && ref ? this.optionUrl({ reportId, ref }) : null,
+      };
+    }).filter((o) => o.name);
     return { summary: snapshot.summary, options };
   }
 
@@ -157,6 +163,9 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
 
   private reportUrl(reportId: string): string {
     return `${this.config.webBaseUrl}/#/r/${reportId}`; // capability webview (by report id, HP-08)
+  }
+  private optionUrl({ reportId, ref }: { reportId: string; ref: string }): string {
+    return `${this.config.webBaseUrl}/#/d/${reportId}/${encodeURIComponent(ref)}`; // per-option dossier deep link (HP-27)
   }
   private questionnaireUrl(token: string): string {
     return `${this.config.webBaseUrl}/#/q/${token}`; // capability-token link into the web app

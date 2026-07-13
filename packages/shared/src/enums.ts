@@ -251,6 +251,17 @@ export const AuthRole = {
 export type AuthRole = (typeof AuthRole)[keyof typeof AuthRole];
 
 /**
+ * How a report was started (HP-27). `web` = the authenticated SPA intake; `email`
+ * = an inbound email to the intake address (the customer, questionnaire and final
+ * report are all handled over email for these).
+ */
+export const ReportOrigin = {
+  Web: 'web',
+  Email: 'email',
+} as const;
+export type ReportOrigin = (typeof ReportOrigin)[keyof typeof ReportOrigin];
+
+/**
  * Which pipeline phase fired a web search (HP-15 cost breakdown). Mirrors the
  * async-local usage `stage`; `resource_get` is the agent's on-demand `web_search`
  * tool (distinct from the pipeline's own lifecycle searches). `other` catches

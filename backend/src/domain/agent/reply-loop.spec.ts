@@ -40,7 +40,8 @@ function svcWith({ chain, aiReplies }: { chain: { role: ChatRole; content: strin
 
   const svc = new AgentService(
     prisma as never, agents as never, boss as never, outbox as never, {} as never /* activity */,
-    outreach as never, sources as never, reportContext as never, usage as never, ai as never,
+    outreach as never, sources as never, reportContext as never, usage as never,
+    { isIntakeAddress: () => false } as never /* intake */, ai as never,
   );
   return { svc, agents, boss, outreach, ai };
 }
