@@ -1,10 +1,11 @@
-import { UsageKind } from '@inqi/shared';
+import { UsageKind, WebSearchSource } from '@inqi/shared';
 import type { PriceTable } from '../config/config.service';
 
 /** Minimal ledger-row shape the rollup needs (subset of UsageRecord). */
 export interface UsageRow {
   kind: string;
   model?: string | null;
+  source?: string | null;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -17,8 +18,9 @@ export interface CostSummary {
   currency: string;
   perModel: PerModelCost[];
   outreach: { emails: number; replies: number; discovery: number; research: number; embeddings: number; estUsd: number };
-  /** Every web search the pipeline fired (breadth cycles, marketing pass, depth leads/tools), by provider. */
-  webSearch: { calls: number; provider: string; estUsd: number };
+  /** Every web search the pipeline fired (breadth cycles, marketing pass, depth leads/tools), by provider,
+   *  with a per-phase breakdown (subject build / breadth / depth / resource get). */
+  webSearch: { calls: number; provider: string; estUsd: number; bySource: { source: WebSearchSource; calls: number }[] };
   tokenTotal: number;
   grandTotalUsd: number;
 }
@@ -68,10 +70,22 @@ export function rollupCost({ usageRecords, priceTable }: { usageRecords: UsageRo
   const searchCalls = searchRows.reduce((s, r) => s + (r.quantity || 1), 0);
   // Provider label rides the rows' `model` column ('searxng' today; a hosted API later).
   const providers = [...new Set(searchRows.map((r) => r.model).filter(Boolean))] as string[];
+  // Per-phase breakdown: which pipeline stage fired each search (rows predating
+  // source-tracking fall into `other`). Emitted in a stable phase order.
+  const sourceAgg = new Map<WebSearchSource, number>();
+  for (const r of searchRows) {
+    const src = (r.source as WebSearchSource) ?? WebSearchSource.Other;
+    sourceAgg.set(src, (sourceAgg.get(src) ?? 0) + (r.quantity || 1));
+  }
+  const SOURCE_ORDER: WebSearchSource[] = [
+    WebSearchSource.SubjectBuild, WebSearchSource.BreadthSearch, WebSearchSource.DepthSearch, WebSearchSource.ResourceGet, WebSearchSource.Other,
+  ];
+  const bySource = SOURCE_ORDER.filter((s) => sourceAgg.has(s)).map((source) => ({ source, calls: sourceAgg.get(source)! }));
   const webSearch = {
     calls: searchCalls,
     provider: providers.join(', ') || 'searxng',
     estUsd: round(searchCalls * (priceTable.perWebSearch ?? 0)),
+    bySource,
   };
 
   const modelUsd = perModel.reduce((s, m) => s + m.estUsd, 0);

@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { AsyncStatus, AccessScreen, StatusTone } from '../conventions/enums';
 import { Route, hrefFor } from '../conventions/routes';
 import {
-  CostMetric, COST_METRIC_LABEL, OUTREACH_ACTION_LABEL,
+  CostMetric, COST_METRIC_LABEL, OUTREACH_ACTION_LABEL, WEB_SEARCH_SOURCE_LABEL,
   deriveCostView, formatUsd, formatInt,
 } from '../conventions/cost';
 import { color, space, fontSize, fontWeight } from '../theme/tokens';
@@ -88,6 +88,14 @@ export function CostReport({ reportId }: { reportId: string }) {
               <Td right><MonoRef>{formatInt({ value: view.webSearch.calls })}</MonoRef></Td>
               <Td right><MonoRef muted>{formatUsd({ amount: view.webSearch.estUsd, currency: view.currency })}</MonoRef></Td>
             </tr>
+            {view.webSearch.bySource.map((s) => (
+              <tr key={s.source} data-testid={`cost-websearch-source-${s.source}`}>
+                <Td><span style={{ paddingLeft: space[3], color: color.muted, fontSize: fontSize.xs }}>↳ {WEB_SEARCH_SOURCE_LABEL[s.source] ?? s.source}</span></Td>
+                <Td right><MonoRef muted>—</MonoRef></Td>
+                <Td right><MonoRef muted>{formatInt({ value: s.calls })}</MonoRef></Td>
+                <Td right><MonoRef muted>—</MonoRef></Td>
+              </tr>
+            ))}
             <tr style={{ borderTop: `2px solid ${color.lineStrong}` }}>
               <Td><b>Grand total</b></Td><Td /><Td />
               <Td right><MonoRef><b data-testid="cost-grandtotal">{formatUsd({ amount: view.totalUsd, currency: view.currency })}</b></MonoRef></Td>

@@ -9,7 +9,7 @@ const cost = (over: Partial<CostSummaryDto> = {}): CostSummaryDto => ({
     { model: 'embed', promptTokens: 2000, completionTokens: 0, estUsd: 0.05 },
   ],
   outreach: { emails: 3, replies: 1, discovery: 2, research: 4, embeddings: 10, estUsd: 0.30 },
-  webSearch: { calls: 0, provider: 'searxng', estUsd: 0 },
+  webSearch: { calls: 0, provider: 'searxng', estUsd: 0, bySource: [] },
   tokenTotal: 3500,
   grandTotalUsd: 0.50,
   ...over,
@@ -53,8 +53,8 @@ describe('formatters', () => {
 
 describe('deriveCostView — web search line (HP-15 extension)', () => {
   it('carries calls + provider and folds its $ into the reconciliation sum', () => {
-    const v = deriveCostView({ cost: cost({ webSearch: { calls: 42, provider: 'searxng', estUsd: 0.021 }, grandTotalUsd: 0.521 }) });
-    expect(v.webSearch).toEqual({ calls: 42, provider: 'searxng', estUsd: 0.021 });
+    const v = deriveCostView({ cost: cost({ webSearch: { calls: 42, provider: 'searxng', estUsd: 0.021, bySource: [{ source: 'breadth_search', calls: 40 }, { source: 'depth_search', calls: 2 }] }, grandTotalUsd: 0.521 }) });
+    expect(v.webSearch).toEqual({ calls: 42, provider: 'searxng', estUsd: 0.021, bySource: [{ source: 'breadth_search', calls: 40 }, { source: 'depth_search', calls: 2 }] });
     expect(v.reconciles).toBe(true);
   });
 
@@ -62,7 +62,7 @@ describe('deriveCostView — web search line (HP-15 extension)', () => {
     const legacy = cost();
     delete (legacy as Partial<CostSummaryDto>).webSearch;
     const v = deriveCostView({ cost: legacy });
-    expect(v.webSearch).toEqual({ calls: 0, provider: 'searxng', estUsd: 0 });
+    expect(v.webSearch).toEqual({ calls: 0, provider: 'searxng', estUsd: 0, bySource: [] });
     expect(v.reconciles).toBe(true);
   });
 });

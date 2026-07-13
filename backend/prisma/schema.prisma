@@ -444,6 +444,7 @@ model UsageRecord {
   completionTokens Int      @default(0)
   totalTokens      Int      @default(0)
   quantity         Int      @default(1)   // for counted actions
+  source           String?  // WebSearchSource — which phase fired a web_search (cost breakdown, HP-15)
   estimated        Boolean  @default(false) // usage block absent (e.g. local model) → tokens are 0/estimated
   createdAt        DateTime @default(now())
 

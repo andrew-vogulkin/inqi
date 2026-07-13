@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { WebSearchSource } from '@inqi/shared';
 
 export class PerModelCostDto {
   @ApiProperty({ example: 'qwen-max' }) model!: string;
@@ -16,10 +17,16 @@ export class OutreachCostDto {
   @ApiProperty({ example: 0.0 }) estUsd!: number;
 }
 
+export class WebSearchSourceCountDto {
+  @ApiProperty({ enum: WebSearchSource, example: WebSearchSource.BreadthSearch, description: 'Which pipeline phase fired these searches' }) source!: WebSearchSource;
+  @ApiProperty({ example: 979 }) calls!: number;
+}
+
 export class WebSearchCostDto {
   @ApiProperty({ example: 42, description: 'Every web search fired for this report (breadth cycles, marketing pass, depth leads/tools)' }) calls!: number;
   @ApiProperty({ example: 'searxng', description: 'The serving search provider(s)' }) provider!: string;
   @ApiProperty({ example: 0.021 }) estUsd!: number;
+  @ApiProperty({ type: [WebSearchSourceCountDto], description: 'Per-phase breakdown of the search count' }) bySource!: WebSearchSourceCountDto[];
 }
 
 /** Operator-only per-report cost summary (HP-15) — never part of the customer report. */
