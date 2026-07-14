@@ -102,19 +102,19 @@ describe('fallbackCandidates — deterministic no-AI degradation', () => {
 describe('marketingBreadthQueries — the last search pass in commercial category language', () => {
   it('returns the short SEO-style queries the model forms', async () => {
     const ai = aiReturning({ queries: ['tea cups supplier Bangkok', 'food packaging supplier Thailand'] });
-    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: ['biodegradable bubble tea cups Bangkok'], logger });
+    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: ['biodegradable bubble tea cups Bangkok'], queryCount: 6, logger });
     expect(out).toEqual(['tea cups supplier Bangkok', 'food packaging supplier Thailand']);
   });
 
   it('a formation failure returns null (the step exhausts to dry, never throws)', async () => {
     const ai = { isConfigured: () => true, structured: jest.fn().mockRejectedValue(new Error('down')) };
-    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: [], logger });
+    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: [], queryCount: 6, logger });
     expect(out).toBeNull();
   });
 
   it('an empty query list returns null', async () => {
     const ai = { isConfigured: () => true, structured: jest.fn().mockResolvedValue({ queries: [] }) };
-    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: [], logger });
+    const out = await marketingBreadthQueries({ ai: ai as never, subject: SUBJECT, priorQueries: [], queryCount: 6, logger });
     expect(out).toBeNull();
   });
 });

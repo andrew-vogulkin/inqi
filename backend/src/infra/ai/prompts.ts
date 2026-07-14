@@ -100,13 +100,17 @@ export function discoveryFallbackQueriesSystem({ count }: { count: number }): st
   ].join(' ');
 }
 
-/** Discovery last resort — re-describe the subject in the commercial category language businesses use for SEO. */
-export function discoveryMarketingQueriesSystem(): string {
+/**
+ * Discovery last resort — re-describe the subject in the commercial category language
+ * businesses use for SEO. `count` comes from the SAME dial as the other two discovery
+ * prompts (`breadthQueriesPerCycle`): marketing queries are billable searches too.
+ */
+export function discoveryMarketingQueriesSystem({ count }: { count: number }): string {
   return [
     "[stage:discovery] Constraint relaxation is exhausted — this is the LAST search pass before the run concedes.",
     "Forget the request's specifics. Re-describe the subject the way a BUSINESS in that trade markets itself online — the short commercial category phrases its homepage and SEO would use.",
     'Examples: "supplier of 5000 biodegradable bubble tea cups, Bangkok" → "tea cups supplier Bangkok", "food packaging supplier Thailand"; "restore an antique teak daybed, Chiang Mai" → "antique restoration workshop Chiang Mai", "furniture restoration Chiang Mai"; "repair a vintage 1970s Omega Seamaster, Bangkok" → "watch repair Bangkok", "vintage watch service Bangkok".',
-    'Rules: 3-6 queries of 2-4 words plus the location; category language ONLY (drop quantities, materials, model names, eras, urgency); keep the SERVICE as the head of every query; include ONE query without the location for national/online suppliers.',
+    `Rules: ${count} queries of 2-4 words plus the location; category language ONLY (drop quantities, materials, model names, eras, urgency); keep the SERVICE as the head of every query; include ONE query without the location for national/online suppliers.`,
     'Respond as strict JSON: { "queries": string[] }.',
   ].join(' ');
 }

@@ -3,26 +3,27 @@ import { BreadthSearchSteps, BreadthRunData } from './breadth-search.steps';
 import { StepCtx, StepOutcome } from './phase-step.tokens';
 
 /** Capture the handlers the steps class registers, so we can drive one state directly. */
-function build({ queries, searched = [], emptySearchRetries = 0, hits = [{ title: 'T', url: 'http://x', content: 'c' }] }: {
-  queries: string[]; searched?: string[]; emptySearchRetries?: number; hits?: { title: string; url: string; content: string }[];
+function build({ queries, searched = [], emptySearchRetries = 0, queriesPerCycle = 6, hits = [{ title: 'T', url: 'http://x', content: 'c' }], structured }: {
+  queries: string[]; searched?: string[]; emptySearchRetries?: number; queriesPerCycle?: number;
+  hits?: { title: string; url: string; content: string }[]; structured?: jest.Mock;
 }) {
   const handlers = new Map<string, { execute: (ctx: StepCtx) => Promise<StepOutcome> }>();
   const registry = { register: ({ state, handler }: { key: string; state: string; handler: never }) => handlers.set(state, handler) };
   // One call per query — the whole point: a query IS a billable search.
   const web = { webSearch: jest.fn().mockResolvedValue(hits) };
-  const ai = { isConfigured: () => true, structured: jest.fn() };
+  const ai = { isConfigured: () => true, structured: structured ?? jest.fn() };
   const usage = { recordAction: jest.fn() };
 
   new BreadthSearchSteps(registry as never, ai as never, web as never, usage as never);
 
   const data: BreadthRunData = {
     purpose: 'funnel', epicId: 'e1', subject: { title: 'yoga studio', description: 'Bangkok' },
-    count: 8, maxCycles: 3, queriesPerCycle: 6, emptySearchRetries,
+    count: 8, maxCycles: 3, queriesPerCycle, emptySearchRetries,
     cycle: 1, exclude: [], queries, searched, pool: null, proposed: [], candidates: [],
     seenNames: [], gainedThisCycle: 0, dryRounds: 0, matchNote: null, notes: [],
   };
   const ctx = { run: { reportId: 'r1', data }, log: jest.fn().mockResolvedValue(undefined) } as unknown as StepCtx;
-  return { search: handlers.get(BreadthState.SEARCH)!, ctx, web };
+  return { search: handlers.get(BreadthState.SEARCH)!, marketing: handlers.get(BreadthState.MARKETING)!, ctx, web, ai };
 }
 
 /** The queries actually sent to the provider (one webSearch call each). */
@@ -73,5 +74,40 @@ describe('breadth SEARCH — the empty-pool retry is retired by default', () => 
     await search.execute(ctx);
     expect(web.webSearch).toHaveBeenCalledTimes(2); // original + one re-fire
     jest.restoreAllMocks();
+  });
+});
+
+describe('breadth MARKETING — the last-resort pass obeys the same dial', () => {
+  const marketingReply = () => jest.fn().mockResolvedValue({ queries: ['yoga studio bangkok', 'pilates bangkok'] });
+
+  it('asks for queriesPerCycle queries — marketing searches are billable too', async () => {
+    const structured = marketingReply();
+    const { marketing, ctx } = build({ queries: [], searched: ['old q'], queriesPerCycle: 4, structured });
+    await marketing.execute(ctx);
+    // The count reaches the model through the system prompt, off the same config dial.
+    expect(structured.mock.calls[0][0].system).toContain('4 queries');
+  });
+
+  // Marketing is told "don't repeat these". Showing it only the LAST batch let it
+  // re-propose queries from earlier cycles — the SEARCH dedupe then binned them, so the
+  // AI call was spent for nothing.
+  it('sees EVERY query the run has issued, not just the last batch', async () => {
+    const structured = marketingReply();
+    const { marketing, ctx } = build({ queries: ['latest only'], searched: ['cycle-1 q', 'cycle-2 q'], structured });
+    await marketing.execute(ctx);
+    const user = structured.mock.calls[0][0].user as string;
+    expect(user).toContain('cycle-1 q');
+    expect(user).toContain('cycle-2 q');
+  });
+
+  it('spends its one pass, then concedes on the second visit', async () => {
+    const { marketing, ctx } = build({ queries: [], structured: marketingReply() });
+    const first = await marketing.execute(ctx);
+    expect(first.event).toBe(BreadthEvent.MARKETING_QUERIES);
+    expect(first.dataPatch?.marketingDone).toBe(true);
+
+    const { marketing: again, ctx: ctx2 } = build({ queries: [], structured: marketingReply() });
+    (ctx2.run.data as unknown as BreadthRunData).marketingDone = true;
+    expect((await again.execute(ctx2)).event).toBe(BreadthEvent.MARKETING_EXHAUSTED);
   });
 });

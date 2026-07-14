@@ -224,7 +224,13 @@ export class BreadthSearchSteps {
       await ctx.log({ message: `Discovery: ${note}` });
       return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { notes: [...d.notes, note] } };
     }
-    const queries = await marketingBreadthQueries({ ai: this.ai, subject: d.subject, priorQueries: d.queries, logger: this.logger });
+    // priorQueries = EVERY query the run has issued, not just the last batch. Marketing is
+    // told "don't repeat these"; showing it only the last batch let it re-propose queries
+    // from earlier cycles, which the SEARCH dedupe then throws away — an AI call spent for
+    // nothing. Same fix as relax.
+    const queries = await marketingBreadthQueries({
+      ai: this.ai, subject: d.subject, priorQueries: d.searched, queryCount: d.queriesPerCycle, logger: this.logger,
+    });
     if (!queries) {
       return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { marketingDone: true, notes: [...d.notes, `marketing query formation failed — stopping at ${d.candidates.length}/${d.count}`] } };
     }

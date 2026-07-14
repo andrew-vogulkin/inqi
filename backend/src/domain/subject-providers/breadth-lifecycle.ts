@@ -179,12 +179,12 @@ export async function relaxBreadthQueries({ ai, subject, priorQueries, qualified
  * language businesses use for SEO ("tea cups supplier Bangkok") — the request's
  * specifics never match how providers word their own pages. Null = nothing usable.
  */
-export async function marketingBreadthQueries({ ai, subject, priorQueries, logger }: {
-  ai: AiProvider; subject: BreadthSubject; priorQueries: string[]; logger: Logger;
+export async function marketingBreadthQueries({ ai, subject, priorQueries, queryCount, logger }: {
+  ai: AiProvider; subject: BreadthSubject; priorQueries: string[]; queryCount: number; logger: Logger;
 }): Promise<string[] | null> {
   try {
     const r = await ai.structured({
-      system: discoveryMarketingQueriesSystem(),
+      system: discoveryMarketingQueriesSystem({ count: queryCount }),
       user: buildDiscoveryMarketingUser({ subject, priorQueries }),
       tier: ModelTier.Breadth,
       validate: (raw) => discoveryMarketingSchema.parse(raw),
