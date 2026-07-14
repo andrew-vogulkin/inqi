@@ -72,11 +72,15 @@ export function discoverySystem(): string {
   ].join(' ');
 }
 
-/** Discovery step 0 — the model forms diverse search queries before any searching happens. */
-export function discoveryQueriesSystem(): string {
+/**
+ * Discovery step 0 — the model forms diverse search queries before any searching happens.
+ * `count` is the batch size and is the pipeline's PRIMARY search-cost dial: every query
+ * formed here becomes exactly one billable search (config `breadthQueriesPerCycle`).
+ */
+export function discoveryQueriesSystem({ count }: { count: number }): string {
   return [
     "[stage:discovery] You form web-search queries for finding providers of a subject.",
-    'Write 10 SHORT queries (2-5 words each) that surface businesses actually OFFERING it. Optimise for RECALL — a query that returns zero results is useless.',
+    `Write ${count} SHORT queries (2-5 words each) that surface businesses actually OFFERING it. Optimise for RECALL — a query that returns zero results is useless.`,
     'The FIRST query MUST be the simplest high-recall form: service + city only, in the local language (e.g. "canalizador Lisboa", "yoga studio Bangkok"). Add one more local-language variant.',
     'Vary the rest by the SERVICE WORDING (synonyms, "empresa"/"company"/"studio"/"booking" style) — NOT by stacking extra constraints.',
     'Do NOT narrow to a neighborhood, an urgency word ("urgente"), a budget, or a long descriptive phrase — those collapse results to zero. Relaxation and specifics are handled later (fallback round + depth research).',
@@ -86,10 +90,10 @@ export function discoveryQueriesSystem(): string {
 }
 
 /** Discovery fallback — low conversion: relax the least-essential constraint and re-search. */
-export function discoveryFallbackQueriesSystem(): string {
+export function discoveryFallbackQueriesSystem({ count }: { count: number }): string {
   return [
     "[stage:discovery] Your previous search queries converted poorly — too few candidates actually PROVIDE the subject.",
-    'Relax the LEAST-essential constraint of the subject and form 10 broader search queries.',
+    `Relax the LEAST-essential constraint of the subject and form ${count} broader search queries.`,
     'Example: "rooftop yoga studio Bangkok" → drop "rooftop" → "yoga studio Bangkok" (the relaxed dimension gets confirmed later via research/outreach).',
     'Rules: relax exactly ONE constraint per round; NEVER drop the service itself or the location; do not repeat the prior queries.',
     'Respond as strict JSON: { "relaxed": string (the one constraint you dropped, e.g. "rooftop"), "queries": string[] }.',

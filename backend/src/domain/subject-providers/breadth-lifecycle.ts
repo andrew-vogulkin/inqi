@@ -27,11 +27,16 @@ export type BreadthPoolHit = Pick<WebResult, 'title' | 'url' | 'content'>;
  * graph. Every step degrades gracefully, exactly as the old in-memory loop did.
  */
 
-/** B. The model forms ~5 diverse, service-first queries (naive single query on failure). */
-export async function formBreadthQueries({ ai, subject, logger }: { ai: AiProvider; subject: BreadthSubject; logger: Logger }): Promise<string[]> {
+/**
+ * B. The model forms `queryCount` diverse, service-first queries (naive single query on
+ * failure). `queryCount` is the primary search-cost dial — one query = one billable search.
+ */
+export async function formBreadthQueries({ ai, subject, queryCount, logger }: {
+  ai: AiProvider; subject: BreadthSubject; queryCount: number; logger: Logger;
+}): Promise<string[]> {
   try {
     const q = await ai.structured({
-      system: discoveryQueriesSystem(),
+      system: discoveryQueriesSystem({ count: queryCount }),
       user: buildDiscoveryQueriesUser({ subject }),
       tier: ModelTier.Breadth,
       validate: (raw) => discoveryQueriesSchema.parse(raw),
@@ -151,12 +156,12 @@ export async function qualifyCandidates({ ai, subject, candidates, logger }: {
 }
 
 /** F. Low conversion → the model relaxes the least-essential constraint and re-forms queries. */
-export async function relaxBreadthQueries({ ai, subject, priorQueries, qualifiedCount, needed, logger }: {
-  ai: AiProvider; subject: BreadthSubject; priorQueries: string[]; qualifiedCount: number; needed: number; logger: Logger;
+export async function relaxBreadthQueries({ ai, subject, priorQueries, qualifiedCount, needed, queryCount, logger }: {
+  ai: AiProvider; subject: BreadthSubject; priorQueries: string[]; qualifiedCount: number; needed: number; queryCount: number; logger: Logger;
 }): Promise<{ relaxed: string; queries: string[] } | null> {
   try {
     const r = await ai.structured({
-      system: discoveryFallbackQueriesSystem(),
+      system: discoveryFallbackQueriesSystem({ count: queryCount }),
       user: buildDiscoveryFallbackUser({ subject, priorQueries, qualifiedCount, needed }),
       tier: ModelTier.Breadth,
       validate: (raw) => discoveryFallbackSchema.parse(raw),

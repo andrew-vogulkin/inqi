@@ -419,13 +419,33 @@ export class ConfigService {
    * reserved for the email thread (so flat websearch/rating sources are capped at
    * `maxSourcesPerInquiry - 1`; email sources themselves are not capped).
    */
-  get research(): { maxBreadthInquiries: number; maxSourcesPerInquiry: number; breadthMaxCycles: number; depthMaxToolCalls: number; depthCycles: number } {
+  get research(): {
+    maxBreadthInquiries: number; maxSourcesPerInquiry: number; breadthMaxCycles: number;
+    breadthQueriesPerCycle: number; breadthEmptySearchRetries: number;
+    depthMaxToolCalls: number; depthCycles: number;
+  } {
     return {
       maxBreadthInquiries: Number(process.env.BREADTH_MAX_INQUIRIES ?? 8),
       maxSourcesPerInquiry: Number(process.env.SOURCES_MAX_PER_INQUIRY ?? 5),
       // Breadth-cycle HARD CAP: the discovery loop self-adjusts (cycles toward the
       // full target, stops on dry rounds / unchanged queries) — this only bounds it.
-      breadthMaxCycles: Number(process.env.BREADTH_MAX_CYCLES ?? 50),
+      // Search volume is cycles x queriesPerCycle, so this is a cost ceiling, not a
+      // target: 50 x 10 was a 500-search ceiling that one real report actually rode.
+      breadthMaxCycles: Number(process.env.BREADTH_MAX_CYCLES ?? 3),
+      /**
+       * How many queries the model forms per cycle — the PRIMARY search-cost dial
+       * (every query is one billable search). Was hardcoded inside the AI prompt, so
+       * the biggest lever in the system could only be turned by editing a prompt.
+       */
+      breadthQueriesPerCycle: Number(process.env.BREADTH_QUERIES_PER_CYCLE ?? 6),
+      /**
+       * Re-fire the WHOLE query batch when a cycle's pool comes back completely empty.
+       * A SearXNG band-aid: its upstream engines suspend after a burst and answer
+       * 200-with-empty for a minute+. The global 1-req/s throttle now prevents those
+       * bursts, and on a paid API "empty" means genuinely empty — so this defaults OFF.
+       * Each retry costs a full batch of searches AND a 75s stall.
+       */
+      breadthEmptySearchRetries: Number(process.env.BREADTH_EMPTY_SEARCH_RETRIES ?? 0),
       // How many web_search / open_url calls one depth-agent CYCLE may spend.
       depthMaxToolCalls: Number(process.env.DEPTH_AGENT_MAX_TOOLCALLS ?? 6),
       // Depth-cycle HARD CAP per candidate: the evaluation gate drives actual usage
