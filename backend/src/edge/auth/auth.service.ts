@@ -5,7 +5,7 @@ import { ConfigService } from '../../infra/config/config.service';
 import { ErrorCode, ForbiddenError, UnauthorizedError } from '../../common/errors';
 import { CustomerService } from '../../domain/customer/customer.service';
 import { ReportService } from '../../domain/report/report.service';
-import { MAIL_PROVIDER, MailProvider } from '../../domain/source/mail.provider';
+import { MAIL_PROVIDER, MailKind, MailProvider } from '../../domain/source/mail.provider';
 import { AuthUser } from './auth.tokens';
 import { SessionService } from './session.service';
 import { MfaCodeStore } from './mfa-code.store';
@@ -51,7 +51,7 @@ export class AuthService {
     if (mfa.transport === 'email') {
       const code = this.mfaCodes.issue({ email: normalized, ttlMs: mfa.codeTtlMs, now: Date.now() });
       await this.mail.send({
-        from: mfa.from ?? 'no-reply@monkeycode.io',
+        kind: MailKind.System, // sign-in codes go from the system sender, to the real person signing in
         to: normalized,
         subject: 'Your inqi sign-in code',
         body: `Your inqi verification code is ${code}.\n\nIt expires in ${Math.round(mfa.codeTtlMs / 60_000)} minutes. If you didn't request this, you can ignore this email.`,
