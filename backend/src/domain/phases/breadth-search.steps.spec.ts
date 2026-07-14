@@ -1,4 +1,4 @@
-import { BreadthEvent, BreadthState, PhaseKey } from '@inqi/shared';
+import { BreadthEvent, BreadthState, LeadSpecificity, PhaseKey } from '@inqi/shared';
 import { BreadthSearchSteps, BreadthRunData } from './breadth-search.steps';
 import { StepCtx, StepOutcome } from './phase-step.tokens';
 
@@ -93,6 +93,49 @@ describe('breadth SEARCH — survives a run persisted before these fields existe
     expect(out.event).toBe(BreadthEvent.POOL_READY);
     expect(web.webSearch).toHaveBeenCalledTimes(2);
     expect(out.dataPatch?.searched).toEqual(['a', 'b']); // the set starts fresh, not undefined
+  });
+});
+
+/**
+ * Keeping general aggregators must not let the loop declare victory on them. Seen live:
+ * a Serper run returned ten marketplace SEARCH pages, counted them as 10/10 and stopped —
+ * strictly worse than the old behaviour, which dropped them and kept hunting for dealers.
+ */
+describe('breadth CHECKPOINT — only SPECIFIC leads satisfy the target', () => {
+  const lead = (name: string, aggregator = false) => ({
+    name, country: 'DE', evidence: [],
+    ...(aggregator ? { specificity: LeadSpecificity.GeneralAggregator } : {}),
+  });
+
+  function checkpointWith(candidates: ReturnType<typeof lead>[], count = 3) {
+    const handlers = new Map<string, { execute: (c: StepCtx) => Promise<StepOutcome> }>();
+    const registry = { register: ({ state, handler }: { state: string; handler: never }) => handlers.set(state, handler) };
+    new BreadthSearchSteps(registry as never, { isConfigured: () => true } as never, { webSearch: jest.fn() } as never, { recordAction: jest.fn() } as never);
+    const data = {
+      purpose: 'funnel', epicId: 'e1', subject: { title: 't', description: 'd' },
+      count, maxCycles: 3, queriesPerCycle: 6, emptySearchRetries: 0, cycle: 1,
+      exclude: [], queries: [], searched: [], pool: null, proposed: [],
+      candidates, seenNames: [], gainedThisCycle: 1, dryRounds: 0, matchNote: null, notes: [],
+    } as unknown as BreadthRunData;
+    const ctx = { run: { reportId: 'r1', data }, log: jest.fn().mockResolvedValue(undefined) } as unknown as StepCtx;
+    return handlers.get(BreadthState.CHECKPOINT)!.execute(ctx);
+  }
+
+  it('does NOT call TARGET_MET when the target is filled only with directories', async () => {
+    const out = await checkpointWith([lead('Classic.com', true), lead('Hemmings', true), lead('CarGurus', true)], 3);
+    expect(out.event).not.toBe(BreadthEvent.TARGET_MET); // 0 specific — keep hunting
+    expect(out.event).toBe(BreadthEvent.CONTINUE);
+  });
+
+  it('calls TARGET_MET on specific leads, and the directories ride along as extras', async () => {
+    const out = await checkpointWith([lead('Hollmann'), lead('Gallery Aaldering'), lead('Early 911S'), lead('Classic.com', true)], 3);
+    expect(out.event).toBe(BreadthEvent.TARGET_MET);
+  });
+
+  it('a cycle that gained only directories is a DRY round, not progress', async () => {
+    // gained drives the dry counter; directories must not make a barren cycle look productive.
+    const out = await checkpointWith([lead('Hemmings', true)], 3);
+    expect(out.event).toBe(BreadthEvent.CONTINUE);
   });
 });
 

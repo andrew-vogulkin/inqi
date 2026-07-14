@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { BreadthEvent, BreadthState, PhaseKey, UsageKind } from '@inqi/shared';
+import { BreadthEvent, BreadthState, LeadSpecificity, PhaseKey, UsageKind } from '@inqi/shared';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { WEB_SEARCH, WebSearchProvider } from '../../infra/websearch/websearch.tokens';
 import { UsageService } from '../../infra/usage/usage.service';
@@ -175,7 +175,11 @@ export class BreadthSearchSteps {
       if (seen.has(c.name)) continue;
       seen.add(c.name);
       candidates.push(c);
-      gained++;
+      // `gained` drives the DRY counter, so it must mean "progress toward the target".
+      // A cycle that turns up nothing but directories has not moved us closer to an option
+      // the customer can act on — counting those would keep the loop feeling productive
+      // while it churns out marketplace search pages forever.
+      if (c.specificity !== LeadSpecificity.GeneralAggregator) gained++;
     }
     return { event: BreadthEvent.CANDIDATES_QUALIFIED, dataPatch: { candidates, seenNames: [...seen], gainedThisCycle: gained, proposed: [] } };
   }
@@ -183,14 +187,22 @@ export class BreadthSearchSteps {
   /** ✓ The adaptive checkpoint: target met / dry / cap → terminal; else CONTINUE into RELAX. */
   private async checkpoint(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
+    // ONLY SPECIFIC leads count toward the target. A general directory is kept (it proves
+    // the market exists) but it is not an option a customer can act on — counting it as
+    // progress let discovery declare TARGET_MET on ten marketplace search pages and stop
+    // hunting, which is strictly worse than the old behaviour of dropping them and looking
+    // harder. Aggregators ride along; they just don't buy the run its way out of the loop.
+    const specific = d.candidates.filter((c) => c.specificity !== LeadSpecificity.GeneralAggregator);
+    const aggregators = d.candidates.length - specific.length;
     const { event, dryRounds } = decideBreadthCheckpoint({
-      foundCount: d.candidates.length, targetCount: d.count, gained: d.gainedThisCycle,
+      foundCount: specific.length, targetCount: d.count, gained: d.gainedThisCycle,
       dryRounds: d.dryRounds, cycle: d.cycle, maxCycles: d.maxCycles, dryPatience: d.dryRoundsToStop,
     });
+    const tally = `${specific.length}/${d.count}${aggregators ? ` (+${aggregators} directory lead(s), ranked low)` : ''}`;
     const notes = [...d.notes];
     const patch: Record<string, unknown> = { dryRounds };
-    if (event === BreadthEvent.WENT_DRY) notes.push(`search went dry after ${d.cycle} cycle(s) — stopping at ${d.candidates.length}/${d.count}`);
-    if (event === BreadthEvent.CAP_REACHED) notes.push(`cycle cap (${d.maxCycles}) reached at ${d.candidates.length}/${d.count}`);
+    if (event === BreadthEvent.WENT_DRY) notes.push(`search went dry after ${d.cycle} cycle(s) — stopping at ${tally}`);
+    if (event === BreadthEvent.CAP_REACHED) notes.push(`cycle cap (${d.maxCycles}) reached at ${tally}`);
     if (event === BreadthEvent.CONTINUE) patch.cycle = d.cycle + 1;
     // NO fallback backstop here: with AI configured, a dry search must end HONESTLY
     // (assembly fails the funnel / finishes outreach) — fabricated "Subject Provider N"
