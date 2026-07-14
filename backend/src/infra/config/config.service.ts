@@ -244,14 +244,14 @@ export class ConfigService {
    *   nothing is emailed. Keeps tests + local tooling deterministic.
    * - `transport: 'email'` (MFA_TRANSPORT=email) — a per-attempt random code is
    *   issued, emailed via MAIL_PROVIDER, and required on verify (the mock code no
-   *   longer works). `codeTtlMs` bounds its lifetime; `from` is the sender address.
+   *   longer works). `codeTtlMs` bounds its lifetime. The sender is the `system`
+   *   signature (see {@link postmark}) — codes are MailKind.System mail.
    */
-  get mfa(): { transport: 'mock' | 'email'; mockCode: string; codeTtlMs: number; from?: string } {
+  get mfa(): { transport: 'mock' | 'email'; mockCode: string; codeTtlMs: number } {
     return {
       transport: process.env.MFA_TRANSPORT?.toLowerCase() === 'email' ? 'email' : 'mock',
       mockCode: process.env.MFA_MOCK_CODE ?? '123456',
       codeTtlMs: Number(process.env.MFA_CODE_TTL_MS ?? 10 * 60_000),
-      from: process.env.POSTMARK_FROM,
     };
   }
 
@@ -268,10 +268,16 @@ export class ConfigService {
     };
   }
 
-  get postmark(): { token?: string; fromAddress?: string } {
+  /**
+   * Postmark transport. Two verified sender signatures, one per {@link MailKind}:
+   * `systemFrom` for sign-in codes + customer mail, `outreachFrom` for the agent's
+   * vendor outreach persona. Both must exist as sender signatures in Postmark.
+   */
+  get postmark(): { token?: string; systemFrom: string; outreachFrom: string } {
     return {
       token: process.env.POSTMARK_SERVER_TOKEN,
-      fromAddress: process.env.POSTMARK_FROM,
+      systemFrom: process.env.POSTMARK_SYSTEM_FROM ?? 'system@monkeycode.io',
+      outreachFrom: process.env.POSTMARK_FROM ?? 'marlowe.v@monkeycode.io',
     };
   }
 

@@ -1,8 +1,10 @@
 import { ConfigService } from '../../infra/config/config.service';
-import { OUTBOUND_TO_OVERRIDE, PostmarkMailProvider } from './mail.provider';
+import { MailKind, OUTBOUND_TO_OVERRIDE, PostmarkMailProvider } from './mail.provider';
 
-/** ConfigService stub exposing just the `.postmark` the provider reads. */
-const config = { postmark: { token: 'pm-test', fromAddress: 'marlowe.v@monkeycode.io' } } as unknown as ConfigService;
+/** ConfigService stub exposing just the `.postmark` the provider reads — one signature per kind. */
+const config = {
+  postmark: { token: 'pm-test', systemFrom: 'system@monkeycode.io', outreachFrom: 'marlowe.v@monkeycode.io' },
+} as unknown as ConfigService;
 
 /** Capture the JSON body posted to the Postmark API. */
 function stubFetchOk() {
@@ -14,19 +16,36 @@ function stubFetchOk() {
   return body;
 }
 
-describe('PostmarkMailProvider — approval-window recipient pin', () => {
+describe('PostmarkMailProvider — sender identity per MailKind', () => {
   const provider = new PostmarkMailProvider(config);
-  const base = { from: 'tok9@reply.monkeycode.io', subject: 'Availability?', body: 'Hi there' };
+  afterEach(() => jest.restoreAllMocks());
+
+  it('sends vendor outreach from the outreach persona', async () => {
+    const captured = stubFetchOk();
+    await provider.send({ kind: MailKind.Outreach, to: 'sales@vendor.co.th', subject: 'Availability?', body: 'Hi' });
+    expect(captured.current.From).toBe('marlowe.v@monkeycode.io');
+  });
+
+  it('sends system mail (sign-in codes, customer notifications) from the system sender', async () => {
+    const captured = stubFetchOk();
+    await provider.send({ kind: MailKind.System, to: 'jane@gmail.com', subject: 'Your inqi sign-in code', body: '123456' });
+    expect(captured.current.From).toBe('system@monkeycode.io');
+  });
+});
+
+describe('PostmarkMailProvider — beta recipient pin (outreach only)', () => {
+  const provider = new PostmarkMailProvider(config);
+  const outreach = { kind: MailKind.Outreach as const, replyTo: 'tok9@reply.monkeycode.io', subject: 'Availability?', body: 'Hi there' };
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('is pinned to the same-domain inbox while unapproved', () => {
+  it('is pinned to the same-domain inbox', () => {
     expect(OUTBOUND_TO_OVERRIDE).toBe('andrei@monkeycode.io');
   });
 
   it('redirects an off-domain vendor recipient, preserving the intended To', async () => {
     const captured = stubFetchOk();
-    await provider.send({ ...base, to: 'sales@some-vendor.co.th' });
+    await provider.send({ ...outreach, to: 'sales@some-vendor.co.th' });
 
     expect(captured.current.To).toBe('andrei@monkeycode.io');
     expect(captured.current.Subject).toBe('[→ sales@some-vendor.co.th] Availability?');
@@ -37,15 +56,39 @@ describe('PostmarkMailProvider — approval-window recipient pin', () => {
 
   it('redirects even a null recipient (would otherwise fail the Postmark send)', async () => {
     const captured = stubFetchOk();
-    await provider.send({ ...base, to: null });
+    await provider.send({ ...outreach, to: null });
     expect(captured.current.To).toBe('andrei@monkeycode.io');
   });
 
   it('does not tag the subject when the recipient is already the pinned inbox', async () => {
     const captured = stubFetchOk();
-    await provider.send({ ...base, to: 'andrei@monkeycode.io' });
+    await provider.send({ ...outreach, to: 'andrei@monkeycode.io' });
     expect(captured.current.To).toBe('andrei@monkeycode.io');
     expect(captured.current.Subject).toBe('Availability?');
     expect(captured.current.Headers ?? []).not.toContainEqual(expect.objectContaining({ Name: 'X-Original-To' }));
+  });
+
+  // The whole point of the split: a sign-in code redirected to someone else is unusable,
+  // and a delivered report must reach the customer who asked for it.
+  it('does NOT redirect system mail — it reaches the real recipient, untagged', async () => {
+    const captured = stubFetchOk();
+    await provider.send({ kind: MailKind.System, to: 'jane@gmail.com', subject: 'Your inqi sign-in code', body: '123456' });
+
+    expect(captured.current.To).toBe('jane@gmail.com');
+    expect(captured.current.Subject).toBe('Your inqi sign-in code');
+    expect(captured.current.Headers ?? []).not.toContainEqual(expect.objectContaining({ Name: 'X-Original-To' }));
+  });
+
+  it('keeps ReplyTo on system mail (questionnaire-by-email replies must route back)', async () => {
+    const captured = stubFetchOk();
+    await provider.send({ kind: MailKind.System, to: 'jane@gmail.com', replyTo: 'q7@reply.monkeycode.io', subject: 'A few quick questions', body: '?' });
+    expect(captured.current.To).toBe('jane@gmail.com');
+    expect(captured.current.ReplyTo).toBe('q7@reply.monkeycode.io');
+  });
+
+  it('omits ReplyTo entirely when there is no reply address (plain notification)', async () => {
+    const captured = stubFetchOk();
+    await provider.send({ kind: MailKind.System, to: 'jane@gmail.com', subject: 'Your report is ready', body: 'Done' });
+    expect('ReplyTo' in captured.current).toBe(false);
   });
 });

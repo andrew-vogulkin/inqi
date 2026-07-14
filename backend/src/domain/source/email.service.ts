@@ -10,7 +10,7 @@ import { ErrorCode, NotFoundError } from '../../common/errors';
 import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
 import { FORCED_PERSONA_ID, Persona, assignPersona, getPersona, personaSystem } from '../agent/personas';
 import { signEmail } from './email-signature';
-import { MAIL_PROVIDER, MailProvider } from './mail.provider';
+import { MAIL_PROVIDER, MailKind, MailProvider } from './mail.provider';
 import { EmailChannelRepository } from './email.repository';
 import { SourcesService } from './sources.service';
 
@@ -171,7 +171,7 @@ export class EmailChannelService {
         continue;
       }
 
-      const { externalId } = await this.mail.send({ from: replyAddress, to: ch.to, subject: mailSubject, body });
+      const { externalId } = await this.mail.send({ kind: MailKind.Outreach, to: ch.to, replyTo: replyAddress, subject: mailSubject, body });
       // The sent-message record + its realtime event commit together (send already
       // happened above; the durable record is what makes a retry idempotent).
       await this.prisma.$transaction(async (tx) => {
@@ -209,7 +209,7 @@ export class EmailChannelService {
     // Thread the original subject ("Re: Inquiry: …") — the customer sees these emails verbatim.
     const opener = await this.emails.findFirstOutbound({ inquiryId });
     const subject = opener?.subject ? `Re: ${opener.subject.replace(/^Re:\s*/i, '')}` : 'Re: inquiry';
-    const { externalId } = await this.mail.send({ from: thread.replyAddress ?? '', to: null, subject, body: text });
+    const { externalId } = await this.mail.send({ kind: MailKind.Outreach, to: null, replyTo: thread.replyAddress ?? '', subject, body: text });
     await this.prisma.$transaction(async (tx) => {
       await this.emails.createMessage({
         data: {

@@ -6,7 +6,7 @@ import { ModelTier } from '@inqi/shared';
 import { ConfigService } from '../../infra/config/config.service';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { simulatedReplySystem } from '../../infra/ai/prompts';
-import { MailProvider, SendMailArgs, SendMailResult } from './mail.provider';
+import { MailKind, MailProvider, SendMailArgs, SendMailResult } from './mail.provider';
 
 const REPLY_DELAY_MS = 1500;
 /** Loopback replies per thread: enough for the agent's follow-ups, bounded so reply→follow-up→reply can never loop unbounded. */
@@ -48,18 +48,22 @@ export class LocalMailProvider implements MailProvider {
     this.sent.push(record);
     this.capture(record);
 
-    if (this.config.simulateReplies && args.from && !this.isIgnoring(args.from)) {
-      const thread = this.transcript.get(args.from) ?? [];
+    // Only VENDOR outreach gets a role-played reply. System mail (sign-in codes,
+    // questionnaires, delivered reports) also carries a replyTo, and simulating a
+    // "provider" answer to a customer's questionnaire address would be nonsense.
+    const replyAddress = args.kind === MailKind.Outreach ? args.replyTo : undefined;
+    if (this.config.simulateReplies && replyAddress && !this.isIgnoring(replyAddress)) {
+      const thread = this.transcript.get(replyAddress) ?? [];
       thread.push(`CUSTOMER: ${args.body}`);
-      this.transcript.set(args.from, thread);
-      const sentSoFar = this.replyCount.get(args.from) ?? 0;
+      this.transcript.set(replyAddress, thread);
+      const sentSoFar = this.replyCount.get(replyAddress) ?? 0;
       if (sentSoFar < REPLY_MAX_PER_THREAD) {
-        this.replyCount.set(args.from, sentSoFar + 1);
+        this.replyCount.set(replyAddress, sentSoFar + 1);
         // Round N of SIMULATE_REPLY_ROUNDS: early rounds withhold the quote (one
         // clarifying question), the final round quotes in full.
         const complete = sentSoFar + 1 >= this.config.simulateReplyRounds;
         setTimeout(() => {
-          void this.deliverReply({ replyAddress: args.from, subject: args.subject, inReplyTo: externalId, complete });
+          void this.deliverReply({ replyAddress, subject: args.subject, inReplyTo: externalId, complete });
         }, REPLY_DELAY_MS);
       }
     }

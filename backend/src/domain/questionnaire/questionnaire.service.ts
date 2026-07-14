@@ -7,7 +7,7 @@ import { WorkflowEngine } from '../orchestrator/workflow-engine.service';
 import { ComplianceBlockedError, DomainError, ErrorCode, NotFoundError } from '../../common/errors';
 import { ownsResource, OwnershipViewer } from '../../common/ownership';
 import { COMPLIANCE_SCORER, ComplianceScorer } from '../compliance/compliance.tokens';
-import { MAIL_PROVIDER, MailProvider } from '../source/mail.provider';
+import { MAIL_PROVIDER, MailKind, MailProvider } from '../source/mail.provider';
 import { UsageService } from '../../infra/usage/usage.service';
 import { QuestionnaireRepository } from './questionnaire.repository';
 import { QuestionnaireGenerator } from './questionnaire-generator';
@@ -157,8 +157,9 @@ export class QuestionnaireService {
       'Reply and we\'ll get started.',
       '— inqi',
     ].join('\n');
-    // from = the reply address → the provider sets ReplyTo to it, so the customer's reply routes back here.
-    await this.mail.send({ from: replyAddress, to: customerEmail, subject: 'A few quick questions about your request', body });
+    // Customer-facing: reaches the real customer, from the system sender, with ReplyTo set to
+    // the capability address so their reply routes straight back to THIS questionnaire.
+    await this.mail.send({ kind: MailKind.System, to: customerEmail, replyTo: replyAddress, subject: 'A few quick questions about your request', body });
     void this.usage.recordAction({ reportId, kind: UsageKind.EmailSent }); // cost accounting (HP-15)
     this.logger.log(`questionnaire emailed to ${customerEmail} (reply → ${replyAddress})`);
   }

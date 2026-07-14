@@ -1,6 +1,7 @@
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { LocalMailProvider } from './local-mail.provider';
+import { MailKind } from './mail.provider';
 
 /**
  * Loopback reply behavior: follow-ups get answered (bounded), and a configurable
@@ -20,7 +21,7 @@ function makeProvider({ ignoreRate }: { ignoreRate: number }) {
   return { provider: new LocalMailProvider(config as never, ai as never), config };
 }
 
-const mail = (from: string) => ({ from, to: 'provider@example.com', subject: 'Inquiry', body: 'price?' });
+const mail = (replyTo: string) => ({ kind: MailKind.Outreach, replyTo, to: 'provider@example.com', subject: 'Inquiry', body: 'price?' });
 
 describe('LocalMailProvider — simulated replies, follow-ups and ignoring providers', () => {
   beforeEach(() => jest.useFakeTimers());
@@ -52,5 +53,14 @@ describe('LocalMailProvider — simulated replies, follow-ups and ignoring provi
     (config as { simulateReplyIgnoreRate: number }).simulateReplyIgnoreRate = 1; // roll only happens on first contact
     await provider.send(mail('t3@reply.example'));
     expect(jest.getTimerCount()).toBe(2);
+  });
+
+  // System mail carries a replyTo too (the questionnaire capability address). Role-playing
+  // a "vendor" answer to the customer's own questionnaire would auto-fill it with nonsense.
+  it('never role-plays a reply to SYSTEM mail, even though it carries a replyTo', async () => {
+    const { provider } = makeProvider({ ignoreRate: 0 });
+    await provider.send({ kind: MailKind.System, replyTo: 'q1@reply.example', to: 'jane@gmail.com', subject: 'A few quick questions', body: '?' });
+    expect(jest.getTimerCount()).toBe(0);
+    expect(provider.sent).toHaveLength(1); // still captured — just not answered
   });
 });
