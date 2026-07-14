@@ -17,14 +17,27 @@ export const SERPER_PROVIDER_LABEL = 'serper';
 /** `time_range` → Google's `tbs` recency filter. */
 const TBS_BY_RANGE: Record<string, string> = { day: 'qdr:d', week: 'qdr:w', month: 'qdr:m', year: 'qdr:y' };
 
+/**
+ * A /maps call bills 3 credits (measured against the live API), vs 1 for /search — and
+ * there is no `num` to shrink it. Only used if a response somehow omits `credits`.
+ */
+const MAPS_CREDITS = 3;
+
 /** An organic web hit (POST /search). */
 interface SerperOrganic { title?: string; link?: string; snippet?: string }
-/** A place (POST /maps) — the only Serper shape that carries geo. */
+/**
+ * A place (POST /maps) — the only Serper shape that carries geo. Field names verified
+ * against the live API: the kind of business is `type` (NOT `category`), and `ratingCount`
+ * rides along with `rating` — both matter, because breadth qualifies vendors on exactly
+ * that social proof.
+ */
 interface SerperPlace {
   title?: string; address?: string; latitude?: number; longitude?: number;
-  website?: string; cid?: string; rating?: number; category?: string; phoneNumber?: string;
+  website?: string; cid?: string; rating?: number; ratingCount?: number;
+  type?: string; types?: string[]; phoneNumber?: string;
 }
-interface SerperResponse { organic?: SerperOrganic[]; places?: SerperPlace[] }
+/** `credits` is what the call actually cost — /search bills 1, /maps bills 3. */
+interface SerperResponse { organic?: SerperOrganic[]; places?: SerperPlace[]; credits?: number }
 
 /**
  * {@link WebSearchProvider} backed by Serper (hosted Google SERP API), the paid
@@ -78,11 +91,6 @@ export class SerperWebSearchProvider implements WebSearchProvider {
 
   /** General/map/social-media web search → normalized hits (capped at maxResults). */
   async webSearch(args: WebSearchArgs, opts?: { source?: WebSearchSource }): Promise<WebResult[]> {
-    // Cost accounting (HP-15): one row per Serper API call — which is exactly what
-    // Serper bills, so the cost view matches the invoice.
-    const source = opts?.source ?? sourceForStage(this.usageCtx?.current()?.stage);
-    void this.usage?.recordAction({ reportId: this.usageCtx?.reportId(), kind: UsageKind.WebSearch, model: SERPER_PROVIDER_LABEL, source });
-
     const max = this.config.webSearch.maxResults;
     // 'map' has its own endpoint (it is the only one returning coordinates). Serper has
     // no social-media index, so 'social media' degrades to a plain web search.
@@ -102,6 +110,19 @@ export class SerperWebSearchProvider implements WebSearchProvider {
       },
     });
 
+    // Cost accounting (HP-15): bill CREDITS, not calls. A /search is 1 credit but a /maps
+    // is 3 — counting calls would understate map-heavy reports by 3x. Serper reports the
+    // exact charge per response, so the cost view matches the invoice. Recorded AFTER the
+    // call on purpose: Serper doesn't bill failures, so neither do we.
+    const source = opts?.source ?? sourceForStage(this.usageCtx?.current()?.stage);
+    void this.usage?.recordAction({
+      reportId: this.usageCtx?.reportId(),
+      kind: UsageKind.WebSearch,
+      model: SERPER_PROVIDER_LABEL,
+      source,
+      quantity: res.credits ?? (isMap ? MAPS_CREDITS : 1),
+    });
+
     return (isMap ? this.fromPlaces(res.places ?? []) : this.fromOrganic(res.organic ?? [])).slice(0, max);
   }
 
@@ -119,7 +140,12 @@ export class SerperWebSearchProvider implements WebSearchProvider {
     return places.map((p) => ({
       title: p.title ?? '',
       url: p.website || (p.cid ? `https://maps.google.com/?cid=${p.cid}` : ''),
-      content: [p.category, p.rating != null ? `rating ${p.rating}` : null, p.phoneNumber].filter(Boolean).join(' · '),
+      content: [
+        p.type ?? p.types?.[0],
+        // Rating without a count is noise — "5.0" from one review qualifies nobody.
+        p.rating != null ? `rating ${p.rating}${p.ratingCount != null ? ` (${p.ratingCount} reviews)` : ''}` : null,
+        p.phoneNumber,
+      ].filter(Boolean).join(' · '),
       ...(typeof p.latitude === 'number' ? { latitude: p.latitude } : {}),
       ...(typeof p.longitude === 'number' ? { longitude: p.longitude } : {}),
       ...(p.address ? { address: p.address } : {}),

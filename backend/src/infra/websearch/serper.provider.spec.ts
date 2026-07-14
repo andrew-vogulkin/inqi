@@ -48,22 +48,29 @@ describe('SerperWebSearchProvider — general search', () => {
 });
 
 describe('SerperWebSearchProvider — map search', () => {
-  it('uses the /maps endpoint and surfaces latitude/longitude/address', async () => {
+  // Field names taken from the LIVE API: the business kind is `type`, not `category`.
+  it('uses the /maps endpoint and surfaces latitude/longitude/address + social proof', async () => {
     const fetchFn = mockFetch({
-      places: [{ title: 'The Niche Mono', address: '12 Ekkamai', latitude: 13.7045, longitude: 100.5925, website: 'https://niche.example', rating: 4.6, category: 'Cafe' }],
+      credits: 3,
+      places: [{
+        title: 'BGA Specialty Coffee', address: '83/8 Kasem Phanitchayakan Alley',
+        latitude: 13.7317, longitude: 100.5941, website: 'https://bga.example',
+        rating: 4.6, ratingCount: 212, type: 'Coffee shop', phoneNumber: '+66 97 098 9777',
+      }],
     });
-    const [hit] = await svc().provider.webSearch({ query: 'Niche Mono', category: 'map' });
+    const [hit] = await svc().provider.webSearch({ query: 'coffee ekkamai', category: 'map' });
 
     expect(calledUrl(fetchFn)).toBe('https://google.serper.dev/maps');
     expect(hit).toMatchObject({
-      title: 'The Niche Mono', url: 'https://niche.example',
-      latitude: 13.7045, longitude: 100.5925, address: '12 Ekkamai',
+      title: 'BGA Specialty Coffee', url: 'https://bga.example',
+      latitude: 13.7317, longitude: 100.5941, address: '83/8 Kasem Phanitchayakan Alley',
     });
-    expect(hit.content).toContain('rating 4.6');
+    // Breadth qualifies vendors on this — a rating with no count is noise.
+    expect(hit.content).toBe('Coffee shop · rating 4.6 (212 reviews) · +66 97 098 9777');
   });
 
-  // A place often has no website; an empty url would strand the result, because the
-  // depth agent's open_url needs something to fetch.
+  // Measured live: ~30% of places have no website. An empty url would strand the result,
+  // because the depth agent's open_url needs something to fetch.
   it('falls back to a Google Maps permalink when a place has no website', async () => {
     mockFetch({ places: [{ title: 'Nameless Bar', cid: '12345', latitude: 1, longitude: 2 }] });
     const [hit] = await svc().provider.webSearch({ query: 'bar', category: 'map' });
@@ -106,11 +113,36 @@ describe('SerperWebSearchProvider — degradations and failures', () => {
 });
 
 describe('SerperWebSearchProvider — cost accounting', () => {
-  it('records one usage row per API call, labelled `serper` (that is what Serper bills)', async () => {
-    mockFetch({ organic: [] });
+  it('bills the CREDITS Serper reports, not the call count — a /search is 1', async () => {
+    mockFetch({ organic: [], credits: 1 });
     const { provider, usage } = svc();
     await provider.webSearch({ query: 'q', category: 'general' });
-    expect(usage.recordAction).toHaveBeenCalledWith(expect.objectContaining({ model: SERPER_PROVIDER_LABEL }));
+    expect(usage.recordAction).toHaveBeenCalledWith(expect.objectContaining({ model: SERPER_PROVIDER_LABEL, quantity: 1 }));
+  });
+
+  // Measured live: /maps bills 3 credits and has no `num` to shrink it. Counting calls
+  // would understate a map-heavy report by 3x.
+  it('bills a /maps call at its real 3 credits', async () => {
+    mockFetch({ places: [], credits: 3 });
+    const { provider, usage } = svc();
+    await provider.webSearch({ query: 'q', category: 'map' });
+    expect(usage.recordAction).toHaveBeenCalledWith(expect.objectContaining({ quantity: 3 }));
+  });
+
+  it('falls back to the known /maps rate if a response omits `credits`', async () => {
+    mockFetch({ places: [] });
+    const { provider, usage } = svc();
+    await provider.webSearch({ query: 'q', category: 'map' });
+    expect(usage.recordAction).toHaveBeenCalledWith(expect.objectContaining({ quantity: 3 }));
+  });
+
+  // Serper doesn't charge for errors, so neither do we — usage is recorded only after
+  // a call actually succeeds.
+  it('records nothing when the call fails', async () => {
+    (global as unknown as { fetch: typeof fetch }).fetch = jest.fn().mockResolvedValue({ ok: false, status: 500 }) as unknown as typeof fetch;
+    const { provider, usage } = svc();
+    await expect(provider.webSearch({ query: 'q', category: 'general' })).rejects.toThrow();
+    expect(usage.recordAction).not.toHaveBeenCalled();
   });
 
   it('attributes an agent tool call to resource_get', async () => {
