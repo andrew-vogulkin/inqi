@@ -41,11 +41,20 @@ function addresses(value?: string): string[] {
 export function toInboundEmail(dto: InboundEmailDto): InboundEmail {
   const references = dto.references ?? header({ dto, name: 'References' })?.split(/\s+/).filter(Boolean);
   // OriginalRecipient is Postmark's bare delivered address — best for thread mapping.
-  const toAddr = dto.to ?? dto.toAddr ?? dto.OriginalRecipient ?? dto.To ?? '';
+  const rawTo = dto.to ?? dto.toAddr ?? dto.OriginalRecipient ?? dto.To ?? '';
+  // Strip any display name: capability routing splits this on '@', and the questionnaire
+  // sender check compares it to a bare address. Postmark delivers bare, but a Gmail/
+  // Workspace bridge delivers `"Name" <a@b>` — both must route identically.
+  const toAddr = addresses(rawTo)[0] ?? rawTo;
+  const rawFrom = dto.from ?? dto.fromAddr ?? dto.From;
+  // Same for the sender: `"Ada" <ada@x.io>` must equal the owner's `ada@x.io`, or the
+  // reply-authorization check would reject the real owner and intake would create an
+  // account under a mangled address.
+  const fromAddr = addresses(rawFrom)[0] ?? rawFrom;
   // A forwarding mailbox rewrites the delivered address, so keep the To header too
   // (+ Delivered-To, which forwarders commonly stamp with the original mailbox).
   const recipients = Array.from(new Set([
-    ...addresses(toAddr),
+    ...addresses(rawTo),
     ...addresses(dto.OriginalRecipient),
     ...addresses(dto.To),
     ...addresses(header({ dto, name: 'Delivered-To' })),
@@ -54,7 +63,7 @@ export function toInboundEmail(dto: InboundEmailDto): InboundEmail {
   return {
     toAddr,
     recipients,
-    fromAddr: dto.from ?? dto.fromAddr ?? dto.From,
+    fromAddr,
     subject: dto.subject ?? dto.Subject,
     body: dto.text ?? dto.body ?? dto.TextBody ?? dto.HtmlBody ?? '',
     // Prefer the original Message-ID header (provider's id) for threading/idempotency.
