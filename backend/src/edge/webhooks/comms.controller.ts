@@ -24,8 +24,9 @@ export class CommsInboundController {
   @ApiCreatedResponse({ type: MessageDto })
   async inbound(@Body() b: InboundEmailDto) {
     const r = await this.agent.receiveInbound(toInboundEmail(b));
-    // HP-27: an intake email created a new report (no thread message to echo back).
-    if ('intake' in r) return { reportId: r.reportId, ref: r.ref };
+    // HP-27: an intake email created a new report (no thread message to echo back), or was
+    // refused by the credit gate — 200 either way, so the provider never retries a refusal.
+    if ('intake' in r) return { reportId: r.reportId, ref: r.ref, ...(r.refused ? { refused: true } : {}) };
     return r.message;
   }
 }

@@ -334,6 +334,17 @@ export class ConfigService {
   }
 
   /**
+   * Minimum credit balance an email-intake sender must already hold for their email to
+   * start a report. Email intake is unauthenticated — anyone who knows the address can
+   * spend our tokens — so the balance IS the authorization: only an existing customer who
+   * can pay for the report gets one. Below this, the email is refused (and the freemium
+   * free-report slot is never handed out over email).
+   */
+  get intakeMinCredits(): number {
+    return Math.max(0, Number(process.env.INTAKE_MIN_CREDITS ?? 1));
+  }
+
+  /**
    * Cost price table (HP-15) — per-model $/1K tokens + per-action prices, single
    * currency. Configurable: `PRICE_TABLE_JSON` overrides the defaults wholesale.
    * `qwen_local` (alias `qwen`) is free; unknown models price at 0.
