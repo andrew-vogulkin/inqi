@@ -85,12 +85,21 @@ export class ConfigService {
   }
 
   /**
-   * HP-27: the intake address. An inbound email TO this address starts a brand-new
-   * report owned by the sender (no session, auto-created account). Empty → the
-   * email-intake path is disabled. Matched case-insensitively on the full address.
+   * HP-27: the intake address(es), comma-separated. An inbound email TO any of them
+   * starts a brand-new report owned by the sender (no session, auto-created account).
+   * Empty → the email-intake path is disabled. Matched case-insensitively on the full
+   * address.
+   *
+   * A list, because intake must be RECEIVED by the inbound provider: the provider's own
+   * inbound address works out of the box, and any address on the inbound MX domain works
+   * too — while a mailbox on a domain whose MX belongs to someone else (e.g. Google) can
+   * only reach us by forwarding.
    */
-  get intakeAddress(): string {
-    return (process.env.INTAKE_ADDRESS ?? 'intake_inqi@monkeycode.io').trim().toLowerCase();
+  get intakeAddresses(): string[] {
+    return (process.env.INTAKE_ADDRESS ?? 'intake_inqi@monkeycode.io')
+      .split(',')
+      .map((a) => a.trim().toLowerCase())
+      .filter(Boolean);
   }
 
   get questionnaireTtlHours(): number {
@@ -322,6 +331,17 @@ export class ConfigService {
    */
   get reportCostCredits(): number {
     return Math.max(0, Number(process.env.REPORT_COST_CREDITS ?? 1));
+  }
+
+  /**
+   * Minimum credit balance an email-intake sender must already hold for their email to
+   * start a report. Email intake is unauthenticated — anyone who knows the address can
+   * spend our tokens — so the balance IS the authorization: only an existing customer who
+   * can pay for the report gets one. Below this, the email is refused (and the freemium
+   * free-report slot is never handed out over email).
+   */
+  get intakeMinCredits(): number {
+    return Math.max(0, Number(process.env.INTAKE_MIN_CREDITS ?? 1));
   }
 
   /**

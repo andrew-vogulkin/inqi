@@ -38,6 +38,7 @@ describe('toInboundEmail', () => {
     });
     expect(r).toEqual({
       toAddr: 'abc@reply.inqi.example',
+      recipients: ['abc@reply.inqi.example'],
       fromAddr: 'p@x.com',
       subject: 'Re',
       body: 'hi',
@@ -51,5 +52,36 @@ describe('toInboundEmail', () => {
     const r = toInboundEmail({ OriginalRecipient: 'a@b', From: 'c@d', MessageID: 'pm-1', HtmlBody: '<p>hi</p>' });
     expect(r.externalId).toBe('pm-1');
     expect(r.body).toBe('<p>hi</p>');
+  });
+
+  // A forwarding mailbox (Google Workspace → Postmark inbound) delivers to Postmark's
+  // hash address; the address the sender actually typed survives only in To/Delivered-To.
+  it('collects every recipient address, so a FORWARDED email still exposes the original To', () => {
+    const r = toInboundEmail({
+      OriginalRecipient: 'a1b2c3@inbound.postmarkapp.com',
+      To: '"inqi intake" <intake_inqi@monkeycode.io>',
+      From: 'ada@x.io',
+      TextBody: 'find me a car',
+      Headers: [{ Name: 'Delivered-To', Value: 'intake_inqi@monkeycode.io' }],
+    });
+    // Thread routing still uses the delivered address …
+    expect(r.toAddr).toBe('a1b2c3@inbound.postmarkapp.com');
+    // … but the intake mailbox is recoverable, with the display name stripped.
+    expect(r.recipients).toContain('intake_inqi@monkeycode.io');
+    expect(r.recipients).toContain('a1b2c3@inbound.postmarkapp.com');
+  });
+
+  // Postmark hands us bare addresses; a Gmail/Workspace bridge hands us `"Name" <a@b>`.
+  // The owner check compares fromAddr to a bare address and capability routing splits
+  // toAddr on '@' — a display name would break both, so strip it at the boundary.
+  it('strips display names from From and To (Gmail-shaped payload)', () => {
+    const r = toInboundEmail({
+      To: '"inqi" <7f3a@inqi-postmark-reply.monkeycode.io>',
+      From: '"Ada Lovelace" <Ada@X.io>',
+      Subject: 'Re: A few quick questions',
+      TextBody: 'under 3000 THB, evenings',
+    });
+    expect(r.toAddr).toBe('7f3a@inqi-postmark-reply.monkeycode.io'); // capability address, routable
+    expect(r.fromAddr).toBe('ada@x.io');                             // bare + normalized → owner check matches
   });
 });

@@ -3,6 +3,14 @@ import { InboundEmailDto } from './inbound-email.dto';
 /** Normalized inbound email the agent ingests (independent of the wire format). */
 export interface InboundEmail {
   toAddr: string;
+  /**
+   * EVERY address this email was addressed to — the delivered address AND the original
+   * `To:` header. A mailbox that FORWARDS into the webhook (Google Workspace →
+   * Postmark inbound) rewrites the delivered address to the forwarder's own, so the
+   * address the human actually typed (e.g. the intake mailbox) survives only in `To:`.
+   * Capability/reply routing still uses {@link toAddr}; intake matches any of these.
+   */
+  recipients?: string[];
   fromAddr?: string;
   subject?: string;
   body: string;
@@ -16,6 +24,15 @@ function header({ dto, name }: { dto: InboundEmailDto; name: string }): string |
   return dto.Headers?.find((h) => h.Name?.toLowerCase() === name.toLowerCase())?.Value;
 }
 
+/** Bare addresses from an RFC 5322 address list: `"inqi" <a@x>, b@y` → ['a@x', 'b@y']. */
+function addresses(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((part) => (part.match(/<([^>]+)>/)?.[1] ?? part).trim().toLowerCase())
+    .filter((a) => a.includes('@'));
+}
+
 /**
  * Map an inbound webhook payload (Postmark capitalized fields or internal
  * lowercase keys) to the normalized {@link InboundEmail}. Pure + unit-tested so
@@ -23,10 +40,30 @@ function header({ dto, name }: { dto: InboundEmailDto; name: string }): string |
  */
 export function toInboundEmail(dto: InboundEmailDto): InboundEmail {
   const references = dto.references ?? header({ dto, name: 'References' })?.split(/\s+/).filter(Boolean);
+  // OriginalRecipient is Postmark's bare delivered address — best for thread mapping.
+  const rawTo = dto.to ?? dto.toAddr ?? dto.OriginalRecipient ?? dto.To ?? '';
+  // Strip any display name: capability routing splits this on '@', and the questionnaire
+  // sender check compares it to a bare address. Postmark delivers bare, but a Gmail/
+  // Workspace bridge delivers `"Name" <a@b>` — both must route identically.
+  const toAddr = addresses(rawTo)[0] ?? rawTo;
+  const rawFrom = dto.from ?? dto.fromAddr ?? dto.From;
+  // Same for the sender: `"Ada" <ada@x.io>` must equal the owner's `ada@x.io`, or the
+  // reply-authorization check would reject the real owner and intake would create an
+  // account under a mangled address.
+  const fromAddr = addresses(rawFrom)[0] ?? rawFrom;
+  // A forwarding mailbox rewrites the delivered address, so keep the To header too
+  // (+ Delivered-To, which forwarders commonly stamp with the original mailbox).
+  const recipients = Array.from(new Set([
+    ...addresses(rawTo),
+    ...addresses(dto.OriginalRecipient),
+    ...addresses(dto.To),
+    ...addresses(header({ dto, name: 'Delivered-To' })),
+    ...addresses(header({ dto, name: 'X-Original-To' })),
+  ]));
   return {
-    // OriginalRecipient is Postmark's bare delivered address — best for thread mapping.
-    toAddr: dto.to ?? dto.toAddr ?? dto.OriginalRecipient ?? dto.To ?? '',
-    fromAddr: dto.from ?? dto.fromAddr ?? dto.From,
+    toAddr,
+    recipients,
+    fromAddr,
     subject: dto.subject ?? dto.Subject,
     body: dto.text ?? dto.body ?? dto.TextBody ?? dto.HtmlBody ?? '',
     // Prefer the original Message-ID header (provider's id) for threading/idempotency.

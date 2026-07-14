@@ -30,6 +30,11 @@ export class CustomerService {
     return this.customers.upsertByEmail(args);
   }
 
+  /** Look up WITHOUT creating (email intake asks "do you exist?" before enrolling anyone). */
+  findByEmail({ email, tx }: { email: string; tx?: DbTx }) {
+    return this.customers.findByEmail({ email, tx });
+  }
+
   findById({ id, tx }: { id: string; tx?: DbTx }) {
     return this.customers.findById({ id, tx });
   }

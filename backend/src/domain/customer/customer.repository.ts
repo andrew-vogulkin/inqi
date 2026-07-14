@@ -42,6 +42,11 @@ export class CustomerRepository {
     return this.exec(tx).customer.findUnique({ where: { id } });
   }
 
+  /** Look up WITHOUT creating — email intake must be able to ask "do you exist?" without enrolling you. */
+  findByEmail({ email, tx }: { email: string; tx?: DbTx }) {
+    return this.exec(tx).customer.findUnique({ where: { email } });
+  }
+
   // --- HP-25: admin user directory + suspension ---------------------------
 
   /**
