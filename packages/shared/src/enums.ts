@@ -167,10 +167,10 @@ export type AiDriver = (typeof AiDriver)[keyof typeof AiDriver];
 
 /** Web-search tool backend selected via DI. */
 export const WebSearchDriver = {
-  /** Self-hosted SearXNG instance (local). */
+  /** Self-hosted SearXNG instance: free, but a shared/scraped index — rate-limited, so throttled to 1 req/s. */
   Searxng: 'searxng',
-  /** A future hosted/cloud search API. */
-  Cloud: 'cloud',
+  /** Serper: hosted Google SERP API. Paid per query, high concurrency, no throttle. */
+  Serper: 'serper',
 } as const;
 export type WebSearchDriver = (typeof WebSearchDriver)[keyof typeof WebSearchDriver];
 

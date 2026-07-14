@@ -16,6 +16,13 @@ export type WebSearchCategory = (typeof WEB_SEARCH_CATEGORIES)[number];
 export type WebSearchToolName = 'web_search' | 'translate' | 'currency_convert';
 
 /**
+ * The one tool every provider must serve, and the only one the agent is ever handed.
+ * `translate` / `currency_convert` are SearXNG-only extras — a hosted SERP API has no
+ * equivalent, so a provider may legitimately advertise `web_search` alone.
+ */
+export const WEB_SEARCH_TOOL_NAME: WebSearchToolName = 'web_search';
+
+/**
  * The tool array exposed to the model. Each tool maps to exactly one SearXNG
  * `…/search?format=json` request (see {@link WebSearchService}). Kept as a plain
  * literal so it can be passed straight into an OpenAI-compatible `tools` field.

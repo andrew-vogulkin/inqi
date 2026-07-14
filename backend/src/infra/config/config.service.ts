@@ -373,8 +373,21 @@ export class ConfigService {
   /** Which web-search backend to bind to WEB_SEARCH. Explicit WEBSEARCH_DRIVER wins; defaults to the self-hosted SearXNG. */
   get webSearchDriver(): WebSearchDriver {
     const explicit = process.env.WEBSEARCH_DRIVER?.toLowerCase();
-    if (explicit === WebSearchDriver.Searxng || explicit === WebSearchDriver.Cloud) return explicit;
+    if (explicit === WebSearchDriver.Searxng || explicit === WebSearchDriver.Serper) return explicit;
     return WebSearchDriver.Searxng;
+  }
+
+  /**
+   * Serper (hosted Google SERP API) — only read when `webSearchDriver` is `serper`.
+   * Billed per query, so `maxResults` matters: Serper charges 1 credit for ≤10 results
+   * and 2 for 11–100 (our default of 8 stays in the 1-credit band).
+   */
+  get serper(): { apiKey?: string; baseUrl: string; timeoutMs: number } {
+    return {
+      apiKey: process.env.SERPER_API_KEY,
+      baseUrl: process.env.SERPER_BASE_URL ?? 'https://google.serper.dev',
+      timeoutMs: Number(process.env.SERPER_TIMEOUT_MS ?? 10_000),
+    };
   }
 
   /**
