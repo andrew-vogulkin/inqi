@@ -1,9 +1,9 @@
 import { IntakeService } from './intake.service';
 
-function make({ intake = 'intake_inqi@monkeycode.io' }: { intake?: string } = {}) {
+function make({ intake = ['intake_inqi@monkeycode.io'] }: { intake?: string[] } = {}) {
   const customers = { upsertByEmail: jest.fn().mockResolvedValue({ id: 'c1', email: 'ada@x.io' }) };
   const reports = { createFromEmail: jest.fn().mockResolvedValue({ id: 'r1', ref: 'RPT-260713-05' }) };
-  const config = { intakeAddress: intake };
+  const config = { intakeAddresses: intake };
   return { svc: new IntakeService(customers as never, reports as never, config as never), customers, reports };
 }
 
@@ -17,8 +17,17 @@ describe('IntakeService (HP-27)', () => {
   });
 
   it('is disabled when no intake address is configured', () => {
-    const { svc } = make({ intake: '' });
+    const { svc } = make({ intake: [] });
     expect(svc.isIntakeAddress('intake_inqi@monkeycode.io')).toBe(false);
+  });
+
+  // Intake must be RECEIVED by the inbound provider, so more than one address can be
+  // live at once: the provider's own inbound address and a branded one on the MX domain.
+  it('accepts ANY of several configured intake addresses', () => {
+    const { svc } = make({ intake: ['4599a2a2@inbound.postmarkapp.com', 'intake@inqi-postmark-reply.monkeycode.io'] });
+    expect(svc.isIntakeAddress('4599a2a2@inbound.postmarkapp.com')).toBe(true);
+    expect(svc.isIntakeAddress('Intake@Inqi-Postmark-Reply.Monkeycode.io')).toBe(true);
+    expect(svc.isIntakeAddress('intake_inqi@monkeycode.io')).toBe(false); // not configured → not intake
   });
 
   // The intake mailbox is on Google Workspace, which FORWARDS into Postmark's inbound

@@ -85,12 +85,21 @@ export class ConfigService {
   }
 
   /**
-   * HP-27: the intake address. An inbound email TO this address starts a brand-new
-   * report owned by the sender (no session, auto-created account). Empty → the
-   * email-intake path is disabled. Matched case-insensitively on the full address.
+   * HP-27: the intake address(es), comma-separated. An inbound email TO any of them
+   * starts a brand-new report owned by the sender (no session, auto-created account).
+   * Empty → the email-intake path is disabled. Matched case-insensitively on the full
+   * address.
+   *
+   * A list, because intake must be RECEIVED by the inbound provider: the provider's own
+   * inbound address works out of the box, and any address on the inbound MX domain works
+   * too — while a mailbox on a domain whose MX belongs to someone else (e.g. Google) can
+   * only reach us by forwarding.
    */
-  get intakeAddress(): string {
-    return (process.env.INTAKE_ADDRESS ?? 'intake_inqi@monkeycode.io').trim().toLowerCase();
+  get intakeAddresses(): string[] {
+    return (process.env.INTAKE_ADDRESS ?? 'intake_inqi@monkeycode.io')
+      .split(',')
+      .map((a) => a.trim().toLowerCase())
+      .filter(Boolean);
   }
 
   get questionnaireTtlHours(): number {

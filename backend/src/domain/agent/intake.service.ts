@@ -27,10 +27,11 @@ export class IntakeService {
     private readonly config: ConfigService,
   ) {}
 
-  /** True iff this address IS the intake mailbox (case-insensitive, full address). */
+  /** True iff this address IS one of the intake mailboxes (case-insensitive, full address). */
   isIntakeAddress(toAddr?: string): boolean {
-    const intake = this.config.intakeAddress;
-    return !!intake && !!toAddr && toAddr.trim().toLowerCase() === intake;
+    if (!toAddr) return false;
+    const addr = toAddr.trim().toLowerCase();
+    return this.config.intakeAddresses.includes(addr);
   }
 
   /**
