@@ -27,10 +27,21 @@ export class IntakeService {
     private readonly config: ConfigService,
   ) {}
 
-  /** True iff this inbound was addressed to the intake mailbox (case-insensitive, full address). */
+  /** True iff this address IS the intake mailbox (case-insensitive, full address). */
   isIntakeAddress(toAddr?: string): boolean {
     const intake = this.config.intakeAddress;
     return !!intake && !!toAddr && toAddr.trim().toLowerCase() === intake;
+  }
+
+  /**
+   * Was this inbound addressed to the intake mailbox on ANY of its recipient addresses?
+   * The intake mailbox lives on a mail host that FORWARDS into the webhook (Google
+   * Workspace → Postmark inbound), and forwarding rewrites the delivered address — so
+   * matching only the delivered address would miss every real intake email. The address
+   * the sender actually typed survives in the To/Delivered-To headers.
+   */
+  isIntake({ toAddr, recipients }: { toAddr?: string; recipients?: string[] }): boolean {
+    return [toAddr, ...(recipients ?? [])].some((a) => this.isIntakeAddress(a));
   }
 
   /** Create a report from an inbound intake email. Sender = owner (auto-created). */

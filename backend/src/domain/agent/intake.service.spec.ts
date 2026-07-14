@@ -21,6 +21,30 @@ describe('IntakeService (HP-27)', () => {
     expect(svc.isIntakeAddress('intake_inqi@monkeycode.io')).toBe(false);
   });
 
+  // The intake mailbox is on Google Workspace, which FORWARDS into Postmark's inbound
+  // address — so the delivered address is Postmark's hash, not the intake mailbox. If we
+  // only matched the delivered address, no real intake email would ever open a report.
+  it('recognizes a FORWARDED intake email, where the delivered address is the forwarder\'s', () => {
+    const { svc } = make();
+    expect(svc.isIntake({
+      toAddr: 'a1b2c3@inbound.postmarkapp.com',              // delivered address (Postmark)
+      recipients: ['a1b2c3@inbound.postmarkapp.com', 'intake_inqi@monkeycode.io'], // original To survives
+    })).toBe(true);
+  });
+
+  it('does not treat an unrelated forwarded email as intake', () => {
+    const { svc } = make();
+    expect(svc.isIntake({
+      toAddr: 'a1b2c3@inbound.postmarkapp.com',
+      recipients: ['a1b2c3@inbound.postmarkapp.com', 'hello@monkeycode.io'],
+    })).toBe(false);
+  });
+
+  it('still matches a directly-delivered intake email (no forwarder)', () => {
+    const { svc } = make();
+    expect(svc.isIntake({ toAddr: 'intake_inqi@monkeycode.io', recipients: ['intake_inqi@monkeycode.io'] })).toBe(true);
+  });
+
   it('creates a report owned by the sender, folding the subject into the request', async () => {
     const { svc, customers, reports } = make();
     const ack = await svc.createReportFromEmail({ fromAddr: 'Ada@X.io', subject: 'Need a photographer', body: 'in Bali, December, 2 days' });

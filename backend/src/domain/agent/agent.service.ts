@@ -10,6 +10,7 @@ import { UsageService } from '../../infra/usage/usage.service';
 import { EmailChannelService, IngestResult } from '../source/email.service';
 import { SourcesService } from '../source/sources.service';
 import { ReportContextService } from '../report/report-context.service';
+import { InboundEmail } from '../../edge/webhooks/inbound-email.mapper';
 import { getPersona } from './personas';
 import { AgentRepository } from './agent.repository';
 import { IntakeService, IntakeAck } from './intake.service';
@@ -63,10 +64,10 @@ export class AgentService implements OnModuleInit {
   }
 
   /** Ingest an inbound email and kick the reply loop (idempotent on Message-ID). */
-  async receiveInbound(email: Parameters<EmailChannelService['ingestInbound']>[0]): Promise<IngestResult | IntakeAck> {
+  async receiveInbound(email: InboundEmail): Promise<IngestResult | IntakeAck> {
     // HP-27: an email to the intake address starts a brand-new report (not a reply
     // to an existing thread), owned by the sender with an auto-created account.
-    if (this.intake.isIntakeAddress(email.toAddr)) {
+    if (this.intake.isIntake({ toAddr: email.toAddr, recipients: email.recipients })) {
       return this.intake.createReportFromEmail({ fromAddr: email.fromAddr, subject: email.subject, body: email.body });
     }
     // HP-27: a reply to a questionnaire reply address settles the questionnaire

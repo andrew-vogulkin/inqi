@@ -38,6 +38,7 @@ describe('toInboundEmail', () => {
     });
     expect(r).toEqual({
       toAddr: 'abc@reply.inqi.example',
+      recipients: ['abc@reply.inqi.example'],
       fromAddr: 'p@x.com',
       subject: 'Re',
       body: 'hi',
@@ -51,5 +52,22 @@ describe('toInboundEmail', () => {
     const r = toInboundEmail({ OriginalRecipient: 'a@b', From: 'c@d', MessageID: 'pm-1', HtmlBody: '<p>hi</p>' });
     expect(r.externalId).toBe('pm-1');
     expect(r.body).toBe('<p>hi</p>');
+  });
+
+  // A forwarding mailbox (Google Workspace → Postmark inbound) delivers to Postmark's
+  // hash address; the address the sender actually typed survives only in To/Delivered-To.
+  it('collects every recipient address, so a FORWARDED email still exposes the original To', () => {
+    const r = toInboundEmail({
+      OriginalRecipient: 'a1b2c3@inbound.postmarkapp.com',
+      To: '"inqi intake" <intake_inqi@monkeycode.io>',
+      From: 'ada@x.io',
+      TextBody: 'find me a car',
+      Headers: [{ Name: 'Delivered-To', Value: 'intake_inqi@monkeycode.io' }],
+    });
+    // Thread routing still uses the delivered address …
+    expect(r.toAddr).toBe('a1b2c3@inbound.postmarkapp.com');
+    // … but the intake mailbox is recoverable, with the display name stripped.
+    expect(r.recipients).toContain('intake_inqi@monkeycode.io');
+    expect(r.recipients).toContain('a1b2c3@inbound.postmarkapp.com');
   });
 });
