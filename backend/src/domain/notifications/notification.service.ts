@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { EventType, NotificationKind, QueueJob, UsageKind } from '@inqi/shared';
+import { EventType, NotificationKind, QueueJob, ReportOrigin, UsageKind } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ConfigService } from '../../infra/config/config.service';
@@ -93,12 +93,15 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
 
   /** Per-kind template context; null → skip the send (nothing sensible to say). */
   private async buildContext({ kind, reportId, inq }: {
-    kind: NotificationKind; reportId: string; inq: { denyReason: string | null; rawRequest: string };
+    kind: NotificationKind; reportId: string; inq: { denyReason: string | null; rawRequest: string; origin: string };
   }): Promise<TemplateContext | null> {
     switch (kind) {
       case NotificationKind.ReportReceived:
         return { reportUrl: this.reportUrl(reportId), request: inq.rawRequest };
       case NotificationKind.QuestionnaireRequest: {
+        // HP-27: an email-originated report gets the questions AS AN EMAIL (with a
+        // reply address) from the send step — not this web-link notification.
+        if (inq.origin === ReportOrigin.Email) return null;
         const q = await this.repo.findQuestionnaireByReport({ reportId });
         if (!q || q.confirmed) return null; // no questionnaire (denied earlier) or already confirmed — don't nag
         return { questionnaireUrl: this.questionnaireUrl(q.token), expiresAt: q.expiresAt };
@@ -120,11 +123,17 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     const snapshot = await this.repo.findSnapshotByReport({ reportId });
     if (!snapshot || (snapshot.freemium && !snapshot.unlocked)) return {};
     const ranked = Array.isArray(snapshot.options) ? (snapshot.options as Record<string, unknown>[]) : [];
-    const options: TemplateOption[] = ranked.slice(0, EMAIL_TOP_OPTIONS).map((o) => ({
-      name: String(o.subjectProvider ?? ''),
-      price: typeof o.price === 'number' ? o.price : null,
-      currency: typeof o.currency === 'string' ? o.currency : null,
-    })).filter((o) => o.name);
+    const options: TemplateOption[] = ranked.slice(0, EMAIL_TOP_OPTIONS).map((o) => {
+      const name = String(o.subjectProvider ?? '');
+      const ref = String(o.ref ?? o.subjectProvider ?? '');
+      return {
+        name,
+        price: typeof o.price === 'number' ? o.price : null,
+        currency: typeof o.currency === 'string' ? o.currency : null,
+        // HP-27: a direct deep link to each option's dossier, so the emailed report is actionable.
+        link: name && ref ? this.optionUrl({ reportId, ref }) : null,
+      };
+    }).filter((o) => o.name);
     return { summary: snapshot.summary, options };
   }
 
@@ -157,6 +166,9 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
 
   private reportUrl(reportId: string): string {
     return `${this.config.webBaseUrl}/#/r/${reportId}`; // capability webview (by report id, HP-08)
+  }
+  private optionUrl({ reportId, ref }: { reportId: string; ref: string }): string {
+    return `${this.config.webBaseUrl}/#/d/${reportId}/${encodeURIComponent(ref)}`; // per-option dossier deep link (HP-27)
   }
   private questionnaireUrl(token: string): string {
     return `${this.config.webBaseUrl}/#/q/${token}`; // capability-token link into the web app

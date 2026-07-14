@@ -24,6 +24,8 @@ export class CommsInboundController {
   @ApiCreatedResponse({ type: MessageDto })
   async inbound(@Body() b: InboundEmailDto) {
     const r = await this.agent.receiveInbound(toInboundEmail(b));
+    // HP-27: an intake email created a new report (no thread message to echo back).
+    if ('intake' in r) return { reportId: r.reportId, ref: r.ref };
     return r.message;
   }
 }

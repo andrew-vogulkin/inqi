@@ -13,7 +13,7 @@ export class NotificationRepository {
   }
 
   findReport({ id, tx }: { id: string; tx?: DbTx }) {
-    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, ref: true, customerEmail: true, state: true, denyReason: true, rawRequest: true } });
+    return this.exec(tx).report.findUnique({ where: { id }, select: { id: true, ref: true, customerEmail: true, state: true, denyReason: true, rawRequest: true, origin: true } });
   }
 
   /** Admin recipients for ops alerts (e.g. a free report was run). Empty = no admins configured. */

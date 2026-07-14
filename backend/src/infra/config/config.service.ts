@@ -84,8 +84,27 @@ export class ConfigService {
     return process.env.INBOUND_DOMAIN ?? 'reply.inqi.example';
   }
 
+  /**
+   * HP-27: the intake address. An inbound email TO this address starts a brand-new
+   * report owned by the sender (no session, auto-created account). Empty → the
+   * email-intake path is disabled. Matched case-insensitively on the full address.
+   */
+  get intakeAddress(): string {
+    return (process.env.INTAKE_ADDRESS ?? 'intake_inqi@monkeycode.io').trim().toLowerCase();
+  }
+
   get questionnaireTtlHours(): number {
     return Number(process.env.QUESTIONNAIRE_TTL_HOURS ?? 72);
+  }
+
+  /**
+   * Autopilot (HP-26): when true (default), pre-research auto-answers the scope
+   * questionnaire from the request and runs straight through — the human is only
+   * asked when the model itself flags a question it can't confidently infer.
+   * Set AUTOPILOT_QUESTIONNAIRE=false to always require the customer to fill it.
+   */
+  get autopilotQuestionnaire(): boolean {
+    return (process.env.AUTOPILOT_QUESTIONNAIRE ?? 'true') !== 'false';
   }
 
   /** When true, the pipeline fabricates inbound replies so it runs end-to-end without a mail provider. */
@@ -337,17 +356,18 @@ export class ConfigService {
    * origin (the provider appends `/search?format=json`); results are capped to
    * `maxResults` and each request is bounded by `timeoutMs`.
    */
-  get webSearch(): { baseUrl: string; timeoutMs: number; maxResults: number; maxConcurrency: number; minSpacingMs: number; emptyRetryMs: number } {
+  get webSearch(): { baseUrl: string; timeoutMs: number; maxResults: number; requestIntervalMs: number; emptyRetryMs: number } {
     return {
       baseUrl: process.env.WEBSEARCH_BASE_URL ?? 'https://orange.tail035fe2.ts.net:8443',
       timeoutMs: Number(process.env.WEBSEARCH_TIMEOUT_MS ?? 10_000),
       maxResults: Number(process.env.WEBSEARCH_MAX_RESULTS ?? 8),
-      // SearXNG fronts rate-limited public engines: a burst of parallel queries
-      // (breadth/depth fire ~10 at once) mostly comes back 200-with-empty. Cap
-      // concurrency + space out request starts so each query is actually served,
-      // and retry once (after `emptyRetryMs`) when a result set comes back empty.
-      maxConcurrency: Number(process.env.WEBSEARCH_MAX_CONCURRENCY ?? 2),
-      minSpacingMs: Number(process.env.WEBSEARCH_MIN_SPACING_MS ?? 350),
+      // Global rate limit for outbound engine requests: the provider serialises every
+      // search through one async queue that admits at most one request per
+      // `requestIntervalMs` (default 1000 → 1 req/s across the whole process, all
+      // reports). Protects the shared engines and keeps our egress a well-behaved
+      // client. `emptyRetryMs` still retries once when a result set comes back empty
+      // (that retry also takes a rate slot).
+      requestIntervalMs: Number(process.env.WEBSEARCH_MIN_INTERVAL_MS ?? 1000),
       emptyRetryMs: Number(process.env.WEBSEARCH_EMPTY_RETRY_MS ?? 800),
     };
   }

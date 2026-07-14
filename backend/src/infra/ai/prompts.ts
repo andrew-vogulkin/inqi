@@ -132,6 +132,37 @@ export function questionnaireSystem({ expertise }: { expertise: string }): strin
 }
 
 /**
+ * Autopilot auto-answer (HP-26): answer the scope questionnaire on the customer's
+ * behalf by inferring from their request, so the pipeline can run without a human.
+ * Only defer to the customer when a decisive question genuinely can't be inferred.
+ */
+export function questionnaireAutofillSystem(): string {
+  return [
+    '[stage:questionnaire-autofill] You are an operator completing a scope questionnaire ON BEHALF of the customer, inferring each answer from their original request.',
+    'You get the customer request, the subject, and the questions (each with its allowed options and whether multiple may be chosen).',
+    'Respond with STRICT JSON only: { "answers": { "<question_id>": "<chosen option, or comma-joined options for multi>" }, "needsHuman": boolean, "reason": string }.',
+    'For every question pick the option(s) best supported by the request. If the request does not settle a low-stakes choice, pick "Decide for me" (always an allowed option) rather than guessing — do NOT invent options outside the given list.',
+    'Set "needsHuman": true ONLY when a DECISIVE question (e.g. a hard budget ceiling, a firm deadline, a legally material constraint) cannot be reasonably inferred AND choosing wrong would waste the whole run. Prefer to proceed autonomously ("Decide for me") for anything low-stakes.',
+    'Keep "reason" to one short sentence naming what forced human input (or "inferred all" when confident).',
+  ].join('\n');
+}
+
+/**
+ * HP-27: parse a customer's free-text EMAIL reply to the scope questionnaire into
+ * the structured answer map. The customer replied in prose, not a form — map what
+ * they said onto the given options, and read whether they confirmed the scope.
+ */
+export function questionnaireReplyParseSystem(): string {
+  return [
+    '[stage:questionnaire-reply] The customer replied to a scope questionnaire by EMAIL, in free text. Map their reply onto the structured questions.',
+    'You get the questions (each with its allowed options + whether multiple may be chosen) and the raw email reply.',
+    'Respond with STRICT JSON only: { "answers": { "<question_id>": "<chosen option, or comma-joined options for multi>" }, "confirmedSubject": boolean }.',
+    'For each question choose the option(s) best matching what the customer wrote; if they did not address it, use "Decide for me" (always an allowed option). Never invent options outside the given list.',
+    '"confirmedSubject" is true unless the customer clearly objected to the scope / asked to change the request — a plain answer or "yes/go ahead" means confirmed.',
+  ].join('\n');
+}
+
+/**
  * The customer's ranking priority, phrased for the depth prompts. Price → hunt the
  * publicly announced price; quality → evaluate presence + number of mentions/reviews.
  */

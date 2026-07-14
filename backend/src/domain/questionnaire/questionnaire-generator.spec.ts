@@ -78,3 +78,28 @@ describe('QuestionnaireGenerator (the questionnaire research agent)', () => {
     expect(toolStructured).not.toHaveBeenCalled();
   });
 });
+
+describe('QuestionnaireGenerator.parseReply (email answers, HP-27)', () => {
+  const questions = [
+    { id: 'budget', type: QuestionType.Select, prompt: 'budget?', options: ['low', 'mid', DECIDE_FOR_ME] },
+    { id: 'confirm', type: QuestionType.Confirm, prompt: 'ok to start?' },
+  ];
+  const genWith = (ai: object) => new QuestionnaireGenerator(ai as never, WEB as never);
+
+  it('AI unconfigured → Decide-for-me defaults + confirmed (never stalls)', async () => {
+    const r = await genWith({ isConfigured: () => false }).parseReply({ questions, replyBody: 'anything' });
+    expect(r).toEqual({ answers: { budget: DECIDE_FOR_ME }, confirmedSubject: true });
+  });
+
+  it('maps the free-text reply onto options and reads the confirm', async () => {
+    const structured = jest.fn(async ({ validate }: { validate: (raw: unknown) => unknown }) => validate({ answers: { budget: 'mid' }, confirmedSubject: true }));
+    const r = await genWith({ isConfigured: () => true, structured }).parseReply({ questions, replyBody: 'around mid, go ahead' });
+    expect(r).toEqual({ answers: { budget: 'mid' }, confirmedSubject: true });
+  });
+
+  it('a parse error falls back to safe defaults', async () => {
+    const structured = jest.fn().mockRejectedValue(new Error('boom'));
+    const r = await genWith({ isConfigured: () => true, structured }).parseReply({ questions, replyBody: 'x' });
+    expect(r).toEqual({ answers: { budget: DECIDE_FOR_ME }, confirmedSubject: true });
+  });
+});

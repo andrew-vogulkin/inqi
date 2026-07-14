@@ -1,9 +1,9 @@
 import { ConfigService } from '../config/config.service';
 import { SearxngWebSearchProvider } from './searxng.provider';
 
-function svc(): SearxngWebSearchProvider {
-  // minSpacingMs/emptyRetryMs = 0 keeps the throttle + retry no-delay in unit tests.
-  const config = { webSearch: { baseUrl: 'https://searx.test:8443', timeoutMs: 5000, maxResults: 8, maxConcurrency: 4, minSpacingMs: 0, emptyRetryMs: 0 } } as unknown as ConfigService;
+function svc(over: Partial<{ requestIntervalMs: number; emptyRetryMs: number }> = {}): SearxngWebSearchProvider {
+  // requestIntervalMs/emptyRetryMs = 0 keeps the rate limiter + retry no-delay in unit tests.
+  const config = { webSearch: { baseUrl: 'https://searx.test:8443', timeoutMs: 5000, maxResults: 8, requestIntervalMs: 0, emptyRetryMs: 0, ...over } } as unknown as ConfigService;
   return new SearxngWebSearchProvider(config);
 }
 
@@ -139,5 +139,24 @@ describe('WebSearchService', () => {
 
   it('exposes the three tool definitions for the model', () => {
     expect(svc().tools.map((t) => t.function.name)).toEqual(['web_search', 'translate', 'currency_convert']);
+  });
+
+  describe('global rate limit', () => {
+    it('spaces consecutive engine requests by at least requestIntervalMs, even when fired concurrently', async () => {
+      const interval = 40;
+      const provider = svc({ requestIntervalMs: interval });
+      const starts: number[] = [];
+      const fn = jest.fn().mockImplementation(async () => { starts.push(Date.now()); return { ok: true, json: async () => ({ results: [{ title: 'T', url: 'u', content: 'C' }] }) }; });
+      (global as unknown as { fetch: typeof fetch }).fetch = fn as unknown as typeof fetch;
+
+      // Fire five searches at once — they share ONE global queue, not five parallel starts.
+      await Promise.all(Array.from({ length: 5 }, () => provider.webSearch({ query: 'q', category: 'general' })));
+
+      expect(starts).toHaveLength(5);
+      // The 5th request reserves the 4-interval slot, so it cannot start before then —
+      // a wall-clock total assertion (robust to scheduler jitter; per-gap timing flakes
+      // under parallel test load since jitter compresses individual measured gaps).
+      expect(starts[4] - starts[0]).toBeGreaterThanOrEqual(4 * interval - 8);
+    });
   });
 });

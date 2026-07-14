@@ -1,7 +1,7 @@
 import { NotificationKind } from '@inqi/shared';
 
 /** A ranked option as it appears in the email (freemium-locked reports pass none). */
-export interface TemplateOption { name: string; price?: number | null; currency?: string | null }
+export interface TemplateOption { name: string; price?: number | null; currency?: string | null; link?: string | null }
 
 /** Context for rendering a customer notification. Keep bodies minimal — no sensitive data. */
 export interface TemplateContext {
@@ -18,19 +18,31 @@ export interface TemplateContext {
 
 export interface RenderedTemplate { subject: string; body: string }
 
-/** The "1. Name — 5000 THB" ranking lines shared by the delivered/updated emails. */
+/** The "1. Name — 5000 THB\n   <direct link>" ranking lines shared by the delivered/updated emails. */
 function rankingLines(options: TemplateOption[]): string {
   return options
-    .map((o, i) => `${i + 1}. ${o.name}${o.price != null ? ` — ${o.price} ${o.currency ?? ''}`.trimEnd() : ''}`)
+    .map((o, i) => {
+      const head = `${i + 1}. ${o.name}${o.price != null ? ` — ${o.price} ${o.currency ?? ''}`.trimEnd() : ''}`;
+      return o.link ? `${head}\n   ${o.link}` : head;
+    })
     .join('\n');
 }
 
-/** The optional details block (summary + top ranking) — empty for locked freemium reports. */
+/** The optional details block (short summary + top ranking with direct links) — empty for locked freemium reports. */
 function detailsBlock(ctx: TemplateContext): string {
   const parts: string[] = [];
+  if (ctx.summary) parts.push(shorten(ctx.summary, 400));
   if (ctx.options?.length) parts.push(`Top options:\n${rankingLines(ctx.options)}`);
-  if (ctx.summary) parts.push(ctx.summary);
   return parts.length ? `\n\n${parts.join('\n\n')}` : '';
+}
+
+/** Keep email summaries short — first sentences up to a cap, never mid-word. */
+function shorten(text: string, max: number): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('\n'));
+  return `${(end > max * 0.5 ? cut.slice(0, end + 1) : cut).trim()}…`;
 }
 
 /** Pure: render the email subject+body for a notification kind. Links are capability-token (no login). */

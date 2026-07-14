@@ -5,7 +5,7 @@ import {
   QuestionnaireDto, CostSummaryDto, WorkflowVersionDto, ReportBoardDto, ThreadMessageDto,
   AuditResultDto, WorkflowInspectDto, VersionDiffResultDto, PublishResultDto,
   CustomerDirectoryDto, ProvenanceDto, UnlockResultDto, ReportSearchResultDto,
-  UserRowDto, UserSearchResultDto,
+  UserRowDto, UserSearchResultDto, UsageReportDto,
 } from './types';
 
 /** Auth — two-step email sign-in: request a code, then verify it (mock transport: 123456). */
@@ -72,6 +72,9 @@ export const adminApi = {
   reactivateUser: ({ id }: { id: string }) =>
     request<UserRowDto>({ method: HttpMethod.Post, path: Paths.adminUserReactivate(id) }),
   cost: ({ reportId }: { reportId: string }) => request<CostSummaryDto>({ method: HttpMethod.Get, path: Paths.reportCost(reportId) }),
+  // HP-15: aggregate usage across all reports in a from/to window (+ per-report breakdown).
+  usageReport: ({ from, to, limit }: { from?: string; to?: string; limit?: number } = {}) =>
+    request<UsageReportDto>({ method: HttpMethod.Get, path: Paths.adminUsage(), query: { from, to, limit } }),
   // FE-14 audit trail. `types` is a comma list of AuditEntryType buckets; omitted = All.
   audit: ({ reportId, types }: { reportId?: string; types?: string } = {}) =>
     request<AuditResultDto>({ method: HttpMethod.Get, path: Paths.audit(), query: { reportId, types } }),

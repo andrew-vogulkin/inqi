@@ -192,6 +192,32 @@ export interface WebSearchSourceCount {
   calls: number;
 }
 
+/** One report's contribution to the aggregate usage report (HP-15). */
+export interface UsageReportRowDto {
+  id: string;
+  ref: string | null;
+  state: string;
+  createdAt: string;
+  customerEmail: string;
+  costUsd: number;
+  tokenTotal: number;
+  webSearchCalls: number;
+  emailCount: number;
+}
+
+/**
+ * Aggregate usage across all reports in a date window (GET /admin/usage, admin;
+ * HP-15). `totals` is the combined cost rollup; `reports` lists every report that
+ * contributed, for visibility. `from`/`to` echo the applied filter (null = unbounded).
+ */
+export interface UsageReportDto {
+  from: string | null;
+  to: string | null;
+  reportCount: number;
+  totals: CostSummaryDto;
+  reports: UsageReportRowDto[];
+}
+
 /** One channel source record under an inquiry (Source rows). */
 export interface SourceDto {
   id: string;

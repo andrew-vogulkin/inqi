@@ -18,6 +18,7 @@ const GROUPS: { label: string; items: Item[] }[] = [
   ] },
   { label: 'Insight', items: [
     { key: 'cost', icon: '$', label: 'Cost per report', route: Route.AdminCostOverview },
+    { key: 'usage', icon: '∑', label: 'Usage report', route: Route.AdminUsage },
     { key: 'users', icon: '⊚', label: 'Users', route: Route.AdminUsers },
     { key: 'audit', icon: '☰', label: 'Audit trail', route: Route.AdminAudit },
   ] },
@@ -31,6 +32,7 @@ const ACTIVE_KEY: Partial<Record<Route, string>> = {
   [Route.Admin]: 'board', [Route.AdminReport]: 'board', [Route.AdminInquiry]: 'board', [Route.AdminThread]: 'board', [Route.AdminDossier]: 'board',
   [Route.AdminRun]: 'run',
   [Route.AdminCostOverview]: 'cost', [Route.AdminCost]: 'cost',
+  [Route.AdminUsage]: 'usage',
   [Route.AdminUsers]: 'users',
   [Route.AdminAudit]: 'audit',
   [Route.AdminWorkflows]: 'workflows',

@@ -36,6 +36,9 @@ export const Paths = {
   // admin report search (the operator report picker) — `q`/`limit`/`cursor` are querystring params
   adminReports: () => '/admin/reports',
 
+  // aggregate usage report (HP-15) — admin; `from`/`to` are querystring params
+  adminUsage: () => '/admin/usage',
+
   // admin user directory (HP-25) — `q`/`status`/`limit`/`cursor` are querystring params
   adminUsers: () => '/admin/users',
   adminUserSuspend: (id: string) => `/admin/users/${id}/suspend`,

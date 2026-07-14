@@ -10,6 +10,8 @@ export type {
   ReportSearchResultDto,
   UserRowDto,
   UserSearchResultDto,
+  UsageReportDto,
+  UsageReportRowDto,
   ReportOption,
   LiveReportDto,
   ReportSnapshotDto,

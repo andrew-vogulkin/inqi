@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ModelTier } from '@inqi/shared';
 import { AI_PROVIDER, AiProvider, ToolSet } from '../../infra/ai/ai.tokens';
 import { WEB_SEARCH, WebSearchProvider } from '../../infra/websearch/websearch.tokens';
-import { questionnaireSystem } from '../../infra/ai/prompts';
+import { questionnaireSystem, questionnaireAutofillSystem, questionnaireReplyParseSystem } from '../../infra/ai/prompts';
 import { QuestionType, QuestionnaireQuestion } from './questionnaire.types';
 
 const WEB_SEARCH_TOOL_NAME = 'web_search';
@@ -21,6 +21,19 @@ const questionnaireSchema = z.object({
     /** true → the customer may pick several options (checkboxes); absent/false → single choice. */
     multi: z.boolean().catch(false),
   })).min(7).max(10),
+});
+
+/** Autopilot auto-answer output: an answer per question id, plus the "ask the human?" flag. */
+const autofillSchema = z.object({
+  answers: z.record(z.string()),
+  needsHuman: z.boolean().catch(false),
+  reason: z.string().optional(),
+});
+
+/** Email-reply parse output: the customer's prose mapped onto the questions + their confirm. */
+const replyParseSchema = z.object({
+  answers: z.record(z.string()),
+  confirmedSubject: z.boolean().catch(true),
 });
 
 /** Appended to every option question: the customer can always delegate the choice to the agent. */
@@ -83,6 +96,72 @@ export class QuestionnaireGenerator {
     }
     this.logger.warn('questionnaire agent exhausted attempts — shipping the static default');
     return DEFAULT_QUESTIONS;
+  }
+
+  /**
+   * Autopilot (HP-26): answer the questionnaire on the customer's behalf, inferring
+   * from their request. Returns the answer map (keyed by question id) plus a
+   * `needsHuman` flag the model raises only for decisive questions it can't infer —
+   * that flag is what makes the questionnaire "optional, asked only when necessary".
+   * Fails safe: AI unconfigured → proceed with "Decide for me" defaults (never stall);
+   * an inference error → defer to the human.
+   */
+  async autoAnswer({ rawRequest, subject, questions }: { rawRequest: string; subject?: { title: string; summary?: string } | null; questions: QuestionnaireQuestion[] }): Promise<{ answers: Record<string, string>; needsHuman: boolean; reason?: string }> {
+    // Only the option/text questions carry answers; the trailing Confirm gate is the `confirmed` column.
+    const answerable = questions.filter((q) => q.type !== QuestionType.Confirm);
+    if (answerable.length === 0) return { answers: {}, needsHuman: false, reason: 'no questions to answer' };
+    if (!this.ai.isConfigured()) {
+      return { answers: Object.fromEntries(answerable.map((q) => [q.id, DECIDE_FOR_ME])), needsHuman: false, reason: 'ai-unconfigured-default' };
+    }
+    try {
+      const r = await this.ai.structured({
+        system: questionnaireAutofillSystem(),
+        user: JSON.stringify({
+          customerRequest: rawRequest,
+          ...(subject ? { subject } : {}),
+          questions: answerable.map((q) => ({ id: q.id, prompt: q.prompt, options: q.options ?? [], multi: q.type === QuestionType.MultiSelect })),
+        }),
+        tier: ModelTier.Balanced,
+        validate: (raw) => autofillSchema.parse(raw),
+      });
+      // Keep only known ids; any question the model skipped falls back to "Decide for me".
+      const answers: Record<string, string> = {};
+      for (const q of answerable) answers[q.id] = (r.answers[q.id] ?? '').trim() || DECIDE_FOR_ME;
+      this.logger.log(`questionnaire auto-answered (${answerable.length} q, needsHuman=${r.needsHuman}): ${r.reason ?? ''}`);
+      return { answers, needsHuman: !!r.needsHuman, reason: r.reason };
+    } catch (e) {
+      this.logger.warn(`autopilot auto-answer failed — deferring to the customer: ${(e as Error).message}`);
+      return { answers: {}, needsHuman: true, reason: 'inference-failed' };
+    }
+  }
+
+  /**
+   * HP-27: parse a customer's free-text EMAIL reply to the questionnaire into the
+   * structured answer map + their confirm. Fails safe: no AI / parse error →
+   * every question defaults to "Decide for me" and confirmedSubject=true, so an
+   * email report never stalls on an unparseable reply.
+   */
+  async parseReply({ questions, replyBody }: { questions: QuestionnaireQuestion[]; replyBody: string }): Promise<{ answers: Record<string, string>; confirmedSubject: boolean }> {
+    const answerable = questions.filter((q) => q.type !== QuestionType.Confirm);
+    const safeDefault = () => ({ answers: Object.fromEntries(answerable.map((q) => [q.id, DECIDE_FOR_ME])), confirmedSubject: true });
+    if (!this.ai.isConfigured() || answerable.length === 0) return safeDefault();
+    try {
+      const r = await this.ai.structured({
+        system: questionnaireReplyParseSystem(),
+        user: JSON.stringify({
+          reply: replyBody,
+          questions: answerable.map((q) => ({ id: q.id, prompt: q.prompt, options: q.options ?? [], multi: q.type === QuestionType.MultiSelect })),
+        }),
+        tier: ModelTier.Balanced,
+        validate: (raw) => replyParseSchema.parse(raw),
+      });
+      const answers: Record<string, string> = {};
+      for (const q of answerable) answers[q.id] = (r.answers[q.id] ?? '').trim() || DECIDE_FOR_ME;
+      return { answers, confirmedSubject: r.confirmedSubject };
+    } catch (e) {
+      this.logger.warn(`questionnaire email reply parse failed — defaulting to Decide-for-me: ${(e as Error).message}`);
+      return safeDefault();
+    }
   }
 
   /** web_search only — the questionnaire agent surveys the topic, it doesn't deep-read pages. */

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AuthRole, CreateReportDto, EventType, QueueJob, WorkflowEvent, deriveStage } from '@inqi/shared';
+import { AuthRole, CreateReportDto, EventType, QueueJob, ReportOrigin, WorkflowEvent, deriveStage } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { BossService } from '../../infra/queue/boss.service';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
@@ -43,7 +43,7 @@ export class ReportService {
    * **one transaction** opened here and threaded down. The queue kickoff is a
    * side-effect, so it runs only after the commit.
    */
-  async create({ dto, viewer }: { dto: CreateReportDto; viewer: ReportViewer }) {
+  async create({ dto, viewer, origin = ReportOrigin.Web }: { dto: CreateReportDto; viewer: ReportViewer; origin?: ReportOrigin }) {
     const cost = this.credits.reportCost();
     const workflowVersionId = await this.wf.activeVersionId({ key: 'report' });
 
@@ -51,7 +51,7 @@ export class ReportService {
     // race the same seq — the unique constraint rejects the loser and the whole create
     // transaction retries with a fresh count (bounded; refs are per-day so a stale
     // count self-corrects immediately).
-    const inq = await this.withRefRetry(() => this.createTx({ dto, viewer, cost, workflowVersionId }));
+    const inq = await this.withRefRetry(() => this.createTx({ dto, viewer, cost, workflowVersionId, origin }));
 
     // `created` lifecycle: RECEIVED is the initial state — no transition lands on it,
     // so the engine can't dispatch this one. Intake acknowledges the customer itself.
@@ -65,8 +65,19 @@ export class ReportService {
     return inq;
   }
 
+  /**
+   * HP-27: start a report from an inbound email. The sender is the owner (account
+   * auto-created upstream); the whole flow — questionnaire (if needed) + final
+   * report — is handled over email. Uses the free-report slot like any zero-credit
+   * on-ramp. `subject` is folded into the request for context.
+   */
+  createFromEmail({ rawRequest, customer }: { rawRequest: string; customer: { id: string; email: string } }) {
+    const viewer: ReportViewer = { sub: customer.id, email: customer.email, role: AuthRole.Customer };
+    return this.create({ dto: { rawRequest }, viewer, origin: ReportOrigin.Email });
+  }
+
   /** The submit transaction: free-slot claim + report row (with its minted ref) + created event. */
-  private createTx({ dto, viewer, cost, workflowVersionId }: { dto: CreateReportDto; viewer: ReportViewer; cost: number; workflowVersionId: string }) {
+  private createTx({ dto, viewer, cost, workflowVersionId, origin }: { dto: CreateReportDto; viewer: ReportViewer; cost: number; workflowVersionId: string; origin: ReportOrigin }) {
     return this.prisma.$transaction(async (tx) => {
       // HP-21, credits-first: a customer WITH enough credits always gets a full paid
       // report — the free (freemium-locked) slot is only the fallback when the balance
@@ -93,6 +104,7 @@ export class ReportService {
           budgetMin: dto.budgetMin, budgetMax: dto.budgetMax,
           deadline: dto.deadline ? new Date(dto.deadline) : null,
           focus: dto.focus ?? null, // ranking priority — steers depth research (price | quality)
+          origin, // web | email (HP-27)
           freeReport,
           // Report 1:1 persona: one region-matched voice carries every thread of this
           // report — routed by the geo label, else by places named in the request text,

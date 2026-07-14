@@ -44,12 +44,12 @@ interface SearxResponse {
 @Injectable()
 export class SearxngWebSearchProvider implements WebSearchProvider {
   private readonly logger = new Logger(SearxngWebSearchProvider.name);
-  // Concurrency gate (see `searx`): breadth/depth fire ~10 queries at once and
-  // SearXNG's rate-limited public engines then return 200-with-empty for most of
-  // the burst. We cap in-flight requests and space out their starts so each is served.
-  private active = 0;
-  private readonly waiters: Array<() => void> = [];
-  private lastStart = 0;
+  // Global rate limiter (see `throttle`): every outbound engine request across the
+  // whole process (all reports, breadth + depth + tools) passes through one async
+  // queue that admits at most one request per `requestIntervalMs`. `nextSlot` is the
+  // earliest timestamp the next request may start; each caller reserves the following
+  // slot FIFO. Serialising this way keeps us a well-behaved client of the shared engines.
+  private nextSlot = 0;
 
   constructor(
     private readonly config: ConfigService,
@@ -148,34 +148,25 @@ export class SearxngWebSearchProvider implements WebSearchProvider {
     return args ?? {};
   }
 
-  /**
-   * One GET to SearXNG, run through the concurrency gate: at most `maxConcurrency`
-   * requests in flight, and each start spaced `minSpacingMs` from the last, so a
-   * fan-out of queries is served instead of throttled to empty.
-   */
+  /** One GET to SearXNG, rate-limited to the global 1-per-`requestIntervalMs` budget. */
   private async searx(params: Record<string, string>): Promise<SearxResponse> {
-    await this.acquire();
-    try {
-      return await this.searxOnce(params);
-    } finally {
-      this.release();
-    }
+    await this.throttle();
+    return this.searxOnce(params);
   }
 
-  /** Wait for a concurrency slot, then pace this request start behind the previous one. */
-  private async acquire(): Promise<void> {
-    if (this.active >= this.config.webSearch.maxConcurrency) {
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    }
-    this.active++;
-    const gap = this.lastStart + this.config.webSearch.minSpacingMs - Date.now();
-    if (gap > 0) await sleep(gap);
-    this.lastStart = Date.now();
-  }
-
-  private release(): void {
-    this.active--;
-    this.waiters.shift()?.();
+  /**
+   * Global rate limiter: reserve the next start slot, spaced `requestIntervalMs`
+   * from the previous reservation, and wait for it. The reservation (read + bump of
+   * `nextSlot`) is synchronous, so concurrent callers queue FIFO and each pair of
+   * consecutive requests starts at least `requestIntervalMs` apart — one shared budget
+   * for the whole process (default 1 req/s).
+   */
+  private async throttle(): Promise<void> {
+    const now = Date.now();
+    const start = Math.max(now, this.nextSlot);
+    this.nextSlot = start + this.config.webSearch.requestIntervalMs;
+    const wait = start - now;
+    if (wait > 0) await sleep(wait);
   }
 
   /** One GET to the SearXNG JSON API with a bounded timeout. */
