@@ -6,6 +6,7 @@ import { OTP_LENGTH, otpDigits, applyDigit, applyBackspace, applyPaste } from '.
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
 import { authApi, ApiError } from '../api';
 import { setStoredSession } from '../conventions/session-storage';
+import { KnownAccount, forgetAccount, getKnownAccounts, rememberAccount } from '../conventions/known-accounts';
 import { SonarMark } from '../ui';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
@@ -24,10 +25,16 @@ export function SignIn() {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [resent, setResent] = useState(false);
+  // Accounts that signed in on this device before. Passwordless means the browser has no
+  // credential to autofill, so we offer them ourselves.
+  const [accounts, setAccounts] = useState<KnownAccount[]>(() => getKnownAccounts());
+  const [addingNew, setAddingNew] = useState(false);
 
   const busy = authState === AuthState.SigningIn;
   // The code step shows once step 1 was accepted — including after a wrong-code error.
   const codeStep = pendingEmail !== null && (authState === AuthState.CodeSent || authState === AuthState.Error);
+  // Returning user, nothing to type: pick an account (or explicitly choose another).
+  const pickerStep = !codeStep && accounts.length > 0 && !addingNew;
 
   // Redirect off Sign in once the session is COMMITTED to the store — driven by state,
   // not fired imperatively inside verifyCode. If we navigate before the dispatch commits,
@@ -45,12 +52,14 @@ export function SignIn() {
   }, [session]);
 
   // The async glue (call api → dispatch result → route). No business logic here.
-  async function requestCode() {
-    if (!email || busy) return;
+  // Takes the address explicitly: picking a remembered account must send the code to THAT
+  // address, without waiting a render for `email` state to settle.
+  async function requestCode(addr: string) {
+    if (!addr || busy) return;
     dispatch({ type: ActionType.SignInStarted });
     try {
-      await authApi.startEmail({ email });
-      dispatch({ type: ActionType.CodeSent, email });
+      await authApi.startEmail({ email: addr });
+      dispatch({ type: ActionType.CodeSent, email: addr });
       setCode('');
       setResent(false);
     } catch (e) {
@@ -68,6 +77,9 @@ export function SignIn() {
       // above — once the store reflects the session — so the guarded destination never
       // renders signed-out and can't bounce back to Sign in.
       setStoredSession(sess);
+      // Only a VERIFIED sign-in is remembered — a typo'd address that never got past the
+      // code step must not end up on the picker forever.
+      rememberAccount({ email: sess.customer.email });
       dispatch({ type: ActionType.SignedIn, session: sess });
     } catch (e) {
       dispatch({ type: ActionType.SignInFailed, message: e instanceof ApiError ? e.message : 'Sign-in failed. Please try again.' });
@@ -85,8 +97,15 @@ export function SignIn() {
     }
   }
 
-  const onEmailSubmit = (e: FormEvent) => { e.preventDefault(); void requestCode(); };
+  const onEmailSubmit = (e: FormEvent) => { e.preventDefault(); void requestCode(email); };
   const onCodeSubmit = (e: FormEvent) => { e.preventDefault(); void verifyCode(); };
+
+  /** Forget a device-local account. Never signs anyone out; nothing leaves the browser. */
+  const onForget = (addr: string) => {
+    const next = forgetAccount({ email: addr });
+    setAccounts(next);
+    if (next.length === 0) setAddingNew(true); // nothing left to pick — go straight to the form
+  };
 
   const buttonStyle = (enabled: boolean): CSSProperties => ({
     width: '100%', height: 52, borderRadius: 11, background: color.ink, color: color.onSolid,
@@ -108,7 +127,30 @@ export function SignIn() {
           <SonarMark size={124} markSize={52} />
         </div>
 
-        {!codeStep ? (
+        {pickerStep ? (
+          <>
+            <h1 style={{ fontSize: fontSize.h1, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: '0 0 9px' }}>Welcome back.</h1>
+            <p style={{ fontSize: fontSize.lg, color: color.muted, lineHeight: 1.55, margin: '0 0 28px' }}>
+              Choose an account to continue — we&rsquo;ll send a fresh sign-in code.
+            </p>
+            <div data-testid="account-picker" style={{ display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'left' }}>
+              {accounts.map((a) => (
+                <AccountRow key={a.email} email={a.email} busy={busy} onPick={() => void requestCode(a.email)} onForget={() => onForget(a.email)} />
+              ))}
+            </div>
+            <button
+              type="button"
+              data-testid="use-another-email"
+              onClick={() => { setAddingNew(true); setEmail(''); }}
+              style={{
+                width: '100%', height: 52, marginTop: 10, borderRadius: 11, background: 'transparent', color: color.ink,
+                border: `1.5px solid ${BORDER_IDLE}`, fontFamily: font.ui, fontSize: fontSize.lg, fontWeight: fontWeight.medium,
+                cursor: 'pointer',
+              }}>
+              Use another email
+            </button>
+          </>
+        ) : !codeStep ? (
           <>
             <h1 style={{ fontSize: fontSize.h1, fontWeight: fontWeight.semibold, letterSpacing: '-.02em', margin: '0 0 9px' }}>One report. AI agents on it.</h1>
             <p style={{ fontSize: fontSize.lg, color: color.muted, lineHeight: 1.55, margin: '0 0 28px' }}>
@@ -120,6 +162,15 @@ export function SignIn() {
                 {busy ? <>{spinner}<span>Sending code…</span></> : <><span>Continue with email</span><span style={{ fontSize: 16 }}>→</span></>}
               </button>
             </form>
+            {accounts.length > 0 && (
+              <button
+                type="button"
+                data-testid="back-to-accounts"
+                onClick={() => setAddingNew(false)}
+                style={{ background: 'none', border: 'none', color: color.muted, fontWeight: fontWeight.medium, cursor: 'pointer', fontFamily: font.ui, fontSize: fontSize.base, marginTop: 18 }}>
+                ← Back to saved accounts
+              </button>
+            )}
           </>
         ) : (
           <>
@@ -152,13 +203,78 @@ export function SignIn() {
           <p data-testid="signin-error" style={{ color: color.warn, marginTop: space[3], fontSize: fontSize.sm, textAlign: 'left' }}>{error}</p>
         )}
 
-        {!codeStep && (
+        {!codeStep && !pickerStep && (
           <>
             <p style={{ fontSize: fontSize.sm, color: color.subtle, margin: `${space[5]}px 0 0` }}>New here? We&rsquo;ll create your account automatically — no separate sign-up.</p>
             <p style={{ fontSize: fontSize.sm, color: color.subtle, margin: `${space[2]}px 0 0` }}>First report is free. No card required.</p>
           </>
         )}
+        {pickerStep && (
+          <p style={{ fontSize: fontSize.sm, color: color.subtle, margin: `${space[5]}px 0 0` }}>
+            Saved on this device only — remove any account with ×.
+          </p>
+        )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One remembered account: the row itself sends a fresh code to that address; the × forgets
+ * it on this device. The × is a real sibling button, not nested inside the row's button —
+ * a button inside a button is invalid HTML and the click target becomes ambiguous.
+ */
+function AccountRow({ email, busy, onPick, onForget }: { email: string; busy: boolean; onPick: () => void; onForget: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const initial = email.trim().charAt(0).toUpperCase();
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', height: 60, gap: 12, padding: '0 12px 0 14px',
+        border: `1.5px solid ${hovered ? color.brand : BORDER_IDLE}`, borderRadius: 11,
+        background: color.surface, transition: 'border-color .15s',
+      }}>
+      <button
+        type="button"
+        disabled={busy}
+        data-testid={`account-${email}`}
+        onClick={onPick}
+        style={{
+          // minWidth:0 — a flex item defaults to min-width:auto, which refuses to shrink below
+          // its content. Without it a long address blows the row open and pushes the × outside
+          // the card instead of ellipsing.
+          flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, height: '100%',
+          background: 'none', border: 'none', padding: 0, textAlign: 'left',
+          cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.55 : 1, fontFamily: font.ui,
+        }}>
+        <span
+          aria-hidden
+          style={{
+            width: 34, height: 34, flexShrink: 0, borderRadius: '50%', background: color.brand, color: color.onSolid,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: fontSize.base, fontWeight: fontWeight.semibold,
+          }}>
+          {initial}
+        </span>
+        {/* The address can be long — never let it push the × off the row. */}
+        <span style={{ flex: 1, minWidth: 0, fontSize: fontSize.lg, color: color.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {email}
+        </span>
+        <span aria-hidden style={{ color: color.subtle, fontSize: 16 }}>→</span>
+      </button>
+      <button
+        type="button"
+        data-testid={`forget-${email}`}
+        aria-label={`Forget ${email} on this device`}
+        onClick={onForget}
+        style={{
+          width: 28, height: 28, flexShrink: 0, borderRadius: 7, border: 'none', background: 'none',
+          color: color.subtle, fontSize: fontSize.lg, lineHeight: 1, cursor: 'pointer', fontFamily: font.ui,
+        }}>
+        ×
+      </button>
     </div>
   );
 }
