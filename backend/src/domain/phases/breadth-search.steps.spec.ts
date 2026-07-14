@@ -77,6 +77,25 @@ describe('breadth SEARCH — the empty-pool retry is retired by default', () => 
   });
 });
 
+// run.data is PERSISTED. A run already in flight when this code deploys has none of the
+// fields added here — and `[...undefined]` throws, killing the run. Seen for real: every
+// in-flight widen run died with "d.searched is not iterable".
+describe('breadth SEARCH — survives a run persisted before these fields existed', () => {
+  it('backfills searched/queriesPerCycle/emptySearchRetries instead of throwing', async () => {
+    const { search, ctx, web } = build({ queries: ['a', 'b'] });
+    const legacy = ctx.run.data as unknown as Record<string, unknown>;
+    delete legacy.searched;            // the shape an older run actually has on disk
+    delete legacy.queriesPerCycle;
+    delete legacy.emptySearchRetries;
+
+    const out = await search.execute(ctx);
+
+    expect(out.event).toBe(BreadthEvent.POOL_READY);
+    expect(web.webSearch).toHaveBeenCalledTimes(2);
+    expect(out.dataPatch?.searched).toEqual(['a', 'b']); // the set starts fresh, not undefined
+  });
+});
+
 describe('breadth MARKETING — the last-resort pass obeys the same dial', () => {
   const marketingReply = () => jest.fn().mockResolvedValue({ queries: ['yoga studio bangkok', 'pilates bangkok'] });
 

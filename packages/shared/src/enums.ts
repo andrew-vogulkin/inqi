@@ -409,6 +409,23 @@ export const WorkflowStatus = {
 export type WorkflowStatus = (typeof WorkflowStatus)[keyof typeof WorkflowStatus];
 
 /** Subject category (`Subject.category`). */
+/**
+ * How directly a discovered lead offers the requested thing. The discriminator is
+ * SPECIFICITY, not the kind of site: a marketplace LOT page (a concrete 1976 911 at a
+ * price, with a seller) is every bit as valid as a dealer's own page — for a goods
+ * request it is often *better*, because it already carries the item and the price.
+ * Only a GENERAL aggregator — a directory/category/search page that lists many providers
+ * and offers none specifically — is weak. Weak, not worthless: it still says "this
+ * market exists here", so it is kept and ranked low rather than dropped.
+ */
+export const LeadSpecificity = {
+  /** The page shows THE requested item/service on offer from an identifiable provider. */
+  Specific: 'specific',
+  /** A directory/category/search page: lists providers or items, offers none specifically. */
+  GeneralAggregator: 'general_aggregator',
+} as const;
+export type LeadSpecificity = (typeof LeadSpecificity)[keyof typeof LeadSpecificity];
+
 export const SubjectCategory = {
   Item: 'item',
   Service: 'service',

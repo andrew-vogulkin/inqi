@@ -477,9 +477,11 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Subject context for discovery (title/description/attributes). */
-  private async subjectContext({ reportId }: { reportId: string }): Promise<{ title: string; description: string; attributes?: unknown }> {
+  private async subjectContext({ reportId }: { reportId: string }): Promise<{ title: string; description: string; attributes?: unknown; category?: string | null }> {
     const subject = await this.repo.findSubject({ reportId });
-    return { title: subject?.title ?? '', description: subject?.description ?? '', attributes: subject?.attributes };
+    // `category` (item/goods/rental vs service/trade/organisation) decides whether discovery
+    // hunts LISTINGS or BUSINESSES — it was classified here all along and never used.
+    return { title: subject?.title ?? '', description: subject?.description ?? '', attributes: subject?.attributes, category: subject?.category ?? null };
   }
 
   // 5. Report synthesis.

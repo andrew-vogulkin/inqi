@@ -10,6 +10,8 @@ import {
 } from '../subject-providers/breadth-lifecycle';
 import { PhaseStepRegistry, StepCtx, StepOutcome } from './phase-step.tokens';
 
+/** Fallback batch size for runs persisted before `queriesPerCycle` existed (see `data()`). */
+const DEFAULT_QUERIES_PER_CYCLE = 6;
 /** Zero-hit search cycles back off and retry (engine-suspension recovery), bounded. */
 const EMPTY_SEARCH_BACKOFF_MS = 75_000;
 /** Backoff slice: each slice heartbeats the shadow-run lease (30s) via ctx.log. */
@@ -74,8 +76,20 @@ export class BreadthSearchSteps {
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.MARKETING, handler: { execute: (ctx) => this.marketing(ctx) } });
   }
 
+  /**
+   * run.data is PERSISTED, so a run started before a field existed will be missing it.
+   * Backfill the fields added later, or an in-flight run crashes the moment the new code
+   * deploys (`[...d.searched]` on undefined throws; `queryCount: undefined` asks the model
+   * for "undefined queries"). Defaults mirror the pre-existing behaviour.
+   */
   private data(ctx: StepCtx): BreadthRunData {
-    return ctx.run.data as unknown as BreadthRunData;
+    const d = ctx.run.data as unknown as BreadthRunData;
+    return {
+      ...d,
+      searched: d.searched ?? [],
+      queriesPerCycle: d.queriesPerCycle ?? DEFAULT_QUERIES_PER_CYCLE,
+      emptySearchRetries: d.emptySearchRetries ?? 0,
+    };
   }
 
   /** B. Runs once per run. No AI → deterministic fallback candidates straight to a dry terminal. */

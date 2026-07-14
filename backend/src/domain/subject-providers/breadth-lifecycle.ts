@@ -36,7 +36,7 @@ export async function formBreadthQueries({ ai, subject, queryCount, logger }: {
 }): Promise<string[]> {
   try {
     const q = await ai.structured({
-      system: discoveryQueriesSystem({ count: queryCount }),
+      system: discoveryQueriesSystem({ count: queryCount, category: subject.category }),
       user: buildDiscoveryQueriesUser({ subject }),
       tier: ModelTier.Breadth,
       validate: (raw) => discoveryQueriesSchema.parse(raw),
@@ -106,6 +106,8 @@ export async function mineCandidates({ ai, subject, count, exclude, pool, matchN
       website: c.website ?? null,
       socials: c.socials ?? [],
       facts: c.facts ?? [],
+      // Kept, not dropped: a general directory is a weak-but-real lead. It gets demoted downstream.
+      specificity: c.specificity,
       // Only urls that really came back from the search — the model must not invent evidence.
       evidence: c.evidence
         .filter((url) => knownUrls.has(url))

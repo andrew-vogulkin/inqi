@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EventType, FindingKind, InquiryStatus, QueueJob, ReportState, SearchFocus, SourceType, isEligibleVerdict, isIneligibleVerdict, isReserveVerdict } from '@inqi/shared';
+import { EventType, FindingKind, InquiryStatus, QueueJob, ReportState, SearchFocus, SourceType, isEligibleVerdict, isIneligibleVerdict, isReserveVerdict , LeadSpecificity } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { PrismaService } from '../../infra/persistence/prisma.service';
@@ -65,7 +65,7 @@ export class SubjectProvidersService {
   /** Assemble the context a depth run pins into run.data (facts, focus, source budget). */
   async depthRunContext({ reportId, inquiryId }: { reportId: string; inquiryId: string }): Promise<DepthRunContext> {
     const st = await this.repo.findInquiry({ id: inquiryId });
-    const contact = (st.contact ?? {}) as { country?: string; region?: string; matchNote?: string; website?: string; socials?: string[]; facts?: string[] };
+    const contact = (st.contact ?? {}) as { country?: string; region?: string; matchNote?: string; website?: string; socials?: string[]; facts?: string[]; specificity?: string };
     const subject = await this.repo.findSubjectByReport({ reportId });
     const focus = ((await this.repo.findReportFocus({ id: reportId }))?.focus ?? null) as SearchFocus | null;
 
@@ -83,7 +83,17 @@ export class SubjectProvidersService {
       regionHint: contact.country ?? contact.region ?? null,
       subject,
       webRoom,
-      matchNote: contact.matchNote ?? null,
+      // A general directory rides in on the SAME channel as a relaxed-constraint caveat:
+      // matchNote already reaches the depth prompts and outreach. Depth must not score a
+      // directory like a real vendor — it has to find the actual offer behind it, or rank low.
+      matchNote: contact.specificity === LeadSpecificity.GeneralAggregator
+        ? [
+          'GENERAL DIRECTORY / AGGREGATOR: this site LISTS providers or items rather than being the provider itself.',
+          'Find the specific offer (the actual item + price + seller) behind it. If you cannot evidence one, this is a WEAK lead:',
+          'keep it, but give it a LOW qualityScore — it only proves the market exists.',
+          contact.matchNote ?? '',
+        ].filter(Boolean).join(' ')
+        : contact.matchNote ?? null,
       focus,
       // The facts breadth collected — depth strengthens these instead of re-verifying.
       knownFacts: { website: contact.website ?? null, socials: contact.socials ?? [], facts: contact.facts ?? [] },
