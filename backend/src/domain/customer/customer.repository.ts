@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AccountStatus, AuthRole } from '@inqi/shared';
+import { AccountStatus, AuditActor, AuthRole, CreditKind } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
 
 /** The fields the admin user directory selects for one row (HP-25). */
@@ -27,13 +27,19 @@ export class CustomerRepository {
    * part of the update** — it's owned by the DB so a hand-set admin survives every
    * subsequent sign-in. To promote someone, set their role directly in the database.
    */
-  upsertByEmail({ email, googleSub, name, tx }: { email: string; googleSub?: string; name?: string; tx?: DbTx }) {
+  upsertByEmail({ email, googleSub, name, initialCredits = 0, tx }: { email: string; googleSub?: string; name?: string; initialCredits?: number; tx?: DbTx }) {
     const update: Prisma.CustomerUncheckedUpdateInput = {};
     if (googleSub) update.googleSub = googleSub;
     if (name) update.name = name;
+    // Balance and its ledger are set together and ONLY on insert — the `create`
+    // branch never runs for an existing account, so a returning user is never
+    // re-granted. Skip the ledger row entirely when the grant is disabled (0).
+    const grant = initialCredits > 0
+      ? { credits: initialCredits, ledger: { create: { kind: CreditKind.Topup, amount: initialCredits, reason: 'Initial welcome credits', actor: AuditActor.System } } }
+      : {};
     return this.exec(tx).customer.upsert({
       where: { email },
-      create: { email, googleSub, name, role: AuthRole.Customer },
+      create: { email, googleSub, name, role: AuthRole.Customer, ...grant },
       update,
     });
   }

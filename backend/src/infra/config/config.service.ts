@@ -334,6 +334,26 @@ export class ConfigService {
   }
 
   /**
+   * Credits granted to a brand-new account on first sign-in. Written as a `topup`
+   * ledger row inside the same tx that creates the Customer, so the balance == Σ
+   * ledger invariant holds and existing accounts signing in again are never
+   * re-granted. 0 disables the grant.
+   */
+  get initialCredits(): number {
+    return Math.max(0, Number(process.env.INITIAL_CREDITS ?? 10));
+  }
+
+  /**
+   * Whether the one-off free (freemium-locked) report is offered as a fallback when
+   * a customer's balance can't cover the cost. Disabled by default now that new
+   * accounts start with {@link initialCredits} — a short balance is simply a 402
+   * (top up). Set `FREE_REPORT_ENABLED=true` to restore the zero-credit on-ramp.
+   */
+  get freeReportEnabled(): boolean {
+    return process.env.FREE_REPORT_ENABLED === 'true';
+  }
+
+  /**
    * Minimum credit balance an email-intake sender must already hold for their email to
    * start a report. Email intake is unauthenticated — anyone who knows the address can
    * spend our tokens — so the balance IS the authorization: only an existing customer who

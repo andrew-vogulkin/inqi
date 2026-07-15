@@ -16,6 +16,19 @@ export interface SignInResult {
 }
 
 /**
+ * True when the local part (before `@`) carries a `+tag` sub-address. Gmail and many
+ * providers deliver `you+anything@host` to the same inbox as `you@host`, so a plus tag
+ * lets one person mint unlimited "distinct" emails — and, with a per-account credit
+ * grant, unlimited free credits. We refuse such addresses when they'd create a NEW
+ * account; an address with no `+` (or one that already has an account) is unaffected.
+ */
+export function hasPlusAlias(email: string): boolean {
+  const at = email.indexOf('@');
+  const local = at >= 0 ? email.slice(0, at) : email;
+  return local.includes('+');
+}
+
+/**
  * Two-step email sign-in: the customer submits their email (step 1 — a
  * verification code is issued; transport is MOCKED for now, the code is
  * `config.mfa.mockCode`), then submits the code (step 2) — on match we upsert
@@ -73,11 +86,17 @@ export class AuthService {
     if (!ok) {
       throw new UnauthorizedError({ code: ErrorCode.AuthInvalidCode, message: 'verification code does not match' });
     }
+    // Anti multi-registration: a plus-aliased address can't MINT a new account (it would
+    // be a duplicate of the primary inbox, farming the per-account credit grant). Checked
+    // AFTER code verification, so it never leaks account existence to an unauthenticated
+    // caller, and only when the address has no account yet — an established aliased account
+    // (e.g. a deliberately-created admin) still signs in normally.
+    await this.assertAliasedAddressCanSignIn(normalized);
     // Upsert the identity and claim their prior reports as one unit — a sign-in
     // either fully links the account or changes nothing (both repo calls share the tx).
     // No role is passed: a new account defaults to `customer`; an existing role is kept.
     const { customer, count } = await this.prisma.$transaction(async (tx) => {
-      const customer = await this.customers.upsertByEmail({ email: normalized, tx });
+      const customer = await this.customers.upsertByEmail({ email: normalized, initialCredits: this.config.initialCredits, tx });
       const { count } = await this.reports.linkOwnerByEmail({ email: customer.email, customerId: customer.id, tx });
       return { customer, count };
     });
@@ -90,6 +109,21 @@ export class AuthService {
     const role = customer.role as AuthRole;
     const token = this.session.sign({ sub: customer.id, email: customer.email, role });
     return { token, customer: { id: customer.id, email: customer.email, name: customer.name, role } };
+  }
+
+  /**
+   * Refuse to CREATE a new account from a plus-aliased address. A non-aliased address,
+   * or an aliased one that already has an account, passes untouched — so this blocks
+   * fresh multi-registration without locking out any established account.
+   */
+  private async assertAliasedAddressCanSignIn(email: string): Promise<void> {
+    if (!hasPlusAlias(email)) return;
+    const existing = await this.customers.findByEmail({ email });
+    if (existing) return;
+    throw new ForbiddenError({
+      code: ErrorCode.EmailAliasNotAllowed,
+      message: 'Plus-aliased email addresses (with a “+”) can’t be used to create a new account. Please sign in with your primary email address.',
+    });
   }
 
   /**

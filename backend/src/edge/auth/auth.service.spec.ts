@@ -3,13 +3,15 @@ import { MfaCodeStore } from './mfa-code.store';
 
 type MfaCfg = { transport: 'mock' | 'email'; mockCode: string; codeTtlMs: number; from?: string };
 
-/** Minimal fakes — the sign-in path only needs these seams. */
-function build(mfa: MfaCfg) {
+/** Minimal fakes — the sign-in path only needs these seams. `existing` decides whether
+ *  findByEmail (only hit for plus-aliased addresses) reports an established account. */
+function build(mfa: MfaCfg, { existing = false }: { existing?: boolean } = {}) {
   const mail = { sent: [] as Array<{ to?: string | null; subject: string; body: string }> , async send(args: never) { this.sent.push(args); return { externalId: 'x' }; } };
   const config = { mfa } as never;
   const prisma = { async $transaction(fn: (tx: unknown) => unknown) { return fn({}); } } as never;
   const customers = {
     async upsertByEmail({ email }: { email: string }) { return { id: 'c1', email, name: null, role: 'customer' }; },
+    async findByEmail({ email }: { email: string }) { return existing ? { id: 'c1', email } : null; },
     // refresh re-reads the customer (role is DB-authoritative): return a promoted admin with a name.
     async findById({ id }: { id: string }) { return { id, email: 'ada@example.com', name: 'Ada', role: 'admin' }; },
   } as never;
@@ -54,6 +56,36 @@ describe('AuthService MFA transport', () => {
       // the emailed code works (re-issue first, since the failed attempt above consumed an attempt but not the code)
       const res = await svc.verifyEmailSignIn({ email: 'ada@example.com', code: code! });
       expect(res.token).toBe('signed-token');
+    });
+  });
+
+  // Anti multi-registration: a `you+tag@host` address delivers to the same inbox as
+  // `you@host`, so one person could farm the per-account credit grant with endless aliases.
+  describe('plus-alias guard (new-account creation)', () => {
+    const cfg: MfaCfg = { transport: 'mock', mockCode: '123456', codeTtlMs: 600_000 };
+
+    it('refuses a NEW account whose email carries a + sub-address', async () => {
+      const { svc } = build(cfg, { existing: false });
+      await expect(svc.verifyEmailSignIn({ email: 'zerc+spam1@gmail.com', code: '123456' }))
+        .rejects.toMatchObject({ code: 'EMAIL_ALIAS_NOT_ALLOWED' });
+    });
+
+    it('still lets an EXISTING aliased account sign in (e.g. a deliberately-created admin)', async () => {
+      const { svc } = build(cfg, { existing: true });
+      const res = await svc.verifyEmailSignIn({ email: 'yywhywhywhywhy+admin@gmail.com', code: '123456' });
+      expect(res.token).toBe('signed-token');
+    });
+
+    it('leaves plain addresses (no +) untouched', async () => {
+      const { svc } = build(cfg, { existing: false });
+      const res = await svc.verifyEmailSignIn({ email: 'ada@example.com', code: '123456' });
+      expect(res.token).toBe('signed-token');
+    });
+
+    it('checks the alias only AFTER the code verifies (a wrong code never reveals account state)', async () => {
+      const { svc } = build(cfg, { existing: false });
+      await expect(svc.verifyEmailSignIn({ email: 'zerc+spam@gmail.com', code: '000000' }))
+        .rejects.toMatchObject({ code: 'AUTH_INVALID_CODE' }); // invalid-code wins, not the alias error
     });
   });
 
