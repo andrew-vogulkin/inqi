@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { SearchFocus } from '@inqi/shared';
 import { AsyncStatus } from '../conventions/enums';
 import { Route, navigate, hrefFor } from '../conventions/routes';
-import { SUGGESTION_TAGS, SuggestionTagDef, insertFragment, tagCovered } from '../conventions/suggestions';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
 import { reportsApi, creditsApi, ApiError, ApiErrorCode } from '../api';
-import { toneColors } from '../ui/tone';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 
@@ -24,19 +22,6 @@ export function NewReport() {
   const [submitting, setSubmitting] = useState(false);
   const [insufficient, setInsufficient] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
-
-  /** Scope-builder chip: append the starter fragment and select its [placeholder] for immediate typing. */
-  function addHint(def: SuggestionTagDef) {
-    if (!def.fragment) return;
-    const { text, selectStart, selectEnd } = insertFragment({ request, fragment: def.fragment });
-    setRequest(text);
-    requestAnimationFrame(() => {
-      const el = taRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(selectStart, selectEnd);
-    });
-  }
 
   useEffect(() => {
     creditsApi.mine().then((c) => dispatch({ type: ActionType.CreditsLoaded, balance: c.balance, history: c.history })).catch(() => undefined);
@@ -108,34 +93,6 @@ export function NewReport() {
                 }}>
                 {active && <span aria-hidden style={{ fontWeight: fontWeight.bold }}>✓</span>}
                 {o.label}
-              </button>
-            );
-          })}
-        </div>
-        {/* Scope-builder chips: dashed = missing (click inserts a starter), solid ✓ = the request covers it. */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, padding: `6px 12px 12px` }}>
-          {SUGGESTION_TAGS.map((t) => {
-            const c = toneColors[t.tone];
-            const done = tagCovered({ def: t, request });
-            return (
-              <button
-                key={t.tag}
-                type="button"
-                data-testid={`tag-${t.tag}`}
-                data-done={done || undefined}
-                disabled={t.soon}
-                onClick={() => addHint(t)}
-                title={t.soon ? 'Coming soon' : done ? `${t.label} — covered by your request` : `Add ${t.label.toLowerCase()} to your request`}
-                style={{
-                  fontSize: fontSize.sm, fontFamily: font.ui, display: 'inline-flex', alignItems: 'center', gap: 5,
-                  color: c.fg, background: c.bg,
-                  border: `1px ${done ? 'solid' : 'dashed'} ${c.border}`,
-                  padding: `5px 10px`, borderRadius: radius.sm,
-                  opacity: t.soon ? 0.7 : 1, cursor: t.soon ? 'not-allowed' : 'pointer',
-                }}>
-                {done && <span aria-hidden style={{ fontWeight: fontWeight.bold }}>✓</span>}
-                {t.label}
-                {t.soon && <span style={{ fontSize: 9.5, fontWeight: fontWeight.semibold, letterSpacing: '.04em', color: color.subtle, background: color.surface, padding: `1px 5px`, borderRadius: 4 }}>SOON</span>}
               </button>
             );
           })}
