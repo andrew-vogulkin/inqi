@@ -1,10 +1,10 @@
-import { IntakeService } from './intake.service';
+import { IntakeService, IntakeRefusalReason } from './intake.service';
 
-function make({ intake = ['intake_inqi@monkeycode.io'], balance = 5, account = true, minCredits = 1 }: {
-  intake?: string[]; balance?: number; account?: boolean; minCredits?: number;
+function make({ intake = ['intake_inqi@monkeycode.io'], balance = 5, account = true, suspended = false, minCredits = 1 }: {
+  intake?: string[]; balance?: number; account?: boolean; suspended?: boolean; minCredits?: number;
 } = {}) {
   const customers = {
-    findByEmail: jest.fn().mockResolvedValue(account ? { id: 'c1', email: 'ada@x.io' } : null),
+    findByEmail: jest.fn().mockResolvedValue(account ? { id: 'c1', email: 'ada@x.io', suspendedAt: suspended ? new Date('2026-07-01') : null } : null),
     upsertByEmail: jest.fn().mockResolvedValue({ id: 'c1', email: 'ada@x.io' }),
   };
   const reports = { createFromEmail: jest.fn().mockResolvedValue({ id: 'r1', ref: 'RPT-260713-05' }) };
@@ -72,6 +72,16 @@ describe('IntakeService (HP-27)', () => {
     expect(ack).toEqual({ intake: true, reportId: 'r1', ref: 'RPT-260713-05' });
   });
 
+  it('acknowledges a started report by email, naming the ref and a live link', async () => {
+    const { svc, mail } = make({ balance: 5 });
+    await svc.createReportFromEmail({ fromAddr: 'ada@x.io', body: 'find me a car' });
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'ada@x.io',
+      subject: expect.stringContaining('RPT-260713-05'),
+      body: expect.stringContaining('https://inqi.test/#/r/r1'),
+    }));
+  });
+
   it('rejects an intake email with no From address (no owner)', async () => {
     const { svc } = make();
     await expect(svc.createReportFromEmail({ body: 'hi' })).rejects.toThrow(/no From/);
@@ -83,21 +93,30 @@ describe('IntakeService (HP-27)', () => {
  * A refused email must cost us nothing: no account, no report, no pipeline.
  */
 describe('IntakeService — credit gate', () => {
-  it('runs the report when the sender can pay for it (balance >= min)', async () => {
+  it('runs the report when the sender can pay for it (balance >= min), and acknowledges it', async () => {
     const { svc, reports, mail } = make({ balance: 1, minCredits: 1 });
     const ack = await svc.createReportFromEmail({ fromAddr: 'ada@x.io', body: 'find me a car' });
     expect(ack.refused).toBeUndefined();
     expect(reports.createFromEmail).toHaveBeenCalled();
-    expect(mail.send).not.toHaveBeenCalled();
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@x.io', subject: expect.stringContaining('started') }));
   });
 
-  it('REFUSES a sender with no account — and never enrolls them', async () => {
+  it('DECLINES a sender with no account (reason: no_account) — and never enrolls them', async () => {
     const { svc, reports, customers, mail } = make({ account: false });
     const ack = await svc.createReportFromEmail({ fromAddr: 'stranger@evil.com', body: 'find me a car' });
-    expect(ack).toEqual({ intake: true, reportId: '', ref: null, refused: true });
+    expect(ack).toEqual({ intake: true, reportId: '', ref: null, refused: true, reason: IntakeRefusalReason.NoAccount });
     expect(customers.upsertByEmail).not.toHaveBeenCalled(); // emailing us must not create an account…
     expect(reports.createFromEmail).not.toHaveBeenCalled(); // …nor burn any tokens
-    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'stranger@evil.com' }));
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'stranger@evil.com', body: expect.stringContaining('no account') }));
+  });
+
+  it('DECLINES a suspended account (reason: account_suspended) — credits notwithstanding', async () => {
+    const { svc, reports, credits, mail } = make({ account: true, suspended: true, balance: 99 });
+    const ack = await svc.createReportFromEmail({ fromAddr: 'ada@x.io', body: 'find me a car' });
+    expect(ack).toMatchObject({ refused: true, reason: IntakeRefusalReason.AccountSuspended });
+    expect(credits.balance).not.toHaveBeenCalled(); // suspended is decided before we even price it
+    expect(reports.createFromEmail).not.toHaveBeenCalled();
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@x.io', body: expect.stringContaining('suspended') }));
   });
 
   it('REFUSES a known customer who is short on credits, and tells them to top up', async () => {

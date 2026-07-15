@@ -5,6 +5,7 @@ import { UsageService } from '../usage/usage.service';
 import { UsageContextService } from '../usage/usage-context.service';
 import { ErrorCode, UpstreamError } from '../../common/errors';
 import { WebSearchProvider } from './websearch.tokens';
+import { sourceForStage } from './websearch.source';
 import {
   WEB_SEARCH_TOOLS, WebResult, WebSearchToolName,
   webSearchArgsSchema, translateArgsSchema, currencyConvertArgsSchema,
@@ -15,16 +16,6 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 
 /** The provider label stamped on web-search usage rows (the cost view shows it). */
 export const WEB_SEARCH_PROVIDER_LABEL = 'searxng';
-
-/** Map the async-local usage stage → the cost-breakdown source bucket (HP-15). */
-function sourceForStage(stage?: string): WebSearchSource {
-  switch (stage) {
-    case WebSearchSource.SubjectBuild: return WebSearchSource.SubjectBuild;   // 'subject_build'
-    case WebSearchSource.BreadthSearch: return WebSearchSource.BreadthSearch; // 'breadth_search'
-    case WebSearchSource.DepthSearch: return WebSearchSource.DepthSearch;     // 'depth_search'
-    default: return WebSearchSource.Other; // pre_research / reactor / unset
-  }
-}
 
 /** Subset of a SearXNG `format=json` response we read. */
 interface SearxResponse {

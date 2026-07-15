@@ -1,4 +1,4 @@
-import { ComplianceCategory, SearchFocus } from '@inqi/shared';
+import { ComplianceCategory, SearchFocus, SubjectCategory } from '@inqi/shared';
 
 /**
  * All AI **system prompts** in one place, so the full instruction set the models
@@ -62,21 +62,37 @@ export function discoverySystem(): string {
     'propose realistic subject providers (sellers/services/landlords/orgs) spread across plausible regions.',
     'RELEVANCE GATE: a candidate qualifies ONLY if it plausibly PROVIDES the subject itself — matching the setting or keywords is NOT enough.',
     'Example: for "rooftop yoga classes in Bangkok", a yoga studio qualifies; a rooftop BAR does not (right rooftop, wrong service). When in doubt, leave it out.',
+    // The old rule blanket-dropped "aggregators/listicles". That threw away the best leads for
+    // goods: a marketplace LOT page is a concrete item, at a price, with a seller — it IS the option.
+    'SPECIFICITY (`specificity`) — judge the PAGE, not the site it sits on:',
+    '- "specific": the page shows THE requested item/service actually on offer from an identifiable provider. A dealer/studio page qualifies; so does a MARKETPLACE LISTING for one concrete item (a specific car, watch, apartment) with its price/seller. For a listing, `name` = the SELLER/dealer named on it; if none is named, the marketplace + the item ("Classic.com — 1976 911 2.7 S").',
+    '- "general_aggregator": a directory / category / search-results page that lists many providers or items but offers none specifically (a marketplace HOME or search page, a "top 10 X" listicle, a business directory).',
+    'Do NOT drop general aggregators — they still prove the market exists. Propose them, mark them "general_aggregator", and let them rank low. Dropping the WRONG SERVICE is still mandatory; only the specific-vs-general call is graded.',
     'When `searchContext` says constraints were relaxed or not applied, judge against the CORE SERVICE CATEGORY only (a furniture restoration workshop qualifies for an antique-daybed restoration subject) — the dropped specifics get verified later by research and outreach. The wrong-service rule still holds.',
     'Prefer candidates found in the webResults whose title/snippet shows the actual service; for each such candidate list the urls it came from in `evidence` (only urls present in webResults — never invent urls).',
     'STORE THE FACTS you actually saw for each candidate — depth research strengthens these later instead of re-searching:',
     '`website` (the official site when a result is/names it), `socials` (instagram/facebook urls seen), `facts` (verbatim price/address/rating mentions copied from titles/snippets).',
     'GROUNDING: a candidate with NO evidence urls and NO website is a guess — do not propose it.',
     'Never repeat any name in the provided exclude list.',
-    'Respond as strict JSON: { "candidates": [ { "name": string, "country": string, "evidence": string[], "website": string|null, "socials": string[], "facts": string[] } ] }.',
+    'Respond as strict JSON: { "candidates": [ { "name": string, "country": string, "evidence": string[], "website": string|null, "socials": string[], "facts": string[], "specificity": "specific"|"general_aggregator" } ] }.',
   ].join(' ');
 }
 
-/** Discovery step 0 — the model forms diverse search queries before any searching happens. */
-export function discoveryQueriesSystem(): string {
+/**
+ * Discovery step 0 — the model forms diverse search queries before any searching happens.
+ * `count` is the batch size and is the pipeline's PRIMARY search-cost dial: every query
+ * formed here becomes exactly one billable search (config `breadthQueriesPerCycle`).
+ */
+export function discoveryQueriesSystem({ count, category }: { count: number; category?: string | null }): string {
+  // A goods request wants LISTINGS (a concrete car, at a price, from a seller) — hunting
+  // only for "businesses offering it" walks straight past the inventory. A service request
+  // wants the business itself. Same loop, different target.
+  const goods = category === SubjectCategory.Item || category === SubjectCategory.Goods || category === SubjectCategory.Rental;
   return [
     "[stage:discovery] You form web-search queries for finding providers of a subject.",
-    'Write 10 SHORT queries (2-5 words each) that surface businesses actually OFFERING it. Optimise for RECALL — a query that returns zero results is useless.',
+    goods
+      ? `Write ${count} SHORT queries (2-5 words each) that surface the ITEM ITSELF ON OFFER — real listings for sale/rent AND the dealers/specialists who stock it. Marketplaces and classifieds are GOOD here: that is where the inventory is. Optimise for RECALL — a query that returns zero results is useless.`
+      : `Write ${count} SHORT queries (2-5 words each) that surface businesses actually OFFERING it. Optimise for RECALL — a query that returns zero results is useless.`,
     'The FIRST query MUST be the simplest high-recall form: service + city only, in the local language (e.g. "canalizador Lisboa", "yoga studio Bangkok"). Add one more local-language variant.',
     'Vary the rest by the SERVICE WORDING (synonyms, "empresa"/"company"/"studio"/"booking" style) — NOT by stacking extra constraints.',
     'Do NOT narrow to a neighborhood, an urgency word ("urgente"), a budget, or a long descriptive phrase — those collapse results to zero. Relaxation and specifics are handled later (fallback round + depth research).',
@@ -86,23 +102,27 @@ export function discoveryQueriesSystem(): string {
 }
 
 /** Discovery fallback — low conversion: relax the least-essential constraint and re-search. */
-export function discoveryFallbackQueriesSystem(): string {
+export function discoveryFallbackQueriesSystem({ count }: { count: number }): string {
   return [
     "[stage:discovery] Your previous search queries converted poorly — too few candidates actually PROVIDE the subject.",
-    'Relax the LEAST-essential constraint of the subject and form 10 broader search queries.',
+    `Relax the LEAST-essential constraint of the subject and form ${count} broader search queries.`,
     'Example: "rooftop yoga studio Bangkok" → drop "rooftop" → "yoga studio Bangkok" (the relaxed dimension gets confirmed later via research/outreach).',
     'Rules: relax exactly ONE constraint per round; NEVER drop the service itself or the location; do not repeat the prior queries.',
     'Respond as strict JSON: { "relaxed": string (the one constraint you dropped, e.g. "rooftop"), "queries": string[] }.',
   ].join(' ');
 }
 
-/** Discovery last resort — re-describe the subject in the commercial category language businesses use for SEO. */
-export function discoveryMarketingQueriesSystem(): string {
+/**
+ * Discovery last resort — re-describe the subject in the commercial category language
+ * businesses use for SEO. `count` comes from the SAME dial as the other two discovery
+ * prompts (`breadthQueriesPerCycle`): marketing queries are billable searches too.
+ */
+export function discoveryMarketingQueriesSystem({ count }: { count: number }): string {
   return [
     "[stage:discovery] Constraint relaxation is exhausted — this is the LAST search pass before the run concedes.",
     "Forget the request's specifics. Re-describe the subject the way a BUSINESS in that trade markets itself online — the short commercial category phrases its homepage and SEO would use.",
     'Examples: "supplier of 5000 biodegradable bubble tea cups, Bangkok" → "tea cups supplier Bangkok", "food packaging supplier Thailand"; "restore an antique teak daybed, Chiang Mai" → "antique restoration workshop Chiang Mai", "furniture restoration Chiang Mai"; "repair a vintage 1970s Omega Seamaster, Bangkok" → "watch repair Bangkok", "vintage watch service Bangkok".',
-    'Rules: 3-6 queries of 2-4 words plus the location; category language ONLY (drop quantities, materials, model names, eras, urgency); keep the SERVICE as the head of every query; include ONE query without the location for national/online suppliers.',
+    `Rules: ${count} queries of 2-4 words plus the location; category language ONLY (drop quantities, materials, model names, eras, urgency); keep the SERVICE as the head of every query; include ONE query without the location for national/online suppliers.`,
     'Respond as strict JSON: { "queries": string[] }.',
   ].join(' ');
 }
@@ -112,7 +132,11 @@ export function discoveryFilterSystem(): string {
   return [
     "[stage:discovery] You are inqi's candidate qualifier.",
     'Given the subject and a list of candidates (each with its evidence snippets), return ONLY the names that plausibly PROVIDE the subject itself.',
-    'Drop venue/setting look-alikes (a rooftop bar is not a rooftop yoga provider), aggregators/listicles, and anything whose evidence shows a different service.',
+    'Drop venue/setting look-alikes (a rooftop bar is not a rooftop yoga provider) and anything whose evidence shows a DIFFERENT service.',
+    // Deliberately NOT dropping aggregators any more: a marketplace listing for one concrete
+    // item is the option itself, and even a general directory proves the market exists. They
+    // are demoted downstream (ranked low), not deleted here.
+    'Do NOT drop a candidate merely for sitting on a marketplace/aggregator: a listing for ONE concrete item is a real offer, and a general directory is a weak-but-real lead that gets ranked low later. Only the wrong SERVICE is disqualifying.',
     'Respond as strict JSON: { "qualified": string[] } — names copied exactly from the input.',
   ].join(' ');
 }

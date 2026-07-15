@@ -17,6 +17,7 @@ export const ErrorCode = {
   AuthInvalidToken: 'AUTH_INVALID_TOKEN',
   AuthInvalidCode: 'AUTH_INVALID_CODE', // two-step email sign-in: the MFA code did not match
   AccountSuspended: 'ACCOUNT_SUSPENDED', // HP-25: the account is suspended (sign-in refused / session rejected)
+  EmailAliasNotAllowed: 'EMAIL_ALIAS_NOT_ALLOWED', // a plus-aliased address can't be used to CREATE a new account (anti multi-registration)
 
   // domain
   ReportNotFound: 'REPORT_NOT_FOUND',

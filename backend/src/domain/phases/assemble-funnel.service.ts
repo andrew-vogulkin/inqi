@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { BreadthPurpose, EventType, FindingKind, OutreachStrategy, QueueJob, WorkflowEvent } from '@inqi/shared';
+import { BreadthPurpose, EventType, FindingKind, LeadSpecificity, OutreachStrategy, QueueJob, WorkflowEvent } from '@inqi/shared';
 import { BossService } from '../../infra/queue/boss.service';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { ConfigService } from '../../infra/config/config.service';
@@ -117,6 +117,9 @@ export class AssembleFunnelService implements OnModuleInit {
           ...(c.website ? { website: c.website } : {}),
           ...(c.socials?.length ? { socials: c.socials } : {}),
           ...(c.facts?.length ? { facts: c.facts } : {}),
+          // A general directory is a weak-but-real lead: kept, flagged, and ranked low by
+          // depth (which reads this) rather than deleted at discovery.
+          ...(c.specificity === LeadSpecificity.GeneralAggregator ? { specificity: c.specificity } : {}),
         },
       },
     });

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { BreadthEvent, BreadthState, PhaseKey, UsageKind } from '@inqi/shared';
+import { BreadthEvent, BreadthState, LeadSpecificity, PhaseKey, UsageKind } from '@inqi/shared';
 import { AI_PROVIDER, AiProvider } from '../../infra/ai/ai.tokens';
 import { WEB_SEARCH, WebSearchProvider } from '../../infra/websearch/websearch.tokens';
 import { UsageService } from '../../infra/usage/usage.service';
@@ -10,8 +10,9 @@ import {
 } from '../subject-providers/breadth-lifecycle';
 import { PhaseStepRegistry, StepCtx, StepOutcome } from './phase-step.tokens';
 
+/** Fallback batch size for runs persisted before `queriesPerCycle` existed (see `data()`). */
+const DEFAULT_QUERIES_PER_CYCLE = 6;
 /** Zero-hit search cycles back off and retry (engine-suspension recovery), bounded. */
-const EMPTY_SEARCH_RETRIES = 2;
 const EMPTY_SEARCH_BACKOFF_MS = 75_000;
 /** Backoff slice: each slice heartbeats the shadow-run lease (30s) via ctx.log. */
 const EMPTY_SEARCH_HEARTBEAT_MS = 25_000;
@@ -23,9 +24,17 @@ export interface BreadthRunData {
   subject: BreadthSubject;
   count: number;              // target candidate count
   maxCycles: number;          // hard cap, pinned from config at start
+  queriesPerCycle: number;    // batch size the model forms each cycle = searches per cycle
+  emptySearchRetries: number; // re-fire the whole batch on a totally empty pool (0 = off)
   cycle: number;              // 1-based; CHECKPOINT increments on CONTINUE
   exclude: string[];          // names never to propose (existing funnel, prior finds)
   queries: string[];
+  /**
+   * Every query already issued in this run. Each relax round buys a FRESH batch from the
+   * model, and the prompt only *asks* it not to repeat — nothing enforced it, so an
+   * overlapping batch re-ran (and re-paid for) searches we already had.
+   */
+  searched: string[];
   pool: BreadthPoolHit[] | null; // trimmed to null once MINE consumes it (row size)
   proposed: DiscoveredProvider[];
   candidates: DiscoveredProvider[];
@@ -67,8 +76,20 @@ export class BreadthSearchSteps {
     registry.register({ key: PhaseKey.BreadthSearch, state: BreadthState.MARKETING, handler: { execute: (ctx) => this.marketing(ctx) } });
   }
 
+  /**
+   * run.data is PERSISTED, so a run started before a field existed will be missing it.
+   * Backfill the fields added later, or an in-flight run crashes the moment the new code
+   * deploys (`[...d.searched]` on undefined throws; `queryCount: undefined` asks the model
+   * for "undefined queries"). Defaults mirror the pre-existing behaviour.
+   */
   private data(ctx: StepCtx): BreadthRunData {
-    return ctx.run.data as unknown as BreadthRunData;
+    const d = ctx.run.data as unknown as BreadthRunData;
+    return {
+      ...d,
+      searched: d.searched ?? [],
+      queriesPerCycle: d.queriesPerCycle ?? DEFAULT_QUERIES_PER_CYCLE,
+      emptySearchRetries: d.emptySearchRetries ?? 0,
+    };
   }
 
   /** B. Runs once per run. No AI → deterministic fallback candidates straight to a dry terminal. */
@@ -80,32 +101,53 @@ export class BreadthSearchSteps {
       await ctx.log({ message: `Discovery: AI unconfigured — ${candidates.length} fallback candidate(s)` });
       return { event: BreadthEvent.WENT_DRY, dataPatch: { candidates, notes: [...d.notes, 'AI unconfigured — deterministic fallback'] } };
     }
-    const queries = await formBreadthQueries({ ai: this.ai, subject: d.subject, logger: this.logger });
+    const queries = await formBreadthQueries({ ai: this.ai, subject: d.subject, queryCount: d.queriesPerCycle, logger: this.logger });
     return { event: BreadthEvent.QUERIES_FORMED, dataPatch: { queries } };
   }
 
   /**
-   * C. Merge + dedupe every query's hits into one pool. A COMPLETELY empty pool is
-   * an infrastructure smell, not a verdict — SearXNG's upstream engines suspend for
-   * a minute+ after a burst and every query in that window returns 200-with-empty,
-   * which used to burn the run's relax/dry cycles in seconds. Back off and re-search
-   * (bounded) so an engine suspension doesn't read as "the web has no providers".
+   * C. Run every NOT-YET-SEARCHED query and merge + dedupe the hits into one pool.
+   *
+   * This step is where breadth spends its money: one query = one billable search, and a
+   * run costs `cycles x queriesPerCycle`. Hence the two guards here — skip queries this
+   * run already issued, and don't re-fire a batch just because it came back empty
+   * (`emptySearchRetries`, default 0; see the config for why that band-aid is retired).
    */
   private async search(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
-    const args = { web: this.web, queries: d.queries, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger, cap: d.poolCap };
+    // Never pay twice for the same query. Each relax round buys a FRESH batch from the
+    // model and the prompt only ASKS it not to repeat — so overlap was re-searched (and
+    // re-billed) in full. Dedupe within the batch too: the model does emit duplicates.
+    const already = new Set(d.searched);
+    const fresh = [...new Set(d.queries)].filter((q) => !already.has(q));
+    const skipped = d.queries.length - fresh.length;
+    if (skipped > 0) this.logger.log(`discovery: skipping ${skipped} query(ies) already searched this run`);
+
+    // Every query is a billable search, so a fully-duplicate batch is worth zero: reuse
+    // the pool we already have rather than re-running it.
+    if (!fresh.length) {
+      this.logger.warn('discovery: the whole query batch was already searched — nothing new to run');
+      return { event: BreadthEvent.POOL_READY, dataPatch: { pool: [] } };
+    }
+
+    const args = { web: this.web, queries: fresh, fallbackQuery: naiveBreadthQuery({ subject: d.subject }), logger: this.logger, cap: d.poolCap };
     let pool = await searchBreadthPool(args);
-    for (let retry = 1; !pool.length && retry <= EMPTY_SEARCH_RETRIES; retry += 1) {
-      this.logger.warn(`discovery search returned ZERO hits across ${d.queries.length} queries (engine suspension?) — backing off ${EMPTY_SEARCH_BACKOFF_MS / 1000}s, retry ${retry}/${EMPTY_SEARCH_RETRIES}`);
+
+    // A totally empty pool USED to mean "SearXNG's engines are suspended after a burst",
+    // so we backed off and re-fired the whole batch. The global 1-req/s throttle now
+    // prevents those bursts, and on a paid API empty means genuinely empty — so this
+    // defaults to 0 retries. Each retry costs a full batch of searches AND a 75s stall.
+    for (let retry = 1; !pool.length && retry <= d.emptySearchRetries; retry += 1) {
+      this.logger.warn(`discovery search returned ZERO hits across ${fresh.length} queries (engine suspension?) — backing off ${EMPTY_SEARCH_BACKOFF_MS / 1000}s, retry ${retry}/${d.emptySearchRetries}`);
       // Sliced wait: each ctx.log heartbeats the shadow-run lease (30s), so one flat
       // sleep longer than the lease would read as a stuck run to the reaper.
       for (let waited = 0; waited < EMPTY_SEARCH_BACKOFF_MS; waited += EMPTY_SEARCH_HEARTBEAT_MS) {
-        await ctx.log({ message: `Web search unavailable (0 hits across every query) — waiting to retry (${Math.round((EMPTY_SEARCH_BACKOFF_MS - waited) / 1000)}s left, attempt ${retry}/${EMPTY_SEARCH_RETRIES})` });
+        await ctx.log({ message: `Web search unavailable (0 hits across every query) — waiting to retry (${Math.round((EMPTY_SEARCH_BACKOFF_MS - waited) / 1000)}s left, attempt ${retry}/${d.emptySearchRetries})` });
         await new Promise((r) => setTimeout(r, Math.min(EMPTY_SEARCH_HEARTBEAT_MS, EMPTY_SEARCH_BACKOFF_MS - waited)));
       }
       pool = await searchBreadthPool(args);
     }
-    return { event: BreadthEvent.POOL_READY, dataPatch: { pool } };
+    return { event: BreadthEvent.POOL_READY, dataPatch: { pool, searched: [...d.searched, ...fresh] } };
   }
 
   /** D. Relevance-gated mining. A mining failure counts as a dry round, never fails the run. */
@@ -133,7 +175,11 @@ export class BreadthSearchSteps {
       if (seen.has(c.name)) continue;
       seen.add(c.name);
       candidates.push(c);
-      gained++;
+      // `gained` drives the DRY counter, so it must mean "progress toward the target".
+      // A cycle that turns up nothing but directories has not moved us closer to an option
+      // the customer can act on — counting those would keep the loop feeling productive
+      // while it churns out marketplace search pages forever.
+      if (c.specificity !== LeadSpecificity.GeneralAggregator) gained++;
     }
     return { event: BreadthEvent.CANDIDATES_QUALIFIED, dataPatch: { candidates, seenNames: [...seen], gainedThisCycle: gained, proposed: [] } };
   }
@@ -141,14 +187,22 @@ export class BreadthSearchSteps {
   /** ✓ The adaptive checkpoint: target met / dry / cap → terminal; else CONTINUE into RELAX. */
   private async checkpoint(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
+    // ONLY SPECIFIC leads count toward the target. A general directory is kept (it proves
+    // the market exists) but it is not an option a customer can act on — counting it as
+    // progress let discovery declare TARGET_MET on ten marketplace search pages and stop
+    // hunting, which is strictly worse than the old behaviour of dropping them and looking
+    // harder. Aggregators ride along; they just don't buy the run its way out of the loop.
+    const specific = d.candidates.filter((c) => c.specificity !== LeadSpecificity.GeneralAggregator);
+    const aggregators = d.candidates.length - specific.length;
     const { event, dryRounds } = decideBreadthCheckpoint({
-      foundCount: d.candidates.length, targetCount: d.count, gained: d.gainedThisCycle,
+      foundCount: specific.length, targetCount: d.count, gained: d.gainedThisCycle,
       dryRounds: d.dryRounds, cycle: d.cycle, maxCycles: d.maxCycles, dryPatience: d.dryRoundsToStop,
     });
+    const tally = `${specific.length}/${d.count}${aggregators ? ` (+${aggregators} directory lead(s), ranked low)` : ''}`;
     const notes = [...d.notes];
     const patch: Record<string, unknown> = { dryRounds };
-    if (event === BreadthEvent.WENT_DRY) notes.push(`search went dry after ${d.cycle} cycle(s) — stopping at ${d.candidates.length}/${d.count}`);
-    if (event === BreadthEvent.CAP_REACHED) notes.push(`cycle cap (${d.maxCycles}) reached at ${d.candidates.length}/${d.count}`);
+    if (event === BreadthEvent.WENT_DRY) notes.push(`search went dry after ${d.cycle} cycle(s) — stopping at ${tally}`);
+    if (event === BreadthEvent.CAP_REACHED) notes.push(`cycle cap (${d.maxCycles}) reached at ${tally}`);
     if (event === BreadthEvent.CONTINUE) patch.cycle = d.cycle + 1;
     // NO fallback backstop here: with AI configured, a dry search must end HONESTLY
     // (assembly fails the funnel / finishes outreach) — fabricated "Subject Provider N"
@@ -162,7 +216,7 @@ export class BreadthSearchSteps {
   private async relax(ctx: StepCtx): Promise<StepOutcome> {
     const d = this.data(ctx);
     const relaxed = await relaxBreadthQueries({
-      ai: this.ai, subject: d.subject, priorQueries: d.queries, qualifiedCount: d.candidates.length, needed: d.count, logger: this.logger,
+      ai: this.ai, subject: d.subject, priorQueries: d.searched, qualifiedCount: d.candidates.length, needed: d.count, queryCount: d.queriesPerCycle, logger: this.logger,
     });
     if (!relaxed) {
       return { event: BreadthEvent.RELAX_EXHAUSTED, dataPatch: { notes: [...d.notes, `fallback formation failed after ${d.cycle - 1} cycle(s) — stopping at ${d.candidates.length}/${d.count}`] } };
@@ -196,7 +250,13 @@ export class BreadthSearchSteps {
       await ctx.log({ message: `Discovery: ${note}` });
       return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { notes: [...d.notes, note] } };
     }
-    const queries = await marketingBreadthQueries({ ai: this.ai, subject: d.subject, priorQueries: d.queries, logger: this.logger });
+    // priorQueries = EVERY query the run has issued, not just the last batch. Marketing is
+    // told "don't repeat these"; showing it only the last batch let it re-propose queries
+    // from earlier cycles, which the SEARCH dedupe then throws away — an AI call spent for
+    // nothing. Same fix as relax.
+    const queries = await marketingBreadthQueries({
+      ai: this.ai, subject: d.subject, priorQueries: d.searched, queryCount: d.queriesPerCycle, logger: this.logger,
+    });
     if (!queries) {
       return { event: BreadthEvent.MARKETING_EXHAUSTED, dataPatch: { marketingDone: true, notes: [...d.notes, `marketing query formation failed — stopping at ${d.candidates.length}/${d.count}`] } };
     }

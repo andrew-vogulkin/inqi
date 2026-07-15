@@ -5,17 +5,32 @@ import { CreditsService } from '../credits/credits.service';
 import { ReportService } from '../report/report.service';
 import { MAIL_PROVIDER, MailKind, MailProvider } from '../source/mail.provider';
 
+/** Why an inbound intake email did not start a report — drives the decline email + logs. */
+export const IntakeRefusalReason = {
+  NoAccount: 'no_account', // the From address has no inqi account (we never enrol via email)
+  AccountSuspended: 'account_suspended', // HP-25: the account exists but is suspended
+  InsufficientCredits: 'insufficient_credits', // known account, but balance < intakeMinCredits
+} as const;
+export type IntakeRefusalReason = (typeof IntakeRefusalReason)[keyof typeof IntakeRefusalReason];
+
 /** Acknowledgement returned for an inbound email that started a new report (HP-27). */
 export interface IntakeAck {
   intake: true;
   reportId: string;
   ref: string | null;
-  /** The sender didn't clear the credit gate — no account touched, no report, no pipeline. */
+  /** The sender didn't clear the gate — no account touched, no report, no pipeline. */
   refused?: boolean;
+  /** Present iff refused — the machine-readable reason (also stated in the decline email). */
+  reason?: IntakeRefusalReason;
 }
 
-/** One refusal reply per sender per this window — the intake address must not become a spam reflector. */
-const REFUSAL_REPLY_COOLDOWN_MS = 24 * 3600_000;
+/**
+ * One DECLINE reply per sender per this window — the intake address must not become a
+ * spam reflector (a decline costs nothing to trigger, so it's the abuse vector). An
+ * acknowledgement is credit-bounded — each report the sender paid for gets its own — so
+ * it is deliberately NOT rate-limited here.
+ */
+const DECLINE_REPLY_COOLDOWN_MS = 24 * 3600_000;
 
 /**
  * HP-27 — email intake: an inbound email TO the configured intake address starts a
@@ -32,8 +47,8 @@ const REFUSAL_REPLY_COOLDOWN_MS = 24 * 3600_000;
 @Injectable()
 export class IntakeService {
   private readonly logger = new Logger(IntakeService.name);
-  /** Last refusal reply per sender — bounds outbound mail to any single address. */
-  private readonly refusedAt = new Map<string, number>();
+  /** Last DECLINE reply per sender — bounds outbound decline mail to any single address. */
+  private readonly declinedAt = new Map<string, number>();
 
   constructor(
     private readonly customers: CustomerService,
@@ -76,55 +91,102 @@ export class IntakeService {
 
     const min = this.config.intakeMinCredits;
     const customer = await this.customers.findByEmail({ email }); // look up, do NOT create
-    const balance = customer ? await this.credits.balance({ customerId: customer.id }) : 0;
-    if (balance < min) {
-      this.logger.warn(`email intake REFUSED for ${email}: ${customer ? `${balance} credit(s)` : 'no account'} < ${min} required`);
-      await this.replyRefused({ email, balance, min, known: !!customer });
-      return { intake: true, reportId: '', ref: null, refused: true };
-    }
+
+    // Gate, in order of severity: no account → suspended → can't pay. Each declines with a
+    // stated reason and never touches an account, mints a report, or spends a token.
+    if (!customer) return this.decline({ email, reason: IntakeRefusalReason.NoAccount });
+    if (customer.suspendedAt) return this.decline({ email, reason: IntakeRefusalReason.AccountSuspended });
+    const balance = await this.credits.balance({ customerId: customer.id });
+    if (balance < min) return this.decline({ email, reason: IntakeRefusalReason.InsufficientCredits, balance, min });
 
     // Subject carries intent ("Need a wedding photographer…"); fold it in front of the body.
     const rawRequest = [subject?.trim(), body?.trim()].filter(Boolean).join('\n\n') || subject || body || '';
-    const report = await this.reports.createFromEmail({ rawRequest, customer: { id: customer!.id, email: customer!.email } });
+    const report = await this.reports.createFromEmail({ rawRequest, customer: { id: customer.id, email: customer.email } });
     this.logger.log(`email intake → report ${report.ref ?? report.id} for ${email} (balance ${balance})`);
+    await this.acknowledge({ email, reportId: report.id, ref: report.ref });
     return { intake: true, reportId: report.id, ref: report.ref };
   }
 
+  /** Log + email a decline with its reason, then return the refused ack. Never throws. */
+  private async decline({ email, reason, balance, min }: { email: string; reason: IntakeRefusalReason; balance?: number; min?: number }): Promise<IntakeAck> {
+    this.logger.warn(`email intake DECLINED for ${email}: ${reason}${reason === IntakeRefusalReason.InsufficientCredits ? ` (${balance} < ${min})` : ''}`);
+    await this.replyDeclined({ email, reason, balance, min });
+    return { intake: true, reportId: '', ref: null, refused: true, reason };
+  }
+
   /**
-   * Tell a refused sender why, at most once per {@link REFUSAL_REPLY_COOLDOWN_MS}. The
-   * cooldown matters: without it, anyone could point a mail loop at the intake address
-   * and have us emit an outbound email per inbound one.
+   * Acknowledge that a report was started — sent once per created report (credit-bounded,
+   * so no cooldown). A failed ack must never take down inbound processing.
    */
-  private async replyRefused({ email, balance, min, known }: { email: string; balance: number; min: number; known: boolean }): Promise<void> {
-    const last = this.refusedAt.get(email) ?? 0;
+  private async acknowledge({ email, reportId, ref }: { email: string; reportId: string; ref: string | null }): Promise<void> {
+    const label = ref ?? reportId;
+    const body = [
+      `Thanks — we've started your inqi report${ref ? ` (${ref})` : ''}.`,
+      '',
+      `Our agents are researching providers and reaching out now. We'll email you the ranked results as they come in — no need to reply.`,
+      '',
+      `Track it live here: ${this.config.webBaseUrl}/#/r/${reportId}`,
+    ].join('\n');
+    try {
+      await this.mail.send({ kind: MailKind.System, to: email, subject: `We've started your inqi report${ref ? ` — ${ref}` : ''}`, body });
+    } catch (e) {
+      this.logger.warn(`could not send acknowledgement to ${email} for report ${label}: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Tell a declined sender why, at most once per {@link DECLINE_REPLY_COOLDOWN_MS}. The
+   * cooldown matters: a decline is free to trigger, so without it anyone could point a
+   * mail loop at the intake address and have us emit an outbound email per inbound one.
+   */
+  private async replyDeclined({ email, reason, balance, min }: { email: string; reason: IntakeRefusalReason; balance?: number; min?: number }): Promise<void> {
+    const last = this.declinedAt.get(email) ?? 0;
     const now = Date.now();
-    if (now - last < REFUSAL_REPLY_COOLDOWN_MS) {
-      this.logger.log(`refusal reply to ${email} suppressed (already told within the cooldown)`);
+    if (now - last < DECLINE_REPLY_COOLDOWN_MS) {
+      this.logger.log(`decline reply to ${email} suppressed (already told within the cooldown)`);
       return;
     }
-    this.refusedAt.set(email, now);
+    this.declinedAt.set(email, now);
 
-    const body = known
-      ? [
-        `We received your request, but your account doesn't have enough credits to run it.`,
-        '',
-        `Credits available: ${balance}`,
-        `Credits needed:    ${min}`,
-        '',
-        `Top up here and send your request again: ${this.config.webBaseUrl}/#/credits`,
-      ].join('\n')
-      : [
-        `We received your request, but we couldn't find an inqi account for this email address.`,
-        '',
-        `Create an account and add credits, then email your request again:`,
-        `${this.config.webBaseUrl}`,
-      ].join('\n');
-
+    const body = this.declineBody({ reason, balance, min });
     try {
       await this.mail.send({ kind: MailKind.System, to: email, subject: 'We couldn\'t start your inqi report', body });
     } catch (e) {
-      // A bounced refusal must never take down inbound processing.
-      this.logger.warn(`could not send refusal reply to ${email}: ${(e as Error).message}`);
+      // A bounced decline must never take down inbound processing.
+      this.logger.warn(`could not send decline reply to ${email}: ${(e as Error).message}`);
+    }
+  }
+
+  /** The plain-text decline body for each reason — always states WHY and what to do next. */
+  private declineBody({ reason, balance, min }: { reason: IntakeRefusalReason; balance?: number; min?: number }): string {
+    switch (reason) {
+      case IntakeRefusalReason.NoAccount:
+        return [
+          `We received your request, but we couldn't find an inqi account for this email address.`,
+          '',
+          `Reason: no account.`,
+          '',
+          `Create an account and add credits, then email your request again:`,
+          `${this.config.webBaseUrl}`,
+        ].join('\n');
+      case IntakeRefusalReason.AccountSuspended:
+        return [
+          `We received your request, but your inqi account is currently suspended, so we can't run it.`,
+          '',
+          `Reason: account suspended.`,
+          '',
+          `If you think this is a mistake, reply to this email or contact support.`,
+        ].join('\n');
+      case IntakeRefusalReason.InsufficientCredits:
+        return [
+          `We received your request, but your account doesn't have enough credits to run it.`,
+          '',
+          `Reason: not enough credits.`,
+          `Credits available: ${balance ?? 0}`,
+          `Credits needed:    ${min ?? 0}`,
+          '',
+          `Top up here and send your request again: ${this.config.webBaseUrl}/#/credits`,
+        ].join('\n');
     }
   }
 }

@@ -35,8 +35,15 @@ export class CreditsService {
   /** Admin customer directory/search (HP-22). */
   searchCustomers({ q }: { q: string }) { return this.repo.searchCustomers({ q }); }
 
-  /** HP-21: atomically claim the customer's one free report (true iff granted now). */
-  claimFreeReport({ customerId, tx }: { customerId: string; tx?: DbTx }) { return this.repo.claimFreeReport({ customerId, tx }); }
+  /**
+   * HP-21: atomically claim the customer's one free report (true iff granted now).
+   * Off by default (see {@link ConfigService.freeReportEnabled}) now that new
+   * accounts start with a credit grant — a short balance is a 402, not a freebie.
+   */
+  claimFreeReport({ customerId, tx }: { customerId: string; tx?: DbTx }) {
+    if (!this.config.freeReportEnabled) return Promise.resolve(false);
+    return this.repo.claimFreeReport({ customerId, tx });
+  }
 
   /** HP-21: charge 1 credit to unlock a freemium report (402 if short; idempotent). */
   chargeUnlock({ customerId, reportId, actor, tx }: { customerId: string; reportId: string; actor: string; tx?: DbTx }) {

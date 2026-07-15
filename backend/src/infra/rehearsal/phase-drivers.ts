@@ -24,6 +24,8 @@ import { Check } from './scorer';
 /** The stage-1 genes a candidate rehearses under (subset of the tunable registry). */
 export interface PhaseDriverTunables {
   maxCycles?: number;
+  /** Queries the model forms per cycle = billable searches per cycle (config default: 6). */
+  queriesPerCycle?: number;
   poolCap?: number;
   dryRoundsToStop?: number;
   leadsCap?: number;
@@ -53,7 +55,10 @@ export class BreadthDriver {
   }): Promise<BreadthDriverOutcome> {
     const subject = subjectFromCase(rehearsalCase);
     const maxCycles = tunables.maxCycles ?? 3;
-    let queries = await formBreadthQueries({ ai: this.ai, subject, logger: this.logger });
+    const queryCount = tunables.queriesPerCycle ?? 6;
+    let queries = await formBreadthQueries({ ai: this.ai, subject, queryCount, logger: this.logger });
+    // Mirrors the live loop: a query already run is a search already paid for.
+    const searched = new Set<string>();
     let matchNote: string | null = null;
     const seen = new Set<string>();
     const candidates: { name: string }[] = [];
@@ -61,7 +66,9 @@ export class BreadthDriver {
     let dryRounds = 0;
 
     for (let cycle = 1; ; cycle++) {
-      const pool = await searchBreadthPool({ web: webSearch, queries, fallbackQuery: naiveBreadthQuery({ subject }), logger: this.logger, cap: tunables.poolCap });
+      const fresh = [...new Set(queries)].filter((q) => !searched.has(q));
+      fresh.forEach((q) => searched.add(q));
+      const pool = await searchBreadthPool({ web: webSearch, queries: fresh, fallbackQuery: naiveBreadthQuery({ subject }), logger: this.logger, cap: tunables.poolCap });
       let proposed: { name: string }[] = [];
       try {
         proposed = await mineCandidates({ ai: this.ai, subject, count, exclude: [...seen], pool, matchNote, logger: this.logger });
@@ -74,7 +81,7 @@ export class BreadthDriver {
       dryRounds = decision.dryRounds;
       if (decision.event !== BreadthEvent.CONTINUE) return { candidates, cycles: cycle, terminal: decision.event, notes };
 
-      const relaxed = await relaxBreadthQueries({ ai: this.ai, subject, priorQueries: queries, qualifiedCount: candidates.length, needed: count, logger: this.logger });
+      const relaxed = await relaxBreadthQueries({ ai: this.ai, subject, priorQueries: [...searched], qualifiedCount: candidates.length, needed: count, queryCount, logger: this.logger });
       if (!relaxed || relaxed.queries.join('\n') === queries.join('\n')) {
         return { candidates, cycles: cycle, terminal: BreadthEvent.RELAX_EXHAUSTED, notes: [...notes, 'relaxation exhausted'] };
       }

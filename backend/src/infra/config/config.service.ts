@@ -334,6 +334,26 @@ export class ConfigService {
   }
 
   /**
+   * Credits granted to a brand-new account on first sign-in. Written as a `topup`
+   * ledger row inside the same tx that creates the Customer, so the balance == Σ
+   * ledger invariant holds and existing accounts signing in again are never
+   * re-granted. 0 disables the grant.
+   */
+  get initialCredits(): number {
+    return Math.max(0, Number(process.env.INITIAL_CREDITS ?? 10));
+  }
+
+  /**
+   * Whether the one-off free (freemium-locked) report is offered as a fallback when
+   * a customer's balance can't cover the cost. Disabled by default now that new
+   * accounts start with {@link initialCredits} — a short balance is simply a 402
+   * (top up). Set `FREE_REPORT_ENABLED=true` to restore the zero-credit on-ramp.
+   */
+  get freeReportEnabled(): boolean {
+    return process.env.FREE_REPORT_ENABLED === 'true';
+  }
+
+  /**
    * Minimum credit balance an email-intake sender must already hold for their email to
    * start a report. Email intake is unauthenticated — anyone who knows the address can
    * spend our tokens — so the balance IS the authorization: only an existing customer who
@@ -373,8 +393,21 @@ export class ConfigService {
   /** Which web-search backend to bind to WEB_SEARCH. Explicit WEBSEARCH_DRIVER wins; defaults to the self-hosted SearXNG. */
   get webSearchDriver(): WebSearchDriver {
     const explicit = process.env.WEBSEARCH_DRIVER?.toLowerCase();
-    if (explicit === WebSearchDriver.Searxng || explicit === WebSearchDriver.Cloud) return explicit;
+    if (explicit === WebSearchDriver.Searxng || explicit === WebSearchDriver.Serper) return explicit;
     return WebSearchDriver.Searxng;
+  }
+
+  /**
+   * Serper (hosted Google SERP API) — only read when `webSearchDriver` is `serper`.
+   * Billed per query, so `maxResults` matters: Serper charges 1 credit for ≤10 results
+   * and 2 for 11–100 (our default of 8 stays in the 1-credit band).
+   */
+  get serper(): { apiKey?: string; baseUrl: string; timeoutMs: number } {
+    return {
+      apiKey: process.env.SERPER_API_KEY,
+      baseUrl: process.env.SERPER_BASE_URL ?? 'https://google.serper.dev',
+      timeoutMs: Number(process.env.SERPER_TIMEOUT_MS ?? 10_000),
+    };
   }
 
   /**
@@ -406,13 +439,33 @@ export class ConfigService {
    * reserved for the email thread (so flat websearch/rating sources are capped at
    * `maxSourcesPerInquiry - 1`; email sources themselves are not capped).
    */
-  get research(): { maxBreadthInquiries: number; maxSourcesPerInquiry: number; breadthMaxCycles: number; depthMaxToolCalls: number; depthCycles: number } {
+  get research(): {
+    maxBreadthInquiries: number; maxSourcesPerInquiry: number; breadthMaxCycles: number;
+    breadthQueriesPerCycle: number; breadthEmptySearchRetries: number;
+    depthMaxToolCalls: number; depthCycles: number;
+  } {
     return {
       maxBreadthInquiries: Number(process.env.BREADTH_MAX_INQUIRIES ?? 8),
       maxSourcesPerInquiry: Number(process.env.SOURCES_MAX_PER_INQUIRY ?? 5),
       // Breadth-cycle HARD CAP: the discovery loop self-adjusts (cycles toward the
       // full target, stops on dry rounds / unchanged queries) — this only bounds it.
-      breadthMaxCycles: Number(process.env.BREADTH_MAX_CYCLES ?? 50),
+      // Search volume is cycles x queriesPerCycle, so this is a cost ceiling, not a
+      // target: 50 x 10 was a 500-search ceiling that one real report actually rode.
+      breadthMaxCycles: Number(process.env.BREADTH_MAX_CYCLES ?? 3),
+      /**
+       * How many queries the model forms per cycle — the PRIMARY search-cost dial
+       * (every query is one billable search). Was hardcoded inside the AI prompt, so
+       * the biggest lever in the system could only be turned by editing a prompt.
+       */
+      breadthQueriesPerCycle: Number(process.env.BREADTH_QUERIES_PER_CYCLE ?? 6),
+      /**
+       * Re-fire the WHOLE query batch when a cycle's pool comes back completely empty.
+       * A SearXNG band-aid: its upstream engines suspend after a burst and answer
+       * 200-with-empty for a minute+. The global 1-req/s throttle now prevents those
+       * bursts, and on a paid API "empty" means genuinely empty — so this defaults OFF.
+       * Each retry costs a full batch of searches AND a 75s stall.
+       */
+      breadthEmptySearchRetries: Number(process.env.BREADTH_EMPTY_SEARCH_RETRIES ?? 0),
       // How many web_search / open_url calls one depth-agent CYCLE may spend.
       depthMaxToolCalls: Number(process.env.DEPTH_AGENT_MAX_TOOLCALLS ?? 6),
       // Depth-cycle HARD CAP per candidate: the evaluation gate drives actual usage

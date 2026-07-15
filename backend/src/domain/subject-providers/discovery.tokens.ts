@@ -1,3 +1,5 @@
+import { LeadSpecificity } from '@inqi/shared';
+
 /** A candidate subject provider proposed by discovery (before funnel/wave assignment). */
 export interface DiscoveredProvider {
   name: string;
@@ -17,10 +19,16 @@ export interface DiscoveredProvider {
   socials?: string[];
   /** Verbatim facts from result titles/snippets (prices, addresses, ratings) — depth strengthens these. */
   facts?: string[];
+  /**
+   * How directly this lead offers the subject. Absent = `specific` (the common case).
+   * A `general_aggregator` is kept but demoted — see {@link LeadSpecificity}.
+   */
+  specificity?: LeadSpecificity;
 }
 
 export interface DiscoverArgs {
-  subject: { title: string; description: string; attributes?: unknown };
+  /** `category` steers what discovery HUNTS: goods → listings/lots; service → businesses. */
+  subject: { title: string; description: string; attributes?: unknown; category?: string | null };
   /** How many candidates to return. */
   count: number;
   /** Provider names already in the funnel — never propose these again (for widening). */

@@ -233,7 +233,11 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
       data: {
         purpose, epicId, subject: await this.subjectContext({ reportId }), count,
         maxCycles: Math.max(1, this.config.research.breadthMaxCycles),
-        cycle: 1, exclude, queries: [], pool: null, proposed: [], candidates: [],
+        // Search volume is cycles x queriesPerCycle — both pinned at start so a run is
+        // self-contained and replayable even if the config changes mid-flight.
+        queriesPerCycle: Math.max(1, this.config.research.breadthQueriesPerCycle),
+        emptySearchRetries: Math.max(0, this.config.research.breadthEmptySearchRetries),
+        cycle: 1, exclude, queries: [], searched: [], pool: null, proposed: [], candidates: [],
         seenNames: exclude, gainedThisCycle: 0, dryRounds: 0, matchNote: null, notes: [],
       },
     });
@@ -473,9 +477,11 @@ export class OrchestratorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Subject context for discovery (title/description/attributes). */
-  private async subjectContext({ reportId }: { reportId: string }): Promise<{ title: string; description: string; attributes?: unknown }> {
+  private async subjectContext({ reportId }: { reportId: string }): Promise<{ title: string; description: string; attributes?: unknown; category?: string | null }> {
     const subject = await this.repo.findSubject({ reportId });
-    return { title: subject?.title ?? '', description: subject?.description ?? '', attributes: subject?.attributes };
+    // `category` (item/goods/rental vs service/trade/organisation) decides whether discovery
+    // hunts LISTINGS or BUSINESSES — it was classified here all along and never used.
+    return { title: subject?.title ?? '', description: subject?.description ?? '', attributes: subject?.attributes, category: subject?.category ?? null };
   }
 
   // 5. Report synthesis.

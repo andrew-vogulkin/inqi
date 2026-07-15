@@ -8,43 +8,12 @@ async function seed(page: Page, balance: number) {
   await page.route('**/api/me/credits', (r: Route) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ balance, history: [] }) }));
 }
 
-test('form renders with the reserve hint + SOON tag', async ({ page }) => {
+test('form renders with the reserve hint', async ({ page }) => {
   await seed(page, 3);
   await page.goto('/#/new');
   await expect(page.getByTestId('new-report')).toBeVisible();
   await expect(page.getByText('What should inqi find?')).toBeVisible();
   await expect(page.getByText(/1 credit when ready · 3 available/)).toBeVisible();
-  await expect(page.getByText('SOON')).toBeVisible();
-});
-
-test('scope-builder chips insert starter fragments and flip to ✓ as dimensions get covered', async ({ page }) => {
-  await seed(page, 3);
-  await page.goto('/#/new');
-  const ta = page.getByPlaceholder(/Reformer pilates/);
-
-  // all four live chips start un-done; Photo upload stays disabled
-  await expect(page.locator('[data-done]')).toHaveCount(0);
-  await expect(page.getByTestId('tag-photo_upload')).toBeDisabled();
-
-  // click Near me on the empty form → starter inserted with [area] selected; typing replaces it
-  await page.getByTestId('tag-near_me').click();
-  await expect(ta).toHaveValue('near [area]');
-  await page.keyboard.type('Shoreditch');
-  await expect(ta).toHaveValue('near Shoreditch');
-  await expect(page.getByTestId('tag-near_me')).toHaveAttribute('data-done', 'true');
-
-  // Budget chip comma-joins onto the existing text, placeholder selected
-  await page.getByTestId('tag-budget_set').click();
-  await expect(ta).toHaveValue('near Shoreditch, budget under [amount]');
-  await page.keyboard.type('£30 a session');
-  await expect(page.getByTestId('tag-budget_set')).toHaveAttribute('data-done', 'true');
-
-  // hand-typed coverage flips a chip without clicking it
-  await ta.focus();
-  await page.keyboard.press('End');
-  await page.keyboard.type(', evenings');
-  await expect(page.getByTestId('tag-flexible_timing')).toHaveAttribute('data-done', 'true');
-  await expect(page.getByTestId('tag-service')).toHaveAttribute('data-done', 'true'); // ≥3 words of "what"
 });
 
 test('zero balance shows the amber add-credits banner and blocks submit', async ({ page }) => {

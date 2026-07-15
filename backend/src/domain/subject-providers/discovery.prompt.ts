@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LeadSpecificity } from '@inqi/shared';
 import type { WebResult } from '../../infra/websearch/websearch.tools';
 
 /**
@@ -19,6 +20,12 @@ export const discoverySchema = z.object({
       socials: z.array(z.string()).default([]),
       /** Verbatim facts copied from result titles/snippets: prices, addresses, ratings. */
       facts: z.array(z.string()).default([]),
+      /**
+       * Whether the page offers THE requested thing (a dealer page, or a marketplace LOT
+       * with a concrete item + price), or is a general directory that merely lists many.
+       * Defaults to `specific` — a model that omits it is describing a real offer.
+       */
+      specificity: z.enum([LeadSpecificity.Specific, LeadSpecificity.GeneralAggregator]).default(LeadSpecificity.Specific),
     }))
     .default([]),
 });
