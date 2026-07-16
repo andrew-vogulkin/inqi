@@ -1,9 +1,9 @@
-import { CSSProperties, useEffect } from 'react';
+import { CSSProperties, useEffect, useState } from 'react';
 import { AsyncStatus, ToastKind } from '../conventions/enums';
 import { Route, hrefFor } from '../conventions/routes';
 import { LEDGER_LABEL, ledgerTone, ledgerSign, ledgerIcon, relativeTime } from '../conventions/credits';
 import { color, space, fontSize, fontWeight, radius, font } from '../theme/tokens';
-import { creditsApi } from '../api';
+import { creditsApi, ApiError } from '../api';
 import { CreditEntry } from '../api/types';
 import { EmptyState, Skeleton } from '../ui';
 import { toneColors } from '../ui/tone';
@@ -25,9 +25,23 @@ export function Credits() {
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // "Request a top-up" is a lightweight ask — toast only, NO balance change (operators apply it, FE-16).
-  function requestTopUp() {
-    dispatch({ type: ActionType.ToastPushed, toast: { id: `topup-req-${credits.history.length}`, kind: ToastKind.Success, message: 'Top-up requested — an operator will add credits shortly.' } });
+  const [amount, setAmount] = useState('5');
+  const [requesting, setRequesting] = useState(false);
+  const amountNum = Number(amount);
+  const amountValid = Number.isInteger(amountNum) && amountNum > 0;
+
+  // Files a persisted request an operator approves/rejects (no balance change here).
+  async function requestTopUp() {
+    if (!amountValid || requesting) return;
+    setRequesting(true);
+    try {
+      await creditsApi.requestTopUp({ amount: amountNum });
+      dispatch({ type: ActionType.ToastPushed, toast: { id: `topup-req-${Date.now()}`, kind: ToastKind.Success, message: `Requested ${amountNum} credit${amountNum === 1 ? '' : 's'} — an operator will review it shortly.` } });
+    } catch (e) {
+      dispatch({ type: ActionType.ToastPushed, toast: { id: `topup-err-${Date.now()}`, kind: ToastKind.Danger, message: e instanceof ApiError ? e.message : 'Could not send the request — try again.' } });
+    } finally {
+      setRequesting(false);
+    }
   }
 
   const ready = credits.status === AsyncStatus.Ready;
@@ -51,9 +65,17 @@ export function Credits() {
         {/* Top-up request card (light) */}
         <div style={{ flex: 1, minWidth: 200, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.xl, padding: '22px 24px' }}>
           <div style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, marginBottom: 7 }}>Need more?</div>
-          <p style={{ fontSize: fontSize.base, color: color.muted, lineHeight: 1.5, margin: '0 0 14px' }}>Top-ups are added manually by the inqi team while we're in early access. Request one and we'll credit your account.</p>
-          <button onClick={requestTopUp}
-            style={{ height: 36, padding: '0 14px', borderRadius: radius.md, background: color.appBg, border: `1px solid ${color.line}`, fontSize: fontSize.base, fontWeight: fontWeight.medium, color: color.ink, cursor: 'pointer' }}>Request a top-up</button>
+          <p style={{ fontSize: fontSize.base, color: color.muted, lineHeight: 1.5, margin: '0 0 14px' }}>Top-ups are added manually by the inqi team while we're in early access. Request the credits you need and we'll review it.</p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              data-testid="request-amount" type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)}
+              aria-label="Credits to request"
+              style={{ width: 72, height: 36, padding: '0 10px', borderRadius: radius.md, border: `1px solid ${color.line}`, background: color.appBg, fontSize: fontSize.base, fontFamily: font.mono, color: color.ink }} />
+            <button onClick={requestTopUp} disabled={!amountValid || requesting} data-testid="request-topup"
+              style={{ height: 36, padding: '0 14px', borderRadius: radius.md, background: color.appBg, border: `1px solid ${color.line}`, fontSize: fontSize.base, fontWeight: fontWeight.medium, color: color.ink, cursor: amountValid && !requesting ? 'pointer' : 'default', opacity: amountValid && !requesting ? 1 : 0.6 }}>
+              {requesting ? 'Requesting…' : 'Request a top-up'}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -63,6 +63,35 @@ export class CreditsService {
     return { customerId, balance };
   }
 
+  // --- credit top-up requests -------------------------------------------------
+
+  /** A customer files a pending credit request (operators approve/reject it). */
+  async requestTopUp({ customerId, amount, note }: { customerId: string; amount: number; note?: string }) {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new DomainError({ code: ErrorCode.ValidationFailed, message: 'requested amount must be a positive integer', details: { amount } });
+    }
+    const { id } = await this.repo.createRequest({ customerId, amount, note });
+    this.logger.log(`credit request ${id}: customer ${customerId} asked for ${amount}`);
+    return { id };
+  }
+
+  /** The operator queue: every pending credit request. */
+  listPendingRequests() { return this.repo.listPendingRequests(); }
+
+  /** Approve → grant the requested credits + audit + close the request. */
+  async approveRequest({ requestId, actorId, actorEmail }: { requestId: string; actorId: string; actorEmail: string }) {
+    const r = await this.repo.approveRequest({ requestId, actorId, actorEmail });
+    await this.audit.record({ actor: actorEmail, action: AuditAction.Topup, targetType: AuditTargetType.Customer, targetId: r.customerId, reason: 'approved credit request', data: { requestId, amount: r.amount, balance: r.balance } });
+    this.logger.log(`credit request ${requestId} APPROVED by ${actorEmail}: +${r.amount} → ${r.email} (balance ${r.balance})`);
+    return r;
+  }
+
+  /** Reject → close the request, no credit change. */
+  async rejectRequest({ requestId, actorId, actorEmail }: { requestId: string; actorId: string; actorEmail: string }) {
+    await this.repo.rejectRequest({ requestId, actorId });
+    this.logger.log(`credit request ${requestId} REJECTED by ${actorEmail}`);
+  }
+
   /**
    * Settle on a reached terminal state (idempotent, once per report). Called from
    * the workflow engine after every transition. Pay-on-delivery: `charge` debits
