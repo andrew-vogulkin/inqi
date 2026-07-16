@@ -133,7 +133,7 @@ function Diagram() {
     // card to max-content and the scroll never engages.
     <Card testId="wf-diagram" style={{ minWidth: 0 }}>
       <Legend />
-      <MermaidStateMachine states={inspect.states} transitions={inspect.transitions} tunables={inspect.tunables ?? []} />
+      <MermaidStateMachine workflowKey={inspect.key} states={inspect.states} transitions={inspect.transitions} tunables={inspect.tunables ?? []} />
       <details style={{ marginTop: space[3] }}>
         <summary style={{ fontSize: fontSize.sm, color: color.muted, cursor: 'pointer' }}>Transition list ({inspect.transitions.length})</summary>
         <div style={{ display: 'grid', gap: 2, fontSize: fontSize.sm, marginTop: space[1] }}>
@@ -167,9 +167,9 @@ function CollapsedNote({ collapsed }: { collapsed: { event: string; toState: str
  * hand-rolled {@link StateMachineSvg} renders instead, so the tab always shows a
  * diagram. The drawing scrolls horizontally inside the card.
  */
-function MermaidStateMachine({ states, transitions, tunables }: { states: GraphStateDto[]; transitions: GraphTransitionDto[]; tunables?: WorkflowInspectDto['tunables'] }) {
+function MermaidStateMachine({ workflowKey, states, transitions, tunables }: { workflowKey?: string; states: GraphStateDto[]; transitions: GraphTransitionDto[]; tunables?: WorkflowInspectDto['tunables'] }) {
   const renderId = useId().replace(/[^a-zA-Z0-9]/g, '');
-  const { source, collapsed } = toMermaidSource({ states, transitions, tunables });
+  const { source, collapsed } = toMermaidSource({ states, transitions, tunables, key: workflowKey });
   const [svg, setSvg] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 

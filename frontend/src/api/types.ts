@@ -17,6 +17,7 @@ export type {
   ReportSnapshotDto,
   CreditEntry,
   CreditsDto,
+  CreditRequestDto,
   QuestionnaireQuestion,
   QuestionnaireDto,
   CostSummaryDto,

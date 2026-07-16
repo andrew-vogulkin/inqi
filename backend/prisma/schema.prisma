@@ -136,8 +136,27 @@ model Customer {
   suspendedReason String?   // optional operator note captured at suspend time
   suspendedById   String?   // Customer.id of the admin who suspended (attribution)
 
-  reports Report[]
-  ledger  CreditLedger[]
+  reports        Report[]
+  ledger         CreditLedger[]
+  creditRequests CreditRequest[]
+}
+
+// A customer's request for a credit top-up (early access — grants are manual). An
+// operator approves (→ grant credits) or rejects it on the admin top-up page.
+model CreditRequest {
+  id           String    @id @default(cuid())
+  customerId   String
+  amount       Int       // credits requested (positive)
+  note         String?   // customer's reason (optional)
+  status       String    @default("pending") // CreditRequestStatus: pending | approved | rejected
+  resolvedById String?   // Customer.id of the admin who resolved it
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([customerId])
 }
 
 // Append-only credit ledger (HP-19). Balance = Σ(topup) − Σ(reserve) + Σ(refund);

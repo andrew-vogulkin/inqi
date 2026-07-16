@@ -1,7 +1,7 @@
 import { Paths, SearchFocus, AccountStatus } from '@inqi/shared';
 import { request, HttpMethod } from './client';
 import {
-  SessionDto, ReportDto, LiveReportDto, ReportSnapshotDto, CreditsDto,
+  SessionDto, ReportDto, LiveReportDto, ReportSnapshotDto, CreditsDto, CreditRequestDto,
   QuestionnaireDto, CostSummaryDto, WorkflowVersionDto, ReportBoardDto, ThreadMessageDto,
   AuditResultDto, WorkflowInspectDto, VersionDiffResultDto, PublishResultDto,
   CustomerDirectoryDto, ProvenanceDto, UnlockResultDto, ReportSearchResultDto,
@@ -53,6 +53,9 @@ export const snapshotsApi = {
 /** Customer credits (HP-19). */
 export const creditsApi = {
   mine: () => request<CreditsDto>({ method: HttpMethod.Get, path: Paths.myCredits() }),
+  // File a top-up request for an operator to approve/reject.
+  requestTopUp: ({ amount, note }: { amount: number; note?: string }) =>
+    request<{ id: string }>({ method: HttpMethod.Post, path: Paths.myCreditRequests(), body: { amount, note } }),
 };
 
 /** Admin / operator endpoints (admin-gated server-side; HP-11/12/14/15/19). */
@@ -61,6 +64,12 @@ export const adminApi = {
     request<{ customerId: string; balance: number }>({ method: HttpMethod.Post, path: Paths.customerCredits(customerId), body: { amount, note } }),
   // HP-22: customer directory/search for the operator top-up (FE-16).
   searchCustomers: ({ q }: { q: string }) => request<CustomerDirectoryDto[]>({ method: HttpMethod.Get, path: Paths.adminCustomers(), query: { q } }),
+  // Credit-request queue: list pending, approve (→ grant) or reject.
+  listCreditRequests: () => request<CreditRequestDto[]>({ method: HttpMethod.Get, path: Paths.adminCreditRequests() }),
+  approveCreditRequest: ({ id, amount }: { id: string; amount?: number }) =>
+    request<{ customerId: string; email: string; amount: number; balance: number }>({ method: HttpMethod.Post, path: Paths.adminCreditRequestApprove(id), body: { amount } }),
+  rejectCreditRequest: ({ id }: { id: string }) =>
+    request<void>({ method: HttpMethod.Post, path: Paths.adminCreditRequestReject(id) }),
   // Operator report picker: newest-first, cursor-paginated; q matches ref / email / request text.
   searchReports: ({ q, cursor, limit }: { q?: string; cursor?: string; limit?: number } = {}) =>
     request<ReportSearchResultDto>({ method: HttpMethod.Get, path: Paths.adminReports(), query: { q: q || undefined, cursor, limit } }),

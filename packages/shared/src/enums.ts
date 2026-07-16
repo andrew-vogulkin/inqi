@@ -243,6 +243,14 @@ export const CreditKind = {
 } as const;
 export type CreditKind = (typeof CreditKind)[keyof typeof CreditKind];
 
+/** Lifecycle of a customer's credit top-up request (operator approves → grant, or rejects). */
+export const CreditRequestStatus = {
+  Pending: 'pending',
+  Approved: 'approved',
+  Rejected: 'rejected',
+} as const;
+export type CreditRequestStatus = (typeof CreditRequestStatus)[keyof typeof CreditRequestStatus];
+
 /** Who a session belongs to. Roles live in the DB (admins marked manually; HP-10). */
 export const AuthRole = {
   Customer: 'customer',

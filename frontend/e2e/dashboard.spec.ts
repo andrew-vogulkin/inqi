@@ -21,7 +21,7 @@ test('lists reports, updates a row on a live transition, and routes by stage', a
 
   await page.goto('/#/dashboard');
   await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
-  await expect(page.getByText('2 credits')).toBeVisible();
+  await expect(page.getByTestId('credits-chip')).toContainText('2 Credits · Request for more');
   await expect(page.getByTestId('report-status')).toHaveText('Researching');
 
   // HP-23: a stage-only transition (state holds at OUTREACH, ≥2 qualified) updates the pipeline live.
@@ -45,4 +45,25 @@ test('lists reports, updates a row on a live transition, and routes by stage', a
   // Ready stage → routes to the live report (own view).
   await page.getByTestId('report-row').click();
   await expect(page).toHaveURL(/#\/r\/inq11111aaaa/);
+});
+
+// The "switch to admin mode" button is admin-only chrome. A customer must never see it —
+// role gates the button; the admin routes it leads to are `adminOnly` (403) regardless.
+async function openDashboard(page: import('@playwright/test').Page, role: 'customer' | 'admin') {
+  const session = JSON.stringify({ token: 't', customer: { id: 'c1', email: 'c@x.io', role } });
+  await page.addInitScript((s) => localStorage.setItem('inqi.session', s), session);
+  await page.route('**/api/reports', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/me/credits', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ balance: 0, history: [] }) }));
+  await page.goto('/#/dashboard');
+  await expect(page.getByText('Nothing in flight yet')).toBeVisible(); // dashboard rendered (empty list)
+}
+
+test('a CUSTOMER never sees the "switch to admin mode" button', async ({ page }) => {
+  await openDashboard(page, 'customer');
+  await expect(page.getByTestId('switch-to-admin')).toHaveCount(0);
+});
+
+test('an ADMIN sees the "switch to admin mode" button in the customer app', async ({ page }) => {
+  await openDashboard(page, 'admin');
+  await expect(page.getByTestId('switch-to-admin')).toBeVisible();
 });

@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AuditAction, AuditTargetType, EventType } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { AuditService } from '../../infra/observability/audit.service';
 import { ConfigService } from '../../infra/config/config.service';
 import { DbTx } from '../../infra/persistence/prisma.service';
 import { DomainError, ErrorCode } from '../../common/errors';
+import { MAIL_PROVIDER, MailKind, MailProvider } from '../source/mail.provider';
 import { CreditsRepository } from './credits.repository';
 import { SettlementAction } from './credits.balance';
 
@@ -24,6 +25,7 @@ export class CreditsService {
     private readonly outbox: OutboxService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
   ) {}
 
   /** Flat credits one report run costs. */
@@ -61,6 +63,57 @@ export class CreditsService {
     await this.audit.record({ actor, action: AuditAction.Topup, targetType: AuditTargetType.Customer, targetId: customerId, reason: note, data: { amount, balance } });
     this.logger.log(`top-up ${amount} → customer ${customerId} (balance ${balance}) by ${actor}`);
     return { customerId, balance };
+  }
+
+  // --- credit top-up requests -------------------------------------------------
+
+  /** A customer files a pending credit request (operators approve/reject it). */
+  async requestTopUp({ customerId, amount, note }: { customerId: string; amount: number; note?: string }) {
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new DomainError({ code: ErrorCode.ValidationFailed, message: 'requested amount must be a positive integer', details: { amount } });
+    }
+    const { id } = await this.repo.createRequest({ customerId, amount, note });
+    this.logger.log(`credit request ${id}: customer ${customerId} asked for ${amount}`);
+    return { id };
+  }
+
+  /** The operator queue: every pending credit request. */
+  listPendingRequests() { return this.repo.listPendingRequests(); }
+
+  /** Approve → grant credits (operator may override the amount) + audit + email the customer. */
+  async approveRequest({ requestId, actorId, actorEmail, amount }: { requestId: string; actorId: string; actorEmail: string; amount?: number }) {
+    if (amount != null && (!Number.isInteger(amount) || amount <= 0)) {
+      throw new DomainError({ code: ErrorCode.ValidationFailed, message: 'granted amount must be a positive integer', details: { amount } });
+    }
+    const r = await this.repo.approveRequest({ requestId, actorId, actorEmail, amount });
+    await this.audit.record({ actor: actorEmail, action: AuditAction.Topup, targetType: AuditTargetType.Customer, targetId: r.customerId, reason: 'approved credit request', data: { requestId, amount: r.amount, balance: r.balance } });
+    this.logger.log(`credit request ${requestId} APPROVED by ${actorEmail}: +${r.amount} → ${r.email} (balance ${r.balance})`);
+    // Tell the customer their credits landed. Best-effort — a mail failure must not
+    // undo the grant (already committed) nor fail the operator's action.
+    this.notifyApproved(r).catch((e) => this.logger.warn(`could not email approval to ${r.email}: ${(e as Error).message}`));
+    return r;
+  }
+
+  private async notifyApproved({ email, amount, balance }: { email: string; amount: number; balance: number }): Promise<void> {
+    await this.mail.send({
+      kind: MailKind.System,
+      to: email,
+      subject: `Your inqi credits are ready — +${amount}`,
+      body: [
+        `Good news — your credit request was approved.`,
+        '',
+        `Credits added:   ${amount}`,
+        `New balance:     ${balance}`,
+        '',
+        `Start a report any time: ${this.config.webBaseUrl}`,
+      ].join('\n'),
+    });
+  }
+
+  /** Reject → close the request, no credit change. */
+  async rejectRequest({ requestId, actorId, actorEmail }: { requestId: string; actorId: string; actorEmail: string }) {
+    await this.repo.rejectRequest({ requestId, actorId });
+    this.logger.log(`credit request ${requestId} REJECTED by ${actorEmail}`);
   }
 
   /**

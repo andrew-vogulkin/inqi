@@ -12,7 +12,7 @@ import { AdminThreadController } from './admin-thread.controller';
 import { AuthedSnapshotsController } from './authed-snapshots.controller';
 import { WorkflowsController } from './workflows.controller';
 import { AuditController } from './audit.controller';
-import { MeCreditsController, AdminCustomersController } from './credits.controller';
+import { MeCreditsController, AdminCustomersController, AdminCreditRequestsController } from './credits.controller';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminUsageController } from './admin-usage.controller';
 import { AuthController } from './auth.controller';
@@ -29,7 +29,7 @@ import { AdminGuard } from './admin.guard';
  */
 @Module({
   imports: [ReportModule, KanbanModule, CustomerModule, CreditsModule, SnapshotsModule, OrchestratorWorkersModule, SourcesModule],
-  controllers: [AuthController, AdminReportsController, AdminReportSearchController, AdminThreadController, AuthedSnapshotsController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController, AdminUsersController, AdminUsageController],
+  controllers: [AuthController, AdminReportsController, AdminReportSearchController, AdminThreadController, AuthedSnapshotsController, WorkflowsController, AuditController, MeCreditsController, AdminCustomersController, AdminCreditRequestsController, AdminUsersController, AdminUsageController],
   providers: [AuthService, SessionService, MfaCodeStore, AuthGuard, AdminGuard],
   // HP-24: the former capability-token / public read surfaces now sit behind AuthGuard too.
   exports: [SessionService, AuthGuard],

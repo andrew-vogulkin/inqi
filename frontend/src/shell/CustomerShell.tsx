@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { AuthRole } from '@inqi/shared';
 import { Route, hrefFor, navigate } from '../conventions/routes';
 import { color, space, fontSize, fontWeight, radius } from '../theme/tokens';
 import { useAppDispatch, useSelector } from '../state/store';
@@ -11,6 +12,7 @@ import { ActionType } from '../state/actions';
 export function CustomerShell({ children }: { children: ReactNode; active?: Route }) {
   const session = useSelector((s) => s.session.session);
   const dispatch = useAppDispatch();
+  const isAdmin = session?.customer.role === AuthRole.Admin;
   return (
     <div style={{ minHeight: '100%', background: color.appBg }}>
       <header style={{ position: 'sticky', top: 0, background: color.appBg, borderBottom: `1px solid ${color.line}`, zIndex: 10 }}>
@@ -20,6 +22,16 @@ export function CustomerShell({ children }: { children: ReactNode; active?: Rout
             <span style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: color.ink, letterSpacing: '-.01em' }}>inqi</span>
           </a>
           <span style={{ flex: 1 }} />
+          {/* An admin using the customer app (they can make reports too) jumps back to the
+              console from the sticky top bar — always reachable, no scrolling past reports. */}
+          {isAdmin && (
+            <button
+              data-testid="switch-to-admin"
+              onClick={() => navigate({ route: Route.Admin })}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: color.muted, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.md, padding: `5px 11px`, marginRight: space[2], cursor: 'pointer' }}>
+              Admin mode →
+            </button>
+          )}
           {session
             // Navigate BEFORE the session clears — a signed-out guarded route would
             // bounce with ?returnTo=… and strand the next sign-in on it.

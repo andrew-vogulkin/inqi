@@ -41,3 +41,32 @@ export class CustomerDirectoryDto {
   @ApiProperty({ example: 'Ada Lovelace' }) name!: string;
   @ApiProperty({ example: 'ada@example.com' }) email!: string;
 }
+
+/** Customer's credit top-up request body. */
+export class CreateCreditRequestDto {
+  @ApiProperty({ example: 5, minimum: 1, description: 'Credits requested (positive integer)' })
+  @IsInt() @Min(1)
+  amount!: number;
+
+  @ApiPropertyOptional({ example: 'Running a batch of reports this week', description: 'Reason (optional)' })
+  @IsOptional() @IsString() @MaxLength(280)
+  note?: string;
+}
+
+/** Admin approve body — an optional amount override (defaults to the requested amount). */
+export class ApproveCreditRequestDto {
+  @ApiPropertyOptional({ example: 8, minimum: 1, description: 'Credits to grant; omit to grant the requested amount' })
+  @IsOptional() @IsInt() @Min(1)
+  amount?: number;
+}
+
+/** A pending credit request in the operator queue. */
+export class CreditRequestDto {
+  @ApiProperty({ example: 'clz...' }) id!: string;
+  @ApiProperty({ example: 'clz...' }) customerId!: string;
+  @ApiProperty({ example: 'ada@example.com' }) email!: string;
+  @ApiPropertyOptional({ example: 'Ada Lovelace' }) name?: string | null;
+  @ApiProperty({ example: 5 }) amount!: number;
+  @ApiPropertyOptional({ example: 'Running a batch this week' }) note?: string | null;
+  @ApiProperty({ example: '2026-07-16T12:00:00.000Z' }) createdAt!: Date;
+}

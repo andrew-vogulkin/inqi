@@ -1,9 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AuditActor, CreditKind } from '@inqi/shared';
+import { AuditActor, CreditKind, CreditRequestStatus } from '@inqi/shared';
 import { DbTx, PrismaService } from '../../infra/persistence/prisma.service';
-import { ErrorCode, NotFoundError, PaymentRequiredError } from '../../common/errors';
+import { ConflictError, ErrorCode, NotFoundError, PaymentRequiredError } from '../../common/errors';
 import { SettlementAction } from './credits.balance';
+
+/** One pending credit request, joined with the requesting customer's identity (admin list). */
+export interface PendingCreditRequest {
+  id: string;
+  amount: number;
+  note: string | null;
+  createdAt: Date;
+  customerId: string;
+  email: string;
+  name: string | null;
+}
 
 export interface SettleResult {
   settled: boolean;
@@ -121,6 +132,49 @@ export class CreditsRepository {
       await tx.creditLedger.create({ data: { customerId, kind: CreditKind.Topup, amount, reason: note, actor } });
       return { balance: updated.credits };
     });
+  }
+
+  // --- credit top-up requests -------------------------------------------------
+
+  /** Customer files a pending credit request. */
+  async createRequest({ customerId, amount, note, tx }: { customerId: string; amount: number; note?: string; tx?: DbTx }): Promise<{ id: string }> {
+    const r = await this.exec(tx).creditRequest.create({ data: { customerId, amount, note: note ?? null }, select: { id: true } });
+    return r;
+  }
+
+  /** Every open request, oldest first, joined with the requester's identity (admin queue). */
+  async listPendingRequests({ tx }: { tx?: DbTx } = {}): Promise<PendingCreditRequest[]> {
+    const rows = await this.exec(tx).creditRequest.findMany({
+      where: { status: CreditRequestStatus.Pending },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, amount: true, note: true, createdAt: true, customerId: true, customer: { select: { email: true, name: true } } },
+    });
+    return rows.map((r) => ({ id: r.id, amount: r.amount, note: r.note, createdAt: r.createdAt, customerId: r.customerId, email: r.customer.email, name: r.customer.name }));
+  }
+
+  /**
+   * Approve a pending request: grant its credits + append the `topup` ledger row + mark
+   * it approved, all in one tx. The status flip is conditional (updateMany where pending),
+   * so two operators can't both grant — the loser sees a ConflictError, nothing double-grants.
+   */
+  async approveRequest({ requestId, actorId, actorEmail, amount, tx: outer }: { requestId: string; actorId: string; actorEmail: string; amount?: number; tx?: DbTx }): Promise<{ customerId: string; email: string; amount: number; balance: number }> {
+    return this.inTx(outer, async (tx) => {
+      const req = await tx.creditRequest.findUnique({ where: { id: requestId }, select: { amount: true, status: true, customerId: true, note: true, customer: { select: { email: true } } } });
+      if (!req) throw new NotFoundError({ code: ErrorCode.NotFound, message: 'credit request not found' });
+      if (req.status !== CreditRequestStatus.Pending) throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'credit request is already resolved' });
+      const claimed = await tx.creditRequest.updateMany({ where: { id: requestId, status: CreditRequestStatus.Pending }, data: { status: CreditRequestStatus.Approved, resolvedById: actorId, resolvedAt: new Date() } });
+      if (claimed.count === 0) throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'credit request is already resolved' });
+      // The operator may grant a different amount than requested (defaults to the ask).
+      const grant = amount ?? req.amount;
+      const { balance } = await this.topUp({ customerId: req.customerId, amount: grant, note: `Approved credit request${req.note ? `: ${req.note}` : ''}`, actor: actorEmail, tx });
+      return { customerId: req.customerId, email: req.customer.email, amount: grant, balance };
+    });
+  }
+
+  /** Reject a pending request (no credit change). Conditional flip, same anti-double-resolve guard. */
+  async rejectRequest({ requestId, actorId, tx }: { requestId: string; actorId: string; tx?: DbTx }): Promise<void> {
+    const res = await this.exec(tx).creditRequest.updateMany({ where: { id: requestId, status: CreditRequestStatus.Pending }, data: { status: CreditRequestStatus.Rejected, resolvedById: actorId, resolvedAt: new Date() } });
+    if (res.count === 0) throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'credit request not found or already resolved' });
   }
 
   /**

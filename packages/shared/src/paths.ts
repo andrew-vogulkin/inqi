@@ -33,6 +33,12 @@ export const Paths = {
   customerCredits: (id: string) => `/admin/customers/${id}/credits`,
   adminCustomers: () => '/admin/customers',
 
+  // credit top-up requests: customer asks (POST), operator lists + approves/rejects
+  myCreditRequests: () => '/me/credits/requests',
+  adminCreditRequests: () => '/admin/credit-requests',
+  adminCreditRequestApprove: (id: string) => `/admin/credit-requests/${id}/approve`,
+  adminCreditRequestReject: (id: string) => `/admin/credit-requests/${id}/reject`,
+
   // admin report search (the operator report picker) — `q`/`limit`/`cursor` are querystring params
   adminReports: () => '/admin/reports',
 

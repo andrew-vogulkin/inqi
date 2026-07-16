@@ -162,6 +162,17 @@ export interface CreditEntry {
 }
 export interface CreditsDto { balance: number; history: CreditEntry[] }
 
+/** A pending credit-top-up request in the operator queue (GET /admin/credit-requests). */
+export interface CreditRequestDto {
+  id: string;
+  customerId: string;
+  email: string;
+  name?: string | null;
+  amount: number;
+  note?: string | null;
+  createdAt: string;
+}
+
 /** Questionnaire (GET /q/:token, capability token). */
 export interface QuestionnaireQuestion { id: string; type: string; prompt: string; options?: string[] }
 export interface QuestionnaireDto {
