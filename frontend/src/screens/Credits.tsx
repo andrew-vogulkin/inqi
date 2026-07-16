@@ -26,6 +26,7 @@ export function Credits() {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [amount, setAmount] = useState('5');
+  const [note, setNote] = useState('');
   const [requesting, setRequesting] = useState(false);
   const amountNum = Number(amount);
   const amountValid = Number.isInteger(amountNum) && amountNum > 0;
@@ -35,7 +36,8 @@ export function Credits() {
     if (!amountValid || requesting) return;
     setRequesting(true);
     try {
-      await creditsApi.requestTopUp({ amount: amountNum });
+      await creditsApi.requestTopUp({ amount: amountNum, note: note.trim() || undefined });
+      setNote('');
       dispatch({ type: ActionType.ToastPushed, toast: { id: `topup-req-${Date.now()}`, kind: ToastKind.Success, message: `Requested ${amountNum} credit${amountNum === 1 ? '' : 's'} — an operator will review it shortly.` } });
     } catch (e) {
       dispatch({ type: ActionType.ToastPushed, toast: { id: `topup-err-${Date.now()}`, kind: ToastKind.Danger, message: e instanceof ApiError ? e.message : 'Could not send the request — try again.' } });
@@ -66,7 +68,7 @@ export function Credits() {
         <div style={{ flex: 1, minWidth: 200, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.xl, padding: '22px 24px' }}>
           <div style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold, marginBottom: 7 }}>Need more?</div>
           <p style={{ fontSize: fontSize.base, color: color.muted, lineHeight: 1.5, margin: '0 0 14px' }}>Top-ups are added manually by the inqi team while we're in early access. Request the credits you need and we'll review it.</p>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
             <input
               data-testid="request-amount" type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)}
               aria-label="Credits to request"
@@ -76,6 +78,10 @@ export function Credits() {
               {requesting ? 'Requesting…' : 'Request a top-up'}
             </button>
           </div>
+          <textarea
+            data-testid="request-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={280} rows={2}
+            placeholder="Anything to add for the operator? (optional)"
+            style={{ width: '100%', resize: 'vertical', padding: '8px 10px', borderRadius: radius.md, border: `1px solid ${color.line}`, background: color.appBg, fontSize: fontSize.base, fontFamily: 'inherit', color: color.ink, boxSizing: 'border-box' }} />
         </div>
       </div>
 

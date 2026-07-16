@@ -5,7 +5,7 @@ import { AuthGuard } from './auth.guard';
 import { AdminGuard } from './admin.guard';
 import { CurrentUser } from './current-user.decorator';
 import { AuthUser } from './auth.tokens';
-import { CreateCreditRequestDto, CreditBalanceDto, CreditRequestDto, CustomerDirectoryDto, TopUpDto, TopUpResultDto } from './credits.dto';
+import { ApproveCreditRequestDto, CreateCreditRequestDto, CreditBalanceDto, CreditRequestDto, CustomerDirectoryDto, TopUpDto, TopUpResultDto } from './credits.dto';
 import { ApiStandardErrors } from '../../common/errors';
 
 /** Customer-facing credits (HP-19): the signed-in customer's balance + history. */
@@ -54,11 +54,12 @@ export class AdminCreditRequestsController {
   }
 
   @Post(':id/approve')
-  @ApiOperation({ summary: 'Approve a credit request → grant the requested credits (audited)' })
+  @ApiOperation({ summary: 'Approve a credit request → grant credits (amount overridable; audited; emails the customer)' })
   @ApiParam({ name: 'id', description: 'Credit request id', example: 'clz...' })
+  @ApiBody({ type: ApproveCreditRequestDto, required: false })
   @ApiOkResponse({ type: TopUpResultDto })
-  approve(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.credits.approveRequest({ requestId: id, actorId: user.sub, actorEmail: user.email });
+  approve(@Param('id') id: string, @Body() dto: ApproveCreditRequestDto, @CurrentUser() user: AuthUser) {
+    return this.credits.approveRequest({ requestId: id, actorId: user.sub, actorEmail: user.email, amount: dto.amount });
   }
 
   @Post(':id/reject')

@@ -29,16 +29,22 @@ export function CreditTopup() {
   // Pending credit requests (the operator queue) — approve grants, reject closes it.
   const [requests, setRequests] = useState<CreditRequestDto[] | null>(null); // null = loading
   const [busyReq, setBusyReq] = useState<string | null>(null); // request id being resolved
+  const [editAmt, setEditAmt] = useState<Record<string, string>>({}); // per-request editable grant amount
 
-  useEffect(() => { adminApi.listCreditRequests().then(setRequests).catch(() => setRequests([])); }, []);
+  useEffect(() => {
+    adminApi.listCreditRequests()
+      .then((rows) => { setRequests(rows); setEditAmt(Object.fromEntries(rows.map((r) => [r.id, String(r.amount)]))); })
+      .catch(() => setRequests([]));
+  }, []);
 
   async function resolveRequest(r: CreditRequestDto, action: 'approve' | 'reject') {
     setBusyReq(r.id);
     setError(null);
     try {
       if (action === 'approve') {
-        const res = await adminApi.approveCreditRequest({ id: r.id });
-        setGranted({ email: r.email, amount: r.amount, balance: res.balance });
+        const amount = Number(editAmt[r.id]); // the (possibly edited) grant amount
+        const res = await adminApi.approveCreditRequest({ id: r.id, amount });
+        setGranted({ email: r.email, amount, balance: res.balance });
       } else {
         await adminApi.rejectCreditRequest({ id: r.id });
       }
@@ -114,24 +120,35 @@ export function CreditTopup() {
         {requests && requests.length === 0 && <div data-testid="no-requests" style={{ fontSize: fontSize.base, color: color.muted }}>No pending requests.</div>}
         {requests && requests.length > 0 && (
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {requests.map((r) => (
-              <li key={r.id} data-testid="credit-request" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: radius.lg, border: `1px solid ${color.surfaceAlt}`, background: color.appBg }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13.5, color: color.ink, fontWeight: fontWeight.medium, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {r.email} · <b style={{ fontFamily: font.mono }}>{r.amount}</b> credit{r.amount === 1 ? '' : 's'}
+            {requests.map((r) => {
+              const amt = Number(editAmt[r.id]);
+              const amtValid = Number.isInteger(amt) && amt > 0;
+              const busy = busyReq === r.id;
+              return (
+                <li key={r.id} data-testid="credit-request" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: radius.lg, border: `1px solid ${color.surfaceAlt}`, background: color.appBg }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13.5, color: color.ink, fontWeight: fontWeight.medium, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</div>
+                    <div style={{ fontSize: fontSize.xs, color: color.subtle }}>
+                      {relativeTime({ iso: r.createdAt, now: Date.now() })}
+                      {r.note ? <> · <span data-testid="request-note-text" style={{ color: color.muted }}>{r.note}</span></> : null}
+                    </div>
                   </div>
-                  <div style={{ fontSize: fontSize.xs, color: color.subtle }}>{relativeTime({ iso: r.createdAt, now: Date.now() })}{r.note ? ` · ${r.note}` : ''}</div>
-                </div>
-                <button data-testid="approve-request" disabled={busyReq === r.id} onClick={() => resolveRequest(r, 'approve')}
-                  style={{ height: 32, padding: '0 12px', borderRadius: radius.md, border: 'none', background: color.brand, color: color.onSolid, fontSize: fontSize.sm, fontWeight: fontWeight.medium, cursor: busyReq ? 'default' : 'pointer', opacity: busyReq === r.id ? 0.6 : 1 }}>
-                  {busyReq === r.id ? '…' : `Approve +${r.amount}`}
-                </button>
-                <button data-testid="reject-request" disabled={busyReq === r.id} onClick={() => resolveRequest(r, 'reject')}
-                  style={{ height: 32, padding: '0 12px', borderRadius: radius.md, border: `1px solid ${color.line}`, background: color.surface, color: color.muted, fontSize: fontSize.sm, fontWeight: fontWeight.medium, cursor: busyReq ? 'default' : 'pointer', opacity: busyReq === r.id ? 0.6 : 1 }}>
-                  Reject
-                </button>
-              </li>
-            ))}
+                  {/* editable grant amount (defaults to what the customer asked for) */}
+                  <input data-testid="grant-amount" type="number" min={1} value={editAmt[r.id] ?? ''} disabled={busy}
+                    onChange={(e) => setEditAmt((m) => ({ ...m, [r.id]: e.target.value }))}
+                    aria-label={`Credits to grant to ${r.email}`}
+                    style={{ width: 64, height: 32, padding: '0 8px', borderRadius: radius.md, border: `1px solid ${amtValid ? color.line : color.danger}`, background: color.surface, fontSize: fontSize.sm, fontFamily: font.mono, color: color.ink, textAlign: 'right' }} />
+                  <button data-testid="approve-request" disabled={busy || !amtValid} onClick={() => resolveRequest(r, 'approve')}
+                    style={{ height: 32, padding: '0 12px', borderRadius: radius.md, border: 'none', background: color.brand, color: color.onSolid, fontSize: fontSize.sm, fontWeight: fontWeight.medium, cursor: busy || !amtValid ? 'default' : 'pointer', opacity: busy || !amtValid ? 0.6 : 1 }}>
+                    {busy ? '…' : 'Approve'}
+                  </button>
+                  <button data-testid="reject-request" disabled={busy} onClick={() => resolveRequest(r, 'reject')}
+                    style={{ height: 32, padding: '0 12px', borderRadius: radius.md, border: `1px solid ${color.line}`, background: color.surface, color: color.muted, fontSize: fontSize.sm, fontWeight: fontWeight.medium, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+                    Reject
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

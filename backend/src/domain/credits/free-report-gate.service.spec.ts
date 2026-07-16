@@ -5,7 +5,7 @@ function serviceWith({ freeReportEnabled }: { freeReportEnabled: boolean }) {
   const claimFreeReport = jest.fn(async () => true); // repo would grant if reached
   const repo = { claimFreeReport } as never;
   const config = { freeReportEnabled } as never;
-  const svc = new CreditsService(repo, {} as never, {} as never, config);
+  const svc = new CreditsService(repo, {} as never, {} as never, config, { send: jest.fn() } as never);
   return { svc, claimFreeReport };
 }
 

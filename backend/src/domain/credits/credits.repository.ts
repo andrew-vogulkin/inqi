@@ -157,15 +157,17 @@ export class CreditsRepository {
    * it approved, all in one tx. The status flip is conditional (updateMany where pending),
    * so two operators can't both grant — the loser sees a ConflictError, nothing double-grants.
    */
-  async approveRequest({ requestId, actorId, actorEmail, tx: outer }: { requestId: string; actorId: string; actorEmail: string; tx?: DbTx }): Promise<{ customerId: string; email: string; amount: number; balance: number }> {
+  async approveRequest({ requestId, actorId, actorEmail, amount, tx: outer }: { requestId: string; actorId: string; actorEmail: string; amount?: number; tx?: DbTx }): Promise<{ customerId: string; email: string; amount: number; balance: number }> {
     return this.inTx(outer, async (tx) => {
       const req = await tx.creditRequest.findUnique({ where: { id: requestId }, select: { amount: true, status: true, customerId: true, note: true, customer: { select: { email: true } } } });
       if (!req) throw new NotFoundError({ code: ErrorCode.NotFound, message: 'credit request not found' });
       if (req.status !== CreditRequestStatus.Pending) throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'credit request is already resolved' });
       const claimed = await tx.creditRequest.updateMany({ where: { id: requestId, status: CreditRequestStatus.Pending }, data: { status: CreditRequestStatus.Approved, resolvedById: actorId, resolvedAt: new Date() } });
       if (claimed.count === 0) throw new ConflictError({ code: ErrorCode.InvalidWorkflowTransition, message: 'credit request is already resolved' });
-      const { balance } = await this.topUp({ customerId: req.customerId, amount: req.amount, note: `Approved credit request${req.note ? `: ${req.note}` : ''}`, actor: actorEmail, tx });
-      return { customerId: req.customerId, email: req.customer.email, amount: req.amount, balance };
+      // The operator may grant a different amount than requested (defaults to the ask).
+      const grant = amount ?? req.amount;
+      const { balance } = await this.topUp({ customerId: req.customerId, amount: grant, note: `Approved credit request${req.note ? `: ${req.note}` : ''}`, actor: actorEmail, tx });
+      return { customerId: req.customerId, email: req.customer.email, amount: grant, balance };
     });
   }
 

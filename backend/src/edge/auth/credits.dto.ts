@@ -53,6 +53,13 @@ export class CreateCreditRequestDto {
   note?: string;
 }
 
+/** Admin approve body — an optional amount override (defaults to the requested amount). */
+export class ApproveCreditRequestDto {
+  @ApiPropertyOptional({ example: 8, minimum: 1, description: 'Credits to grant; omit to grant the requested amount' })
+  @IsOptional() @IsInt() @Min(1)
+  amount?: number;
+}
+
 /** A pending credit request in the operator queue. */
 export class CreditRequestDto {
   @ApiProperty({ example: 'clz...' }) id!: string;

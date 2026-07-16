@@ -66,8 +66,8 @@ export const adminApi = {
   searchCustomers: ({ q }: { q: string }) => request<CustomerDirectoryDto[]>({ method: HttpMethod.Get, path: Paths.adminCustomers(), query: { q } }),
   // Credit-request queue: list pending, approve (→ grant) or reject.
   listCreditRequests: () => request<CreditRequestDto[]>({ method: HttpMethod.Get, path: Paths.adminCreditRequests() }),
-  approveCreditRequest: ({ id }: { id: string }) =>
-    request<{ customerId: string; email: string; amount: number; balance: number }>({ method: HttpMethod.Post, path: Paths.adminCreditRequestApprove(id) }),
+  approveCreditRequest: ({ id, amount }: { id: string; amount?: number }) =>
+    request<{ customerId: string; email: string; amount: number; balance: number }>({ method: HttpMethod.Post, path: Paths.adminCreditRequestApprove(id), body: { amount } }),
   rejectCreditRequest: ({ id }: { id: string }) =>
     request<void>({ method: HttpMethod.Post, path: Paths.adminCreditRequestReject(id) }),
   // Operator report picker: newest-first, cursor-paginated; q matches ref / email / request text.

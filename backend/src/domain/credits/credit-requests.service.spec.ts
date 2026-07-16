@@ -9,8 +9,10 @@ function make() {
     rejectRequest: jest.fn().mockResolvedValue(undefined),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const svc = new CreditsService(repo as never, {} as never, audit as never, {} as never);
-  return { svc, repo, audit };
+  const mail = { send: jest.fn().mockResolvedValue({ externalId: '<x>' }) };
+  const config = { webBaseUrl: 'https://inqi.test' };
+  const svc = new CreditsService(repo as never, {} as never, audit as never, config as never, mail as never);
+  return { svc, repo, audit, mail };
 }
 
 describe('CreditsService — credit top-up requests', () => {
@@ -27,12 +29,26 @@ describe('CreditsService — credit top-up requests', () => {
     expect(repo.createRequest).not.toHaveBeenCalled();
   });
 
-  it('approve grants the requested credits and writes an audit row', async () => {
-    const { svc, repo, audit } = make();
+  it('approve grants the requested credits, audits, and emails the customer', async () => {
+    const { svc, repo, audit, mail } = make();
     const r = await svc.approveRequest({ requestId: 'req1', actorId: 'a1', actorEmail: 'ops@x.io' });
     expect(r).toMatchObject({ amount: 5, balance: 15, email: 'a@x.io' });
-    expect(repo.approveRequest).toHaveBeenCalledWith({ requestId: 'req1', actorId: 'a1', actorEmail: 'ops@x.io' });
+    expect(repo.approveRequest).toHaveBeenCalledWith({ requestId: 'req1', actorId: 'a1', actorEmail: 'ops@x.io', amount: undefined });
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ actor: 'ops@x.io', targetId: 'c1', data: expect.objectContaining({ requestId: 'req1', amount: 5, balance: 15 }) }));
+    await new Promise((r) => setImmediate(r)); // the approval email is fired best-effort (not awaited)
+    expect(mail.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'a@x.io', subject: expect.stringContaining('+5') }));
+  });
+
+  it('approve passes the operator amount override through to the repo', async () => {
+    const { svc, repo } = make();
+    await svc.approveRequest({ requestId: 'req1', actorId: 'a1', actorEmail: 'ops@x.io', amount: 8 });
+    expect(repo.approveRequest).toHaveBeenCalledWith({ requestId: 'req1', actorId: 'a1', actorEmail: 'ops@x.io', amount: 8 });
+  });
+
+  it('rejects a non-positive amount override before touching the repo', async () => {
+    const { svc, repo } = make();
+    await expect(svc.approveRequest({ requestId: 'req1', actorId: 'a1', actorEmail: 'ops@x.io', amount: 0 })).rejects.toThrow();
+    expect(repo.approveRequest).not.toHaveBeenCalled();
   });
 
   it('reject closes the request without granting (no audit topup)', async () => {

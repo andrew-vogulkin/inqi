@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AuditAction, AuditTargetType, EventType } from '@inqi/shared';
 import { OutboxService } from '../../infra/events/outbox.service';
 import { AuditService } from '../../infra/observability/audit.service';
 import { ConfigService } from '../../infra/config/config.service';
 import { DbTx } from '../../infra/persistence/prisma.service';
 import { DomainError, ErrorCode } from '../../common/errors';
+import { MAIL_PROVIDER, MailKind, MailProvider } from '../source/mail.provider';
 import { CreditsRepository } from './credits.repository';
 import { SettlementAction } from './credits.balance';
 
@@ -24,6 +25,7 @@ export class CreditsService {
     private readonly outbox: OutboxService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
   ) {}
 
   /** Flat credits one report run costs. */
@@ -78,12 +80,34 @@ export class CreditsService {
   /** The operator queue: every pending credit request. */
   listPendingRequests() { return this.repo.listPendingRequests(); }
 
-  /** Approve → grant the requested credits + audit + close the request. */
-  async approveRequest({ requestId, actorId, actorEmail }: { requestId: string; actorId: string; actorEmail: string }) {
-    const r = await this.repo.approveRequest({ requestId, actorId, actorEmail });
+  /** Approve → grant credits (operator may override the amount) + audit + email the customer. */
+  async approveRequest({ requestId, actorId, actorEmail, amount }: { requestId: string; actorId: string; actorEmail: string; amount?: number }) {
+    if (amount != null && (!Number.isInteger(amount) || amount <= 0)) {
+      throw new DomainError({ code: ErrorCode.ValidationFailed, message: 'granted amount must be a positive integer', details: { amount } });
+    }
+    const r = await this.repo.approveRequest({ requestId, actorId, actorEmail, amount });
     await this.audit.record({ actor: actorEmail, action: AuditAction.Topup, targetType: AuditTargetType.Customer, targetId: r.customerId, reason: 'approved credit request', data: { requestId, amount: r.amount, balance: r.balance } });
     this.logger.log(`credit request ${requestId} APPROVED by ${actorEmail}: +${r.amount} → ${r.email} (balance ${r.balance})`);
+    // Tell the customer their credits landed. Best-effort — a mail failure must not
+    // undo the grant (already committed) nor fail the operator's action.
+    this.notifyApproved(r).catch((e) => this.logger.warn(`could not email approval to ${r.email}: ${(e as Error).message}`));
     return r;
+  }
+
+  private async notifyApproved({ email, amount, balance }: { email: string; amount: number; balance: number }): Promise<void> {
+    await this.mail.send({
+      kind: MailKind.System,
+      to: email,
+      subject: `Your inqi credits are ready — +${amount}`,
+      body: [
+        `Good news — your credit request was approved.`,
+        '',
+        `Credits added:   ${amount}`,
+        `New balance:     ${balance}`,
+        '',
+        `Start a report any time: ${this.config.webBaseUrl}`,
+      ].join('\n'),
+    });
   }
 
   /** Reject → close the request, no credit change. */
