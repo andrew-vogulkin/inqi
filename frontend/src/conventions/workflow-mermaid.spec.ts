@@ -33,6 +33,36 @@ describe('toMermaidSource — workflow graph → stateDiagram-v2', () => {
     expect(source).toContain('class DONE,CANCELLED terminal');
   });
 
+  it('exits every terminal to [*] — the OUT node mirroring the single IN', () => {
+    const { source } = toMermaidSource({ states: STATES, transitions: TRANSITIONS });
+    expect(source).toContain('[*] --> RECEIVED'); // one IN
+    expect(source).toContain('DONE --> [*]');      // OUT
+    expect(source).toContain('CANCELLED --> [*]'); // OUT
+  });
+
+  it('labels + styles report states that hand off to a sub-workflow', () => {
+    const { source } = toMermaidSource({
+      key: 'report',
+      states: [s('PRE_RESEARCH', { initial: true }), s('BROAD_RESEARCH'), s('FUNNEL'), s('DELIVERED', { terminal: true })],
+      transitions: [t('PRE_RESEARCH', 'PASS', 'BROAD_RESEARCH'), t('BROAD_RESEARCH', 'DONE', 'FUNNEL'), t('FUNNEL', 'BUILT', 'DELIVERED')],
+    });
+    expect(source).toContain('state "PRE_RESEARCH ↪ pre_research" as PRE_RESEARCH');
+    expect(source).toContain('state "BROAD_RESEARCH ↪ breadth_search" as BROAD_RESEARCH');
+    expect(source).toContain('state "FUNNEL ↪ depth_search" as FUNNEL');
+    expect(source).toContain('classDef subflow');
+    expect(source).toContain('class PRE_RESEARCH,BROAD_RESEARCH,FUNNEL subflow');
+  });
+
+  it('does NOT annotate sub-workflows for other keys (only report references children)', () => {
+    const { source } = toMermaidSource({
+      key: 'breadth_search',
+      states: [s('PRE_RESEARCH', { initial: true }), s('DONE', { terminal: true })], // same names, different machine
+      transitions: [t('PRE_RESEARCH', 'GO', 'DONE')],
+    });
+    expect(source).not.toContain('↪');
+    expect(source).not.toContain('classDef subflow');
+  });
+
   it('aliases hyphenated names to parse-safe ids (subject_build operators)', () => {
     const { source } = toMermaidSource({
       states: [s('SUBJECT_IN', { initial: true }), s('enrich-web-grounded'), s('SUBJECT_OUT', { terminal: true })],
