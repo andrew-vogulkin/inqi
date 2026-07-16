@@ -62,12 +62,6 @@ function RequireAuthRedirect() {
   return <BareFrame><AccessScreenView screen={AccessScreen.SignInRequired} /></BareFrame>;
 }
 
-/** Operators don't use the customer area — bounce any customer-layout route to the console. */
-function RedirectToAdmin() {
-  useEffect(() => { navigate({ route: Route.Admin }); }, []);
-  return <BareFrame><div /></BareFrame>;
-}
-
 /** Root (`/`) + any unknown route → the right home: operators to the console, customers to
  * the dashboard, signed-out to Sign in (where the role-aware default lands them after auth). */
 function RedirectHome() {
@@ -179,9 +173,6 @@ export function App() {
       body = access.screen === AccessScreen.SignInRequired
         ? <RequireAuthRedirect />
         : <BareFrame><AccessScreenView screen={access.screen} /></BareFrame>;
-    } else if (meta.layout === LayoutMode.Customer && session?.customer.role === AuthRole.Admin) {
-      // An operator on a customer-area route → straight to the console.
-      body = <RedirectToAdmin />;
     } else {
       const inner = content(match);
       if (meta.layout === LayoutMode.Admin) body = <AdminShell active={match.route}>{inner}</AdminShell>;
