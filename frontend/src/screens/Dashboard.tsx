@@ -75,9 +75,12 @@ function ReportRow({ report }: { report: ReportDto }) {
     <button onClick={go} data-testid="report-row"
       style={{ textAlign: 'left', background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.lg, padding: space[4], display: 'flex', alignItems: 'center', gap: space[4], cursor: 'pointer' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: space[2], marginBottom: 9 }}>
-          <span style={{ fontSize: fontSize.lg, fontWeight: fontWeight.medium, letterSpacing: '-.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{report.rawRequest.slice(0, 80)}</span>
+        {/* Report id on top, then the prompt, then the status line. */}
+        <div style={{ marginBottom: 3 }}>
           <MonoRef muted>{report.ref ?? `#${report.id.slice(0, 8)}`}</MonoRef>
+        </div>
+        <div style={{ fontSize: fontSize.lg, fontWeight: fontWeight.medium, letterSpacing: '-.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 9 }}>
+          {report.rawRequest.slice(0, 80)}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <div style={{ display: 'flex', gap: 3 }}>
@@ -91,7 +94,11 @@ function ReportRow({ report }: { report: ReportDto }) {
             {badge.label}
           </span>
           <span style={{ fontSize: fontSize.xs, color: color.lineStrong }}>·</span>
-          <span style={{ fontSize: fontSize.xs, color: color.subtle }}>started {new Date(report.createdAt).toLocaleDateString()}</span>
+          {/* createdAt is stored + served as UTC (ISO 8601 with Z); rendered in the viewer's
+              local timezone with date + time. `title` exposes the exact ISO/UTC instant. */}
+          <span style={{ fontSize: fontSize.xs, color: color.subtle }} title={new Date(report.createdAt).toISOString()}>
+            started at {new Date(report.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+          </span>
         </div>
       </div>
       <span style={{ color: color.lineStrong, fontSize: fontSize.h3 }}>›</span>
