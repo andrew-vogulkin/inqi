@@ -1,6 +1,31 @@
 import { toInboundEmail } from './inbound-email.mapper';
+import type { InboundEmailDto } from './inbound-email.dto';
 
 describe('toInboundEmail', () => {
+  // A REAL Postmark inbound payload carries ~20 fields we don't model (FromFull, ToFull, Cc,
+  // MessageStream, Attachments, Date, MailboxHash, …). The webhook accepts the raw object, so
+  // the mapper must read only what it needs and ignore the rest — never throw on extras.
+  it('maps a FULL Postmark payload, ignoring the many unmodeled fields', () => {
+    const full = {
+      FromName: 'Andrei V', From: 'andrei@monkeycode.io',
+      FromFull: { Email: 'andrei@monkeycode.io', Name: 'Andrei V', MailboxHash: '' },
+      To: 'intake@inqi-postmark-reply.monkeycode.io',
+      ToFull: [{ Email: 'intake@inqi-postmark-reply.monkeycode.io', Name: '', MailboxHash: '' }],
+      OriginalRecipient: 'intake@inqi-postmark-reply.monkeycode.io',
+      Cc: '', CcFull: [], Bcc: '', BccFull: [], ReplyTo: '', MailboxHash: '',
+      Subject: 'Wedding photographer in Lisbon', MessageID: 'a1b2c3',
+      MessageStream: 'inbound', Date: 'Wed, 16 Jul 2026 04:01:00 +0000',
+      TextBody: 'Need a photographer, June 2026, up to 2000 EUR.',
+      HtmlBody: '<p>...</p>', StrippedTextReply: '', Tag: '', Attachments: [],
+    } as unknown as InboundEmailDto;
+    const r = toInboundEmail(full);
+    expect(r.fromAddr).toBe('andrei@monkeycode.io');
+    expect(r.toAddr).toBe('intake@inqi-postmark-reply.monkeycode.io');
+    expect(r.subject).toBe('Wedding photographer in Lisbon');
+    expect(r.body).toBe('Need a photographer, June 2026, up to 2000 EUR.');
+    expect(r.recipients).toContain('intake@inqi-postmark-reply.monkeycode.io');
+  });
+
   it('maps a Postmark inbound payload (capitalized fields + headers)', () => {
     const r = toInboundEmail({
       From: 'sales@provider.example',
