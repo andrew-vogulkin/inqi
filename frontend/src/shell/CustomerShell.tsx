@@ -22,6 +22,16 @@ export function CustomerShell({ children }: { children: ReactNode; active?: Rout
             <span style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: color.ink, letterSpacing: '-.01em' }}>inqi</span>
           </a>
           <span style={{ flex: 1 }} />
+          {/* An admin using the customer app (they can make reports too) jumps back to the
+              console from the sticky top bar — always reachable, no scrolling past reports. */}
+          {isAdmin && (
+            <button
+              data-testid="switch-to-admin"
+              onClick={() => navigate({ route: Route.Admin })}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: color.muted, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.md, padding: `5px 11px`, marginRight: space[2], cursor: 'pointer' }}>
+              Admin mode →
+            </button>
+          )}
           {session
             // Navigate BEFORE the session clears — a signed-out guarded route would
             // bounce with ?returnTo=… and strand the next sign-in on it.
@@ -30,17 +40,6 @@ export function CustomerShell({ children }: { children: ReactNode; active?: Rout
         </div>
       </header>
       <main style={{ maxWidth: 760, margin: '0 auto', padding: `${space[8]}px ${space[6]}px ${space[12]}px` }}>{children}</main>
-      {/* An admin using the customer app (they can make reports too) can jump back to the console. */}
-      {isAdmin && (
-        <footer style={{ maxWidth: 760, margin: '0 auto', padding: `0 ${space[6]}px ${space[10]}px`, display: 'flex', justifyContent: 'center' }}>
-          <button
-            data-testid="switch-to-admin"
-            onClick={() => navigate({ route: Route.Admin })}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: color.muted, background: color.surface, border: `1px solid ${color.line}`, borderRadius: radius.md, padding: `7px 14px`, cursor: 'pointer' }}>
-            Switch to admin mode →
-          </button>
-        </footer>
-      )}
     </div>
   );
 }
