@@ -41,7 +41,9 @@ export function Dashboard() {
           <a href={hrefFor({ route: Route.Credits })} data-testid="credits-chip"
             style={{ height: 36, padding: `0 ${space[3]}px`, borderRadius: radius.md, background: color.surface, border: `1px solid ${color.line}`, display: 'flex', alignItems: 'center', gap: 7, fontSize: fontSize.base, fontWeight: fontWeight.medium, color: color.ink, textDecoration: 'none' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: color.brand }} />
-            {credits.status === AsyncStatus.Ready ? `${credits.balance} credits` : <Skeleton width={48} />}
+            {credits.status === AsyncStatus.Ready
+              ? <span><b style={{ fontWeight: fontWeight.semibold }}>{credits.balance} Credits</b><span style={{ color: color.muted, fontWeight: fontWeight.regular }}> · Request for more</span></span>
+              : <Skeleton width={48} />}
           </a>
           <a href={hrefFor({ route: Route.NewReport })}
             style={{ height: 36, padding: `0 ${space[4]}px`, borderRadius: radius.md, background: color.ink, color: color.onSolid, display: 'flex', alignItems: 'center', fontSize: fontSize.base, fontWeight: fontWeight.medium, textDecoration: 'none' }}>

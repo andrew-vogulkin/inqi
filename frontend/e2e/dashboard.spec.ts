@@ -21,7 +21,7 @@ test('lists reports, updates a row on a live transition, and routes by stage', a
 
   await page.goto('/#/dashboard');
   await expect(page.getByText('a used road bike, Amsterdam')).toBeVisible();
-  await expect(page.getByText('2 credits')).toBeVisible();
+  await expect(page.getByTestId('credits-chip')).toContainText('2 Credits · Request for more');
   await expect(page.getByTestId('report-status')).toHaveText('Researching');
 
   // HP-23: a stage-only transition (state holds at OUTREACH, ≥2 qualified) updates the pipeline live.
