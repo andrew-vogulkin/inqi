@@ -9,6 +9,7 @@ import { EmailChannelService } from './email.service';
 import { EmailChannelRepository } from './email.repository';
 import { MAIL_PROVIDER, PostmarkMailProvider } from './mail.provider';
 import { LocalMailProvider } from './local-mail.provider';
+import { SimulatedRepliesMailProvider } from './simulated-replies.provider';
 
 /**
  * Domain: the Source layer — every channel touchpoint of an Inquiry (websearch,
@@ -21,11 +22,14 @@ import { LocalMailProvider } from './local-mail.provider';
     SourcesRepository,
     EmailChannelService,
     EmailChannelRepository,
-    // Bind MAIL_PROVIDER to Postmark or the local capture provider per config.
+    // Bind MAIL_PROVIDER to Postmark or the local capture provider per config;
+    // SIMULATE_REPLIES wraps EITHER transport in the role-play decorator.
     {
       provide: MAIL_PROVIDER,
-      useFactory: (config: ConfigService, ai: AiProvider) =>
-        config.mailDriver === MailDriver.Postmark ? new PostmarkMailProvider(config) : new LocalMailProvider(config, ai),
+      useFactory: (config: ConfigService, ai: AiProvider) => {
+        const base = config.mailDriver === MailDriver.Postmark ? new PostmarkMailProvider(config) : new LocalMailProvider(config);
+        return config.simulateReplies ? new SimulatedRepliesMailProvider(base, config, ai) : base;
+      },
       inject: [ConfigService, AI_PROVIDER],
     },
   ],

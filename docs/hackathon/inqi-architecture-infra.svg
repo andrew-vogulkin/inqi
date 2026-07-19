@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="880" viewBox="0 0 1560 880">
+<defs><marker id="arr-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6B6A66"/></marker><marker id="arr-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#168F5F"/></marker><marker id="arr-i" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563EB"/></marker></defs>
+<rect width="1560" height="880" fill="#FAF9F7"/>
+<text x="60" y="64" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#1C1C1A" text-anchor="start" font-weight="600">inqi — infrastructure</text>
+<text x="60" y="94" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#6B6A66" text-anchor="start">Single Alibaba Cloud instance · Qwen Cloud for every model call · production email via Postmark</text>
+<rect x="60" y="190" width="240" height="170" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="1.5"/>
+<text x="84" y="232" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">Customer</text>
+<text x="84" y="253" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">Browser — web app</text>
+<text x="84" y="272" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">Email — intake address</text>
+<text x="84" y="291" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">(request in, report back)</text>
+<rect x="60" y="560" width="240" height="140" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="1.5"/>
+<text x="84" y="602" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">Vendors</text>
+<text x="84" y="623" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">Hire desks / suppliers</text>
+<text x="84" y="642" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">reply by plain email</text>
+<rect x="400" y="150" width="640" height="600" rx="10" fill="#FFFFFF" stroke="#168F5F" stroke-width="2.5"/>
+<text x="424" y="190" font-family="Helvetica, Arial, sans-serif" font-size="19" fill="#0E6B46" text-anchor="start" font-weight="600">Alibaba Cloud ECS — Singapore</text>
+<text x="424" y="214" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">one instance · Docker Compose · Caddy TLS</text>
+<rect x="424" y="240" width="592" height="64" rx="10" fill="#EAF6EF" stroke="#168F5F" stroke-width="1.5"/>
+<text x="448" y="266" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">Caddy — TLS termination &amp; routing</text>
+<text x="448" y="287" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">inqi.monkeycode.io</text>
+<rect x="424" y="340" width="280" height="120" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="1.5"/>
+<text x="448" y="376" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">React SPA</text>
+<text x="448" y="397" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">customer app + operator</text>
+<text x="448" y="416" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">console (nginx)</text>
+<rect x="736" y="340" width="280" height="120" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="1.5"/>
+<text x="760" y="376" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">NestJS API + workers</text>
+<text x="760" y="397" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">workflow engine · reply loop</text>
+<text x="760" y="416" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">pg-boss job queue · reaper</text>
+<rect x="424" y="500" width="280" height="110" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="1.5"/>
+<text x="448" y="536" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">PostgreSQL 16</text>
+<text x="448" y="557" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">state machines · ledger</text>
+<text x="448" y="576" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">outbox · golden cassettes</text>
+<rect x="736" y="500" width="280" height="110" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="1.5"/>
+<text x="760" y="536" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">SearXNG</text>
+<text x="760" y="557" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">self-hosted fallback</text>
+<text x="760" y="576" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">search (vendor seam)</text>
+<text x="424" y="690" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">Everything stateful lives on the instance — restart-safe: leases,</text>
+<text x="424" y="708" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">optimistic transitions and the reaper recover in-flight runs.</text>
+<rect x="1160" y="190" width="340" height="130" rx="10" fill="#EAF6EF" stroke="#168F5F" stroke-width="2"/>
+<text x="1184" y="232" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">Qwen Cloud · DashScope</text>
+<text x="1184" y="253" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">qwen3.6-plus — every model call</text>
+<text x="1184" y="271" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">(breadth · depth · replies · synthesis)</text>
+<rect x="1160" y="360" width="340" height="130" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="2"/>
+<text x="1184" y="402" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">Serper</text>
+<text x="1184" y="423" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">Google SERP API</text>
+<text x="1184" y="441" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">(primary web search)</text>
+<rect x="1160" y="530" width="340" height="130" rx="10" fill="#FFFFFF" stroke="#E3E2DE" stroke-width="2"/>
+<text x="1184" y="572" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#1C1C1A" text-anchor="start" font-weight="600">Postmark</text>
+<text x="1184" y="593" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">DKIM outbound (2 identities)</text>
+<text x="1184" y="611" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">inbound webhook — reply routing</text>
+<text x="1184" y="629" font-family="Helvetica, Arial, sans-serif" font-size="12.5" fill="#6B6A66" text-anchor="start">system mail to customer (codes, reports)</text>
+<line x1="300" y1="270" x2="400" y2="270" stroke="#168F5F" stroke-width="2" marker-end="url(#arr-b)"/>
+<text x="350" y="262" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#168F5F" text-anchor="middle">HTTPS</text>
+<line x1="560" y1="304" x2="560" y2="340" stroke="#6B6A66" stroke-width="2" marker-end="url(#arr-m)"/>
+<line x1="880" y1="304" x2="880" y2="340" stroke="#6B6A66" stroke-width="2" marker-end="url(#arr-m)"/>
+<line x1="800" y1="460" x2="640" y2="500" stroke="#6B6A66" stroke-width="2" marker-end="url(#arr-m)"/>
+<line x1="880" y1="460" x2="880" y2="500" stroke="#6B6A66" stroke-width="2" marker-end="url(#arr-m)"/>
+<line x1="1040" y1="390" x2="1160" y2="260" stroke="#168F5F" stroke-width="2" marker-end="url(#arr-b)"/>
+<text x="1100" y="313" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#168F5F" text-anchor="middle">chat/completions</text>
+<line x1="1040" y1="420" x2="1160" y2="420" stroke="#6B6A66" stroke-width="2" marker-end="url(#arr-m)"/>
+<text x="1100" y="412" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#6B6A66" text-anchor="middle">search</text>
+<line x1="1040" y1="450" x2="1160" y2="565" stroke="#6B6A66" stroke-width="2" marker-end="url(#arr-m)"/>
+<text x="1100" y="523.5" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#6B6A66" text-anchor="middle">send</text>
+<line x1="1160" y1="610" x2="1040" y2="475" stroke="#2563EB" stroke-width="2" marker-end="url(#arr-i)"/>
+<text x="1100" y="560.5" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2563EB" text-anchor="middle">inbound webhook</text>
+<polyline points="1330,660 1330,810 180,810 180,704" fill="none" stroke="#6B6A66" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arr-m)"/>
+<text x="720" y="798" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#6B6A66" text-anchor="middle">outreach + replies (real mode: vendors · demo: simulated loop through the same webhook)</text>
+</svg>
