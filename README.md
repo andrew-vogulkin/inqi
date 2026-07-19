@@ -662,3 +662,10 @@ controls, workflow-version management, audit trail, notifications, per-report co
 accounting, and hermetic CI/CD. Verified end-to-end: 156 backend + 149 frontend unit
 tests, 56 Playwright e2e, plus live runs against the local model + self-hosted SearXNG.
 Real cloud deploy and live email providers are left as documented stubs/seams.
+
+## License
+
+[AGPL-3.0](LICENSE). You can use, modify and self-host inqi freely; if you offer a
+modified version as a service, the AGPL requires you to open-source your version.
+**Commercial licensing** (proprietary use without AGPL obligations) is available —
+contact the author.
