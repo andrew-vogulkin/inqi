@@ -45,13 +45,15 @@ export class EventsGateway implements OnModuleInit {
     return { ok: true };
   }
 
-  /** Replay missed events after a cursor (reconnect). */
+  /** Replay missed events after a cursor (reconnect). Returns the NEWEST 200 past the
+   *  cursor (ascending): with more than 200 missed, dropping the oldest keeps the final
+   *  state/stage correct — returning the head instead froze rows at a stale stage. */
   @SubscribeMessage('replay')
   async onReplay(@MessageBody() b: { reportId: string; afterId?: string }) {
     const rows = await this.db.eventOutbox.findMany({
       where: { reportId: b.reportId, id: { gt: BigInt(b.afterId ?? '0') } },
-      orderBy: { id: 'asc' }, take: 200,
+      orderBy: { id: 'desc' }, take: 200,
     });
-    return rows.map((r) => this.toEnvelope(r));
+    return rows.reverse().map((r) => this.toEnvelope(r));
   }
 }
