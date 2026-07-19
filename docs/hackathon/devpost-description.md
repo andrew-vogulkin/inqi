@@ -25,29 +25,30 @@ concierge services, marketplaces onboarding supply.
 ## What it does
 
 Send inqi a request — from the web app or by simply **emailing the intake
-address** — and it runs the entire loop unattended. The demo case: *"mid-size
-excavator hire, 14–16 t with transport, 12-week groundworks project near
-Rotterdam, €4–6k/month"* — a request where quotes genuinely spread 2× across
+address** — and it runs the entire loop unattended. The demo case: *"facade scaffolding
+rental including assembly and dismantling, about 600 m², 10-week renovation
+project in The Hague"* — a request where quotes genuinely spread 2× across
 vendors, so the ranking and negotiation earn their keep:
 
-1. **Pre-research + optional questionnaire**: compliance-gates the request; if
-   the agent judges it needs more information, it reaches out with a short
-   questionnaire — otherwise it proceeds straight to research. Unattended runs
-   resolve open questions with "decide for me" semantics.
-2. **Breadth discovery**: Qwen forms search queries, mines real provider pages,
-   and tells specific providers apart from aggregators and directories — search
-   specifics inform the hunt but can never fake target progress.
+1. **Pre-research + scope questionnaire**: compliance-gates the request, then
+   confirms scope with a short questionnaire whose options the agent generated
+   itself — any question can be left to the agent ("decide for me").
+2. **Breadth discovery**: Qwen forms search queries (in Dutch *and* English for
+   a Dutch job), mines real provider pages, and tells specific providers apart
+   from aggregators and directories — marketplaces inform the hunt but never
+   count as results.
 3. **Outreach**: emails shortlisted businesses under a region-matched, per-report
    persona (DKIM-signed, per-thread reply routing).
-4. **Multistage reply loop**: knowledge flows customer prompt → enrichment →
-   questionnaire → synthesis → negotiation. Every vendor reply is *evaluated*
-   (real answer? counter-question? risk?) before it is *answered* — the agent
-   never invents commitments, yet carries every conversation to a decision
-   point. In production this negotiated an actual price with a real dog-grooming
-   salon — a 20 EUR first-visit groom, confirmed over a multi-turn thread.
-5. **Depth research + synthesis**: verifies claims, ranks options, and delivers a
-   report with evidence, quoted prices, and honest caveats — by email and live web
-   view.
+4. **Multistage reply loop**: every vendor reply is *evaluated* (real answer?
+   counter-question? risk?) before it is *answered* — the agent never invents
+   commitments, yet carries every conversation to a quoted price. In production
+   this negotiated an actual price with a real dog-grooming salon — a 20 EUR
+   first-visit groom, confirmed over a multi-turn thread.
+5. **Depth research + synthesis**: verifies claims, ranks options, and delivers
+   a report with evidence, quoted prices **with the unit they were quoted in**
+   (€9.50/m² is not comparable to a €18,500 job total — inqi keeps the basis and
+   ranks only like against like), and honest caveats where vendors didn't
+   answer — by email and live web view.
 
 **The golden point: inqi is built to improve itself.** The pipeline doesn't run
 on hard-coded logic — it runs on **DB-versioned workflow graphs with tunable
@@ -58,8 +59,9 @@ let every candidate configuration be rehearsed and scored before it ships. That'
 continuous learning the way a human team does retros: run → measure → propose →
 rehearse → publish. The publish gate already scores every proposal against
 rehearsals; **auto-approve** — designed into the publish gate — makes a proposal
-that beats the incumbent publish itself. The workflow isn't code someone edits:
-it's a genome the system iterates.
+that beats the incumbent publish itself. The demo itself ran on a version
+published this way (v3: a wider first outreach wave). The workflow isn't code
+someone edits: it's a genome the system iterates.
 
 The customer pays **on delivery** from a credit ledger; a report that fails costs
 nothing.
@@ -99,10 +101,11 @@ nothing.
   recordings** of real phase runs, replayed and *scored* by rehearsal drivers
   before a configuration ships. Built around LLM non-determinism from day one:
   we score outcomes, we don't assert exact outputs.
-- **Data pools & outreach channels.** Serper and SearXNG are plugged in today as
-  the agent's search tools behind one **vendor seam**; richer data pools and more
-  outreach channels (directories, socials, chat) are where we're headed — the
-  seam makes each one a plug-in, not a rewrite.
+- **Rates are not totals.** Real research surfaced €10/m² rates next to €18,500
+  job quotes — and a naive ranking called the rate "cheapest." We shipped
+  basis-aware ranking mid-hackathon: prices carry the unit they were quoted in,
+  only like competes against like, and the ranked list now agrees with the AI
+  synthesis verdict.
 - **Moving between models, safely.** Every model swap shifts tone, JSON
   discipline and cost. We migrate by rehearsal: record real runs as golden
   cassettes, replay them against the candidate Qwen model, compare quality and
@@ -128,10 +131,10 @@ nothing.
   metered compute (Qwen tokens + searches + emails) against **$50–150 of
   office-worker time** it replaces — 100–300× cheaper, with every cent itemized
   in the operator console.
-- The filmed demo run — **fully metered, not estimated**: ~1.06M Qwen tokens ·
-  ~290 AI calls · ~170 web searches · 30 evidence sources kept · 8 deep-research
-  passes · 3 outreach emails, $0.50 all-in. Lighter consumer requests
-  (grooming, coffee, ceramics in our production runs) land well under that.
+- The filmed demo run — **fully metered, not estimated**: ~870k Qwen tokens ·
+  ~250 AI calls · ~140 web searches · 4 parallel email negotiations · under
+  half a dollar all-in. Lighter consumer requests (grooming, coffee, ceramics
+  in our production runs) land well under that.
 - Judges can try it live: **sign up at inqi.monkeycode.io and the system grants
   10 credits automatically** — run your own report during judging.
 
