@@ -15,6 +15,25 @@ research each one across channels (**depth**), reach out by email, and assemble 
 
 ---
 
+## Architecture & deployment (Alibaba Cloud + Qwen Cloud)
+
+![Infrastructure](docs/hackathon/inqi-architecture-infra.png)
+
+![Main flow](docs/hackathon/inqi-architecture-flow.png)
+
+The whole product runs on **one Alibaba Cloud ECS instance** (Docker Compose,
+Caddy TLS, on-box Postgres — see [`deploy/`](deploy/) for the production compose
+file, Caddyfile and runbook), and **every model call goes to Qwen Cloud
+(DashScope)**: the OpenAI-compatible client lives in
+[`backend/src/infra/ai/qwen-provider.base.ts`](backend/src/infra/ai/qwen-provider.base.ts),
+wired to `https://dashscope-intl.aliyuncs.com` in
+[`backend/src/infra/config/config.service.ts`](backend/src/infra/config/config.service.ts)
+(`DASHSCOPE_BASE_URL`, line 13) with per-phase model tiers (breadth / depth /
+balanced). Try it live: **https://inqi.monkeycode.io** — sign up and the system
+grants 10 credits automatically.
+
+---
+
 ## Data model — entities & lifecycles
 
 The core hierarchy is a research **matrix**:
@@ -487,12 +506,13 @@ Swappable seams pick a driver by env; **omit the credential and the demo still r
 
 | Env | Default | What it does |
 |---|---|---|
-| `AI_DRIVER` | `qwen_cloud` | `qwen_cloud` (DashScope) \| `qwen_local` (own endpoint). No key → graceful stub fallback |
-| `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL{,_BREADTH,_DEPTH}` | DashScope / `qwen-plus` | cloud model routing: BREADTH = cheap/wide, DEPTH = strong (drafting, parsing, synthesis) |
+| `AI_DRIVER` | `qwen_cloud` | `qwen_cloud` (Qwen Cloud / DashScope) \| `qwen_local` (own endpoint). No key → graceful stub fallback |
+| `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL{,_BREADTH,_DEPTH}` | DashScope / `qwen3.6-plus` | per-phase model routing: BREADTH = cheap/wide discovery, DEPTH = strong (deep research, reply loop, synthesis) |
 | `QWEN_LOCAL_{BASE_URL,API_KEY,MODEL,MODEL_BREADTH,MODEL_DEPTH}` | alias `qwen` | local OpenAI-compatible endpoint |
 | `EMBEDDINGS_DRIVER` + `EMBEDDINGS_{API_KEY,BASE_URL,MODEL,DIM}` | local hash, `DIM=1024` | subject vectors for prior-report reuse |
-| `WEBSEARCH_DRIVER` | `searxng` | `searxng` (self-hosted) \| `cloud` (future) |
-| `WEBSEARCH_BASE_URL` / `WEBSEARCH_TIMEOUT_MS` / `WEBSEARCH_MAX_RESULTS` | instance URL / `10000` / `8` | search connection profile |
+| `WEBSEARCH_DRIVER` | `searxng` | `serper` (hosted Google SERP) \| `searxng` (self-hosted) — one vendor seam |
+| `SERPER_API_KEY` / `SERPER_BASE_URL` / `SERPER_TIMEOUT_MS` | — / google.serper.dev / `10000` | Serper credentials (serper driver only) |
+| `WEBSEARCH_BASE_URL` / `WEBSEARCH_TIMEOUT_MS` / `WEBSEARCH_MAX_RESULTS` | instance URL / `10000` / `8` | SearXNG connection profile |
 
 ### Research limits (the matrix)
 
@@ -508,7 +528,10 @@ Swappable seams pick a driver by env; **omit the credential and the demo still r
 | `MAIL_DRIVER` | `local` | `local` (writes `.mail-outbox/`, loops back) \| `postmark` |
 | `POSTMARK_SERVER_TOKEN` / `POSTMARK_FROM` / `LOCAL_MAIL_DIR` | — | provider credentials / capture dir |
 | `INBOUND_DOMAIN` | `reply.inqi.example` | replies arrive at `<thread-token>@INBOUND_DOMAIN` |
-| `SIMULATE_REPLIES` | `false` | demo: auto-generate a provider reply after each send |
+| `INTAKE_ADDRESS` | — | email-native intake: mail a request to this address, get a report back |
+| `SIMULATE_REPLIES` | `false` | demo: role-play a vendor reply after each send — decorates ANY mail driver (postmark too), looped through the real inbound webhook |
+| `SIMULATE_REPLY_ROUNDS` | `1` | 1 = quote immediately; 2+ = clarifying question first, full quote last (multi-turn threads) |
+| `AUTOPILOT_QUESTIONNAIRE` | `true` | auto-answer the scope questionnaire; `false` = every report waits for the customer |
 | `WEBHOOK_INBOUND_USER` / `_PASS` | open (dev) | basic-auth on `POST /api/comms/inbound` |
 
 ### Lifecycle & policy
