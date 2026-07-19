@@ -11,7 +11,7 @@ import { toneColors } from '../ui/tone';
 import { useAppDispatch, useSelector } from '../state/store';
 import { ActionType } from '../state/actions';
 import { useRealtime } from '../realtime/socket';
-import { ReportState, TimelineItem, freemiumView } from '../state/report.reducer';
+import { ReportState, TimelineItem } from '../state/report.reducer';
 import { linkifySummary, SummaryLinkTarget } from '../conventions/summary';
 
 const PAGE: CSSProperties = { maxWidth: 900, margin: '0 auto' };
@@ -59,11 +59,8 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
   if (error) return <ErrorState title="Can't open this report" message={error} />;
   if (report.status !== AsyncStatus.Ready) return <div style={{ ...PAGE, padding: '26px 28px' }}><Skeleton width="40%" /><div style={{ height: 12 }} /><Skeleton /><div style={{ height: 8 }} /><Skeleton width="70%" /></div>;
 
-  // Freemium-locked stubs carry no name/price — never render them as cards; they
-  // collapse into the unlock banner instead (only named options make the list).
-  const { locked, revealed } = freemiumView(report);
-  const options = revealed.filter((o) => o.subjectProvider);
-  const lockedCount = locked.length;
+  // Only named options make the list (redacted legacy stubs carry no name/price).
+  const options = report.order.map((id) => report.optionsById[id]).filter((o) => !o.locked && o.subjectProvider);
   const streaming = !report.delivered;
   const badge = statusBadge(report.reportState);
   const pillLabel = streaming ? 'Researching' : badge.label;
@@ -71,7 +68,7 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
   const dossierFor = (o: RankedOption) => report.reportId ? hrefFor({ route: Route.Dossier, params: { id: report.reportId, ref: optionId(o) } }) : undefined;
   // Failed inquiries open a dossier too (resolved by provider name) — evaluate-it-yourself.
   const failedDossierFor = (name: string) => report.reportId ? hrefFor({ route: Route.Dossier, params: { id: report.reportId, ref: name } }) : undefined;
-  const countLabel = `${options.length} ${options.length === 1 ? 'option' : 'options'}${streaming ? ' so far' : ''}${lockedCount ? ` · ${lockedCount} locked` : ''}`;
+  const countLabel = `${options.length} ${options.length === 1 ? 'option' : 'options'}${streaming ? ' so far' : ''}`;
 
   return (
     <div style={{ ...PAGE, padding: '26px 28px 90px' }}>
@@ -119,13 +116,11 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
         </div>
       </div>
 
-      {lockedCount > 0 && report.reportId && <UnlockBanner lockedCount={lockedCount} reportId={report.reportId} />}
-
       {layout === ReportLayout.List ? (
         // List always shows the agent activity — it's the whole story while options are still 0.
         <>
           <AgentActivity report={report} open={activityOpen} onToggle={() => setActivityOpen((v) => !v)} />
-          {options.length === 0 && !locked.length
+          {options.length === 0
             ? <div style={{ marginTop: 14 }}>{streaming
               ? <EmptyState title="No options yet" hint="inqi is reaching out — qualified providers appear here live." />
               : <EmptyState title="No providers qualified this run" hint="The summary above explains why. Unresponsive providers may still reply — this report updates itself (and emails you) when they do. This run was not charged." />}
@@ -137,9 +132,7 @@ export function LiveReport({ reportId, token }: { reportId?: string; token?: str
                   <div style={{ fontSize: fontSize.sm, color: color.subtle }}>Ranked by public feedback + price</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-                  {/* Locked rows render ABOVE the revealed taster — the user sees better-ranked options exist. */}
-                  {locked.map((o, i) => <LockedRow key={optionId(o)} rank={(o.rank ?? i + 1)} reportId={report.reportId} />)}
-                  {options.map((o, i) => <OptionCard key={optionId(o)} option={o} rank={(o.rank ?? i + 1) - 1} best={lockedCount === 0 && i === 0} dossierHref={dossierFor(o)} />)}
+                  {options.map((o, i) => <OptionCard key={optionId(o)} option={o} rank={(o.rank ?? i + 1) - 1} best={i === 0} dossierHref={dossierFor(o)} />)}
                   {streaming && <StreamingCard />}
                 </div>
                 <FailedInquiries rows={report.failedInquiries ?? []} dossierFor={failedDossierFor} />
@@ -219,23 +212,6 @@ function SummarySection({ summary, targets }: { summary: string; targets: Summar
   );
 }
 
-/** A locked (freemium-redacted) rank slot — renders above the revealed taster so the
- *  user sees better-ranked options exist without leaking any of their data. */
-function LockedRow({ rank, reportId }: { rank: number; reportId: string | null }) {
-  return (
-    <div data-testid="locked-row" style={{ display: 'flex', alignItems: 'center', gap: 14, background: color.surfaceSunken, border: `1px dashed ${color.line}`, borderRadius: radius.lg, padding: '13px 20px' }}>
-      <div style={{ width: 30, height: 30, borderRadius: radius.md, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.md, fontWeight: fontWeight.semibold, fontFamily: font.mono, background: color.surfaceAlt, color: color.subtle }}>{rank}</div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={{ width: '38%', height: 10, borderRadius: 5, background: color.surfaceAlt }} />
-        <span style={{ width: '22%', height: 8, borderRadius: 4, background: color.surfaceAlt }} />
-      </div>
-      {reportId
-        ? <a href={hrefFor({ route: Route.Freemium, params: { id: reportId } })} style={{ fontSize: fontSize.sm, color: color.muted, textDecoration: 'none', flex: 'none' }}>🔒 locked</a>
-        : <span style={{ fontSize: fontSize.sm, color: color.muted, flex: 'none' }}>🔒 locked</span>}
-    </div>
-  );
-}
-
 /** The persona who runs this report's research (Report 1:1 persona). */
 function PersonaChip({ personaId, streaming }: { personaId: string; streaming: boolean }) {
   const p = personaIdentity(personaId);
@@ -244,26 +220,6 @@ function PersonaChip({ personaId, streaming }: { personaId: string; streaming: b
       <span aria-hidden style={{ width: 20, height: 20, borderRadius: '50%', background: color.brandTint, color: color.brand, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: fontWeight.semibold }}>{p.name[0]}</span>
       {streaming ? 'Being researched by' : 'Researched by'} <b style={{ color: color.ink, fontWeight: fontWeight.medium }}>{p.name}</b> · {p.hub} hub
     </span>
-  );
-}
-
-/**
- * FE-07/HP-21 — freemium gate on the live report. Locked options never render as
- * (empty) cards; they collapse into this banner, which routes to the unlock flow.
- */
-function UnlockBanner({ lockedCount, reportId }: { lockedCount: number; reportId: string }) {
-  return (
-    <div data-testid="unlock-banner" style={{ display: 'flex', alignItems: 'center', gap: space[3], background: color.surface, border: `1px dashed ${color.lineStrong}`, borderRadius: radius.lg, padding: '14px 16px', marginBottom: space[4] }}>
-      <span style={{ width: 28, height: 28, borderRadius: radius.md, flex: 'none', background: color.warnTint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: fontSize.base }}>🔒</span>
-      <div style={{ flex: 1, fontSize: fontSize.base, color: color.muted, lineHeight: 1.45 }}>
-        <span style={{ color: color.ink, fontWeight: fontWeight.medium }}>{lockedCount} better-ranked option{lockedCount === 1 ? '' : 's'} locked.</span>{' '}
-        Your free report shows one option — unlock the full ranking for 1 credit.
-      </div>
-      <a href={hrefFor({ route: Route.Freemium, params: { id: reportId } })} data-testid="unlock-link"
-        style={{ height: 32, padding: '0 13px', display: 'inline-flex', alignItems: 'center', borderRadius: radius.md, background: color.ink, color: color.onSolid, fontSize: fontSize.sm, fontWeight: fontWeight.medium, flex: 'none', textDecoration: 'none' }}>
-        Unlock full report
-      </a>
-    </div>
   );
 }
 
@@ -328,7 +284,7 @@ function LayoutSwitch({ layout, onChange }: { layout: ReportLayout; onChange: (l
   return <div style={{ display: 'flex', background: color.surfaceAlt, borderRadius: radius.md, padding: 3, gap: 2 }}>{opt(ReportLayout.List, 'List')}{opt(ReportLayout.Split, 'Split')}{opt(ReportLayout.Table, 'Table')}</div>;
 }
 
-/** Layout-A option card (also reused by the freemium teaser). */
+/** Layout-A option card. */
 export function OptionCard({ option, rank, best, dossierHref }: { option: RankedOption; rank: number; best: boolean; dossierHref?: string }) {
   const bg = (option.background ?? {}) as { rating?: number | null; reviewsCount?: number | null };
   const q = Math.round((option.qualityScore ?? 0) * 100);
@@ -349,6 +305,7 @@ export function OptionCard({ option, rank, best, dossierHref }: { option: Ranked
         </div>
         <div style={{ textAlign: 'right', flex: 'none' }}>
           <div style={{ fontSize: fontSize.h2, fontWeight: fontWeight.semibold, letterSpacing: '-.02em' }}>{option.price != null ? `${option.price}` : '—'}<span style={{ fontSize: fontSize.sm, color: color.subtle, fontWeight: fontWeight.regular }}>{option.currency ? ` ${option.currency}` : ''}</span></div>
+          {option.price != null && option.priceBasis && <div style={{ fontSize: fontSize.xs, color: color.subtle, marginTop: 2 }}>{option.priceBasis}</div>}
           <div style={{ marginTop: 9, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
             <div style={{ fontSize: fontSize.xs, color: color.subtle }}>public feedback</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -391,7 +348,10 @@ function SplitView({ report, options, countLabel, streaming }: { report: ReportS
                 <div style={{ width: 38, height: 5, borderRadius: 3, background: color.surfaceAlt, overflow: 'hidden' }}><div style={{ width: `${qq}%`, height: '100%', background: color.brand }} /></div>
                 <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.semibold, fontFamily: font.mono, color: color.muted, width: 20 }}>{qq}</span>
               </div>
-              <div style={{ fontSize: fontSize.h3, fontWeight: fontWeight.semibold, flex: 'none', width: 74, textAlign: 'right' }}>{o.price != null ? o.price : '—'}<span style={{ fontSize: fontSize.xs, color: color.subtle, fontWeight: fontWeight.regular }}>{o.currency ? ` ${o.currency}` : ''}</span></div>
+              <div style={{ flex: 'none', width: 96, textAlign: 'right' }}>
+                <div style={{ fontSize: fontSize.h3, fontWeight: fontWeight.semibold }}>{o.price != null ? o.price : '—'}<span style={{ fontSize: fontSize.xs, color: color.subtle, fontWeight: fontWeight.regular }}>{o.currency ? ` ${o.currency}` : ''}</span></div>
+                {o.price != null && o.priceBasis && <div style={{ fontSize: fontSize.xs, color: color.subtle }}>{o.priceBasis}</div>}
+              </div>
             </div>
           );
         })}
@@ -427,7 +387,10 @@ function TableView({ options, streaming }: { options: RankedOption[]; streaming:
               <div style={{ width: 34, height: 5, borderRadius: 3, background: color.surfaceAlt, overflow: 'hidden' }}><div style={{ width: `${qq}%`, height: '100%', background: color.brand }} /></div>
               <span style={{ fontSize: fontSize.sm, fontWeight: fontWeight.semibold, fontFamily: font.mono }}>{qq}</span>
             </div>
-            <div style={{ width: 74, textAlign: 'right', fontSize: fontSize.lg, fontWeight: fontWeight.semibold }}>{o.price != null ? o.price : '—'}</div>
+            <div style={{ width: 74, textAlign: 'right' }}>
+              <div style={{ fontSize: fontSize.lg, fontWeight: fontWeight.semibold }}>{o.price != null ? o.price : '—'}</div>
+              {o.price != null && o.priceBasis && <div style={{ fontSize: fontSize.xs, color: color.subtle }}>{o.priceBasis}</div>}
+            </div>
           </div>
         );
       })}

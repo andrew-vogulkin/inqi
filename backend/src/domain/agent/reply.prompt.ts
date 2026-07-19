@@ -16,6 +16,8 @@ export const replyEvaluateSchema = z.object({
   declined: z.boolean().catch(false),
   price: z.number().nullable().catch(null),
   currency: z.string().nullable().catch(null),
+  /** The unit the provider quoted in ("per m²", "per day", "total for the job") — null when they quoted a plain total. */
+  priceBasis: z.string().nullable().catch(null),
   availability: z.string().nullable().catch(null),
   leadTime: z.string().nullable().catch(null),
   reason: z.string().catch(''),

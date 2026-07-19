@@ -12,6 +12,9 @@ export const depthResearchSchema = z.object({
   /** Web-evidenced price for the request's unit (e.g. per class) — email replies refine it later. */
   price: z.number().nullish(),
   currency: z.string().nullish(),
+  /** The unit/basis the price is quoted in, verbatim-ish ("per m²", "per day incl. operator",
+   *  "total for the job") — rate-based markets (per m²/tonne/day) are meaningless without it. */
+  priceBasis: z.string().nullish(),
   qualityScore: z.number().min(0).max(1),
   sources: z.array(z.object({
     source: z.string().default('web'),

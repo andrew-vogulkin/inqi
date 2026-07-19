@@ -18,6 +18,8 @@ export interface SubjectProviderBackground {
   /** Web-evidenced price for the request's unit (email replies refine it later). */
   price?: number | null;
   currency?: string | null;
+  /** Unit the price is quoted in ("per m²", "per day") — null/absent for a plain total. */
+  priceBasis?: string | null;
   qualityScore: number;   // 0..1, higher = better
 }
 

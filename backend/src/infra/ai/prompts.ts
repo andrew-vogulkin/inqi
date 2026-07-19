@@ -195,7 +195,7 @@ function depthFocusBlock(focus?: SearchFocus | null): string[] {
   if (focus === SearchFocus.Price) {
     return [
       'CUSTOMER FOCUS: PRICE — the customer will rank options primarily on price.',
-      'Hunt the PUBLICLY ANNOUNCED price: open the pricing/menu/booking page and record the advertised price for the request\'s unit in `price`;',
+      'Hunt the PUBLICLY ANNOUNCED price: open the pricing/menu/booking page and record the advertised price in `price` WITH its quoted unit in `priceBasis` ("per m²", "per day", "total");',
       'note price transparency in `themes` (published price list vs "contact us"); a candidate with no public price is a real gap — say so, never invent a number.',
     ];
   }
@@ -267,7 +267,8 @@ export function depthResearchSystem({ focus }: { focus?: SearchFocus | null } = 
     'Then respond with STRICT JSON only:',
     '{ "rating": number|null (0..5 stars if evidenced), "reviewsCount": number|null, "sentiment": number (0..1), "themes": string[] (recurring praise/complaints),',
     '"quotes": string[] (short verbatim review quotes, if seen), "eligibility": string (one line, see VERDICT RULES), "redFlags": string[],',
-    '"price": number|null (the typical/advertised price for THIS request as evidenced on the pages — per the request\'s unit, e.g. per class/session), "currency": string|null (e.g. "THB"),',
+    '"price": number|null (the typical/advertised price for THIS request as evidenced on the pages), "currency": string|null (e.g. "THB"),',
+    '"priceBasis": string|null (the unit/basis the price is quoted in, short and faithful to the page: "per m² incl. assembly", "per day", "per month", "per class", "total for the job" — NEVER convert a rate into a job total yourself; when the page quotes €15/m², price=15 and priceBasis="per m²"),',
     '"qualityScore": number (0..1, your overall judgement), "sources": [ { "source": string (page/site name), "url": string, "snippet": string (what this page evidenced) } ] }.',
     'VERDICT RULES — `eligibility` must start with exactly one of:',
     '- "eligible" — a page supports that they can serve this request;',
@@ -291,11 +292,12 @@ export function replyEvaluateSystem(): string {
     "[stage:reply-loop] You are inqi's outreach agent — the EVALUATION step of the reply loop.",
     'Read the provider email thread and judge whether it now carries the information our research needs.',
     'THE TARGET OF THIS EMAIL CHAIN: a concrete COST ESTIMATE for exactly the customer\'s request (in the provider\'s local currency) and a TIMELINE (availability and/or lead time).',
-    'Respond as STRICT JSON only: { "sufficient": boolean, "declined": boolean, "price": number|null, "currency": string|null, "availability": string|null, "leadTime": string|null, "reason": string }.',
+    'Respond as STRICT JSON only: { "sufficient": boolean, "declined": boolean, "price": number|null, "currency": string|null, "priceBasis": string|null, "availability": string|null, "leadTime": string|null, "reason": string }.',
     '- sufficient: true ONLY when the provider quoted (or clearly implied) a price for THIS request — i.e. the thread answers the chain target. A reply that only asks questions or talks generalities is NOT sufficient.',
     '- declined: true when they decline, cannot serve this request, are closed, or say they are unavailable.',
     '- price: the number they quoted (no thousands separators), else null.',
     '- currency: exactly the currency they used — a 3-letter code (THB, GBP, USD, EUR, …) or the symbol — never convert it.',
+    '- priceBasis: the unit the price is quoted in, short and verbatim-ish ("per m²", "per day incl. operator", "per month"); null when it is a plain total for the request. NEVER convert a rate into a total.',
     '- availability / leadTime: short phrases taken verbatim from the reply (e.g. "available", "in stock", "1-2 weeks"), else null.',
     '- reason: one short sentence on why the thread is or is not sufficient.',
   ].join('\n');

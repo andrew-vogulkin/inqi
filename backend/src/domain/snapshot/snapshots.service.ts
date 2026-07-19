@@ -138,6 +138,7 @@ export function assembleOptions(findings: FindingLike[]): RankedOption[] {
         subjectProvider: String(d.subjectProvider ?? 'unknown'),
         price: typeof d.price === 'number' ? d.price : null,
         currency: (d.currency as string) ?? null,
+        priceBasis: (d.priceBasis as string) ?? null,
         availability: (d.availability as string) ?? null,
         leadTime: (d.leadTime as string) ?? null,
         qualityScore: typeof bg?.qualityScore === 'number' ? (bg.qualityScore as number) : 0,
@@ -374,7 +375,7 @@ export class SnapshotsService {
     const summaries = await this.summarizeProvenance({
       provider: ref, reportId, epicId: optionFinding?.epicId ?? null, inquiryId: optionFinding?.inquiryId ?? null,
       web, feedback, scoring, outcome, rank: idx + 1, totalOptions: ranked.length,
-      price: { amount: typeof opt.price === 'number' ? opt.price : null, currency: opt.currency ?? null },
+      price: { amount: typeof opt.price === 'number' ? opt.price : null, currency: opt.currency ?? null, basis: opt.priceBasis ?? null },
     });
 
     const contactEmail = msgs.find((m) => m.direction === MessageDirection.Outbound && m.toAddr)?.toAddr ?? null;
@@ -454,7 +455,7 @@ export class SnapshotsService {
     web: { source: string; url: string; snippet: string }[];
     feedback: { rating: number; sentiment: number; themes: string[]; quotes: string[] };
     scoring: { feedbackScore: number; priceScore: number; blendedScore: number; rank: number };
-    outcome: string; rank: number; totalOptions: number; price: { amount: number | null; currency: string | null };
+    outcome: string; rank: number; totalOptions: number; price: { amount: number | null; currency: string | null; basis?: string | null };
   }): Promise<ProvenanceSummaries | undefined> {
     try {
       if (!this.ai?.isConfigured?.()) return undefined;

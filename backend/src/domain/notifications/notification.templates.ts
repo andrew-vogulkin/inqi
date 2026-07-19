@@ -1,7 +1,7 @@
 import { NotificationKind } from '@inqi/shared';
 
 /** A ranked option as it appears in the email (freemium-locked reports pass none). */
-export interface TemplateOption { name: string; price?: number | null; currency?: string | null; link?: string | null }
+export interface TemplateOption { name: string; price?: number | null; currency?: string | null; priceBasis?: string | null; link?: string | null }
 
 /** Context for rendering a customer notification. Keep bodies minimal — no sensitive data. */
 export interface TemplateContext {
@@ -22,7 +22,7 @@ export interface RenderedTemplate { subject: string; body: string }
 function rankingLines(options: TemplateOption[]): string {
   return options
     .map((o, i) => {
-      const head = `${i + 1}. ${o.name}${o.price != null ? ` — ${o.price} ${o.currency ?? ''}`.trimEnd() : ''}`;
+      const head = `${i + 1}. ${o.name}${o.price != null ? ` — ${o.price} ${o.currency ?? ''}`.trimEnd() + (o.priceBasis ? ` ${o.priceBasis}` : '') : ''}`;
       return o.link ? `${head}\n   ${o.link}` : head;
     })
     .join('\n');

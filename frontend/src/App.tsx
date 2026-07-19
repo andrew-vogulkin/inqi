@@ -16,7 +16,6 @@ import { Dashboard } from './screens/Dashboard';
 import { NewReport } from './screens/NewReport';
 import { Questionnaire } from './screens/Questionnaire';
 import { LiveReport } from './screens/LiveReport';
-import { FreemiumTeaser } from './screens/FreemiumTeaser';
 import { Dossier } from './screens/Dossier';
 import { Credits } from './screens/Credits';
 import { AdminBoard } from './screens/AdminBoard';
@@ -97,7 +96,6 @@ function content(match: RouteMatch): ReactNode {
     case Route.NewReport: return <NewReport />;
     case Route.Questionnaire: return <Questionnaire token={match.params.token} />;
     case Route.Report: return <LiveReport reportId={match.params.id} />;
-    case Route.Freemium: return <FreemiumTeaser reportId={match.params.id} />;
     case Route.Dossier: return <Dossier reportId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Customer} />;
     case Route.AdminDossier: return <Dossier reportId={match.params.id} optionRef={match.params.ref} origin={DossierOrigin.Admin} />;
     case Route.Snapshot: return <LiveReport token={match.params.token} />;

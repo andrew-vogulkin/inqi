@@ -130,6 +130,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
         name,
         price: typeof o.price === 'number' ? o.price : null,
         currency: typeof o.currency === 'string' ? o.currency : null,
+        priceBasis: typeof o.priceBasis === 'string' ? o.priceBasis : null,
         // HP-27: a direct deep link to each option's dossier, so the emailed report is actionable.
         link: name && ref ? this.optionUrl({ reportId, ref }) : null,
       };

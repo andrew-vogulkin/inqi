@@ -94,6 +94,8 @@ export interface ReportOption {
   subjectProvider: string;
   price?: number | null;
   currency?: string | null;
+  /** Unit the price is quoted in ("per m²", "per day") — absent for a plain total. */
+  priceBasis?: string | null;
   score?: number;
   qualityScore?: number;
   availability?: string;

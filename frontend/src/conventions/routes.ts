@@ -13,7 +13,6 @@ export const Route = {
   NewReport: '/new',
   Credits: '/credits',
   Report: '/r/:id',                       // live report view (the root aggregate)
-  Freemium: '/f/:id',
   Dossier: '/d/:id/:ref',
   Snapshot: '/s/:token',                  // final snapshot deep link (capability token)
   Questionnaire: '/q/:token',
@@ -48,7 +47,6 @@ export const ROUTE_META: Record<Route, RouteMeta> = {
   [Route.NewReport]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Credits]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Report]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
-  [Route.Freemium]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },
   [Route.Dossier]: { layout: LayoutMode.Customer, requiresAuth: true, adminOnly: false },     // customer provenance (redacted outreach)
   [Route.Snapshot]: { layout: LayoutMode.Bare, requiresAuth: true, adminOnly: false },        // HP-24: snapshot deep link owner-gated
   [Route.Questionnaire]: { layout: LayoutMode.Bare, requiresAuth: true, adminOnly: false },    // HP-24: questionnaire now owner-gated
