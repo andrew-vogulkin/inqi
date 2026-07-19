@@ -11,6 +11,10 @@ export interface RankableOption {
   subjectProvider: string;
   price?: number | null;
   currency?: string | null;
+  /** Unit the price is quoted in ("per m²", "per day") — null/absent for a plain total.
+   *  NOTE: priceScore still compares raw numbers; mixed bases rank apples-to-oranges,
+   *  so surfacing the basis to the customer is what keeps the ranking honest. */
+  priceBasis?: string | null;
   availability?: string | null;
   leadTime?: string | null;
   qualityScore: number; // 0..1, higher = better

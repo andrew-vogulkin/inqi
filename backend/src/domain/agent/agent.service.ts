@@ -233,7 +233,7 @@ export class AgentService implements OnModuleInit {
         validate: (raw) => replyEvaluateSchema.parse(raw),
       });
       if (ev.declined) return { intent: ReplyIntent.Disqualify, reason: ev.reason };
-      const offer = { price: ev.price, currency: ev.currency, availability: ev.availability, leadTime: ev.leadTime };
+      const offer = { price: ev.price, currency: ev.currency, priceBasis: ev.priceBasis, availability: ev.availability, leadTime: ev.leadTime };
       if (ev.sufficient) return { intent: ReplyIntent.Qualify, reason: ev.reason, result: offer };
 
       // Loop bound: enough outbound attempts — settle on what we have rather than loop forever.
@@ -275,7 +275,7 @@ export class AgentService implements OnModuleInit {
       }
       return { intent: ReplyIntent.Continue, reason: ev.reason }; // no draft → canned safe follow-up
     } catch {
-      return { intent: ReplyIntent.Qualify, result: { price: null, currency: null, availability: 'available', leadTime: null } };
+      return { intent: ReplyIntent.Qualify, result: { price: null, currency: null, priceBasis: null, availability: 'available', leadTime: null } };
     }
   }
 

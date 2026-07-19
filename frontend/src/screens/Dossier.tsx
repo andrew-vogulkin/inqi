@@ -100,7 +100,7 @@ export function Dossier({ reportId, optionRef, origin }: { reportId: string; opt
 function Header({ vm, reportId, reportRef }: { vm: DossierVM; reportId: string; reportRef: string | null }) {
   // Price origin: a reply means the provider quoted it directly; otherwise it came off public listings.
   const priceOrigin = vm.outreach.variant === OutreachVariant.Replied ? 'quoted by provider' : 'from public listings';
-  const meta = [vm.price ? `${`${vm.price.amount} ${vm.price.currency}`.trim()} (${priceOrigin})` : null, vm.rank > 0 ? `ranked #${vm.rank}` : 'not ranked'].filter(Boolean).join(' · ');
+  const meta = [vm.price ? `${`${vm.price.amount} ${vm.price.currency}`.trim()}${vm.price.basis ? ` ${vm.price.basis}` : ''} (${priceOrigin})` : null, vm.rank > 0 ? `ranked #${vm.rank}` : 'not ranked'].filter(Boolean).join(' · ');
   return (
     <div style={{ marginBottom: 18 }}>
       <div style={{ fontSize: 11.5, color: color.subtle, fontFamily: font.mono, letterSpacing: '.05em', marginBottom: 9 }}>RESEARCH DOSSIER · {reportRef ?? `#${reportId.slice(0, 8)}`}</div>

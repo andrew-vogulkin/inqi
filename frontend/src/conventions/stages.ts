@@ -63,19 +63,19 @@ export function stageBadge({ stage, state }: { stage: Stage; state: string }): {
 }
 
 /**
- * Row routing by stage (FE-03). Researching/Ready → the live report (own view);
- * Partially ready → freemium teaser; Questionnaire → own view (confirm); Draft → new report.
+ * Row routing by stage (FE-03). Every in-flight or delivered stage → the live report
+ * (it renders partial runs natively); Questionnaire → own view (confirm); Draft → new
+ * report. (The freemium teaser route is retired — partial results are not gated.)
  */
 export function routeForStage({ stage, reportId }: { stage: Stage; reportId: string }): RouteMatch {
   switch (stage) {
     case Stage.Ready:
     case Stage.Finalizing:      // target met, delivery wrapping up — the live report shows the countdown
+    case Stage.PartiallyReady:  // 2–4 qualified mid-run — the live report shows "N options so far"
     case Stage.Researching:
     case Stage.Preparing:       // HP-23: preparing shows the live report too (minimal agent activity)
     case Stage.Questionnaire:   // the live report detects this stage and routes to the questions + confirm form
       return { route: Route.Report, params: { id: reportId } };
-    case Stage.PartiallyReady:
-      return { route: Route.Freemium, params: { id: reportId } };
     case Stage.Draft:
     default:
       return { route: Route.NewReport, params: {} };

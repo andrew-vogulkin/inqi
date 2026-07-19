@@ -42,7 +42,7 @@ export interface ScoringVM { feedbackScore: number; priceScore: number; blendedS
 export interface DossierVM {
   provider: string;
   rank: number;
-  price: { amount: number; currency: string } | null;
+  price: { amount: number; currency: string; basis?: string | null } | null;
   qualityScore: number;
   depth: ResearchDepth;
   methods: ResearchMethod[];
@@ -221,7 +221,7 @@ export function assembleDossier({ option, rank }: { option: ReportOption; rank: 
   return {
     provider: option.subjectProvider,
     rank,
-    price: typeof option.price === 'number' ? { amount: option.price, currency: option.currency ?? '' } : null,
+    price: typeof option.price === 'number' ? { amount: option.price, currency: option.currency ?? '', basis: option.priceBasis ?? null } : null,
     qualityScore: quality,
     depth: deriveDepth({ hasWeb, hasOutreach, hasFeedback }),
     methods: deriveMethods({ hasWeb, hasOutreach, hasFeedback }),

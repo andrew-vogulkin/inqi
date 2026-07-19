@@ -206,6 +206,7 @@ export class DepthSearchSteps implements OnModuleInit {
       redFlags: verdict.redFlags,
       price: verdict.price ?? null,
       currency: verdict.currency ?? null,
+      priceBasis: verdict.priceBasis ?? null,
       qualityScore: verdict.qualityScore,
       sources: verdict.sources
         .map((s) => ({ source: s.source ?? 'web', url: s.url ?? '', snippet: s.snippet ?? null }))

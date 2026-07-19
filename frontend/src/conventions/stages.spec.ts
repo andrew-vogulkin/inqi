@@ -40,8 +40,8 @@ describe('routeForStage', () => {
   it('routes ready/researching to the live report', () => {
     expect(routeForStage({ stage: Stage.Ready, reportId: 'i1' })).toEqual({ route: Route.Report, params: { id: 'i1' } });
   });
-  it('routes partially-ready to the freemium teaser', () => {
-    expect(routeForStage({ stage: Stage.PartiallyReady, reportId: 'i1' })).toEqual({ route: Route.Freemium, params: { id: 'i1' } });
+  it('routes partially-ready to the live report (freemium teaser retired)', () => {
+    expect(routeForStage({ stage: Stage.PartiallyReady, reportId: 'i1' })).toEqual({ route: Route.Report, params: { id: 'i1' } });
   });
   it('routes draft to new report', () => {
     expect(routeForStage({ stage: Stage.Draft, reportId: 'i1' }).route).toBe(Route.NewReport);

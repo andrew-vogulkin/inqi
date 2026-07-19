@@ -192,7 +192,7 @@ export class SubjectProvidersService {
 
     if (eligible) {
       const result = {
-        price: background.price ?? null, currency: background.currency ?? null,
+        price: background.price ?? null, currency: background.currency ?? null, priceBasis: background.priceBasis ?? null,
         notes: reserve
           ? 'meets the request, but not all confirmed constraints are evidenced (see qualification)'
           : 'qualified from web research; awaiting provider confirmation',
