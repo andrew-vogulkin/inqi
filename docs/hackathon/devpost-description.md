@@ -1,10 +1,9 @@
 # inqi — Devpost project description (Autopilot Agent track)
 
-> Paste into Devpost "About the project". Headings follow Devpost's template;
-> content is aligned to the judging rubric — Innovation & AI Creativity (30%),
-> Technical Depth & Engineering (30%), Problem Value & Impact (25%),
-> Presentation & Documentation (15%) — with links into the code for every
-> substantial claim.
+> Paste into Devpost "About the project" from `## Inspiration` down. Content is
+> aligned to the judging rubric — Innovation & AI Creativity (30%), Technical
+> Depth & Engineering (30%), Problem Value & Impact (25%), Presentation &
+> Documentation (15%) — with links into the code for every substantial claim.
 
 **Tagline:** One report. AI agents on it. Customer inquiry → vendor discovery →
 real email outreach → negotiated replies → ranked quotes. Unattended — and
@@ -14,25 +13,23 @@ self-improving.
 
 ## Inspiration
 
-Sourcing a vendor is the most universal "autopilot" workflow there is — and
-nowhere does it bite harder than in **construction and industrial procurement**:
-finding a plant-hire company for a 14-tonne excavator, or a scaffolding firm for
-a 600 m² facade, means hours of googling, form-filling and email ping-pong
-across vendors whose prices vary wildly for the same thing. It's exactly the
-shape of work an agent should own end-to-end: research, outreach, negotiation,
-synthesis. The track brief's first example — *"customer inquiries to quotes"* —
-is literally what inqi does. Who needs it: construction & industrial procurement
-(materials, machinery, plant hire), SMB purchasing, competitor analytics,
-concierge services, marketplaces onboarding supply.
+Sourcing a vendor is tedious back-and-forth work that consumes hours of human
+attention — searching, comparing, form-filling, email ping-pong. Meanwhile the
+world is moving to faster business cycles and faster decision-making. inqi is a
+first step toward closing that gap: a **workflow state machine infused with AI
+capabilities to analyse and compose**, automating the whole process up to the
+decision point. The track brief's first example — *"customer inquiries to
+quotes"* — is literally what inqi does.
 
 ## What it does
 
-Send inqi a request — from the web app or by simply **emailing the intake
-address** ([intake.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/agent/intake.service.ts)) —
-and it runs the entire loop unattended. The demo case: *"facade scaffolding
-rental including assembly and dismantling, about 600 m², 10-week renovation
-project in The Hague"* — a request where quotes genuinely spread 2× across
-vendors, so the ranking and negotiation earn their keep:
+inqi is a service **for humans and for other agents**: it takes a request
+through the web interface or by plain email
+([intake.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/agent/intake.service.ts))
+and delivers the result without requiring further attention. The demo case:
+*"facade scaffolding rental including assembly and dismantling, about 600 m²,
+10-week renovation project in The Hague"* — a request where quotes genuinely
+spread 2× across vendors, so the ranking and negotiation earn their keep:
 
 1. **Pre-research + scope questionnaire**: compliance-gates the request, then
    confirms scope with a short questionnaire whose options the agent generated
@@ -58,66 +55,103 @@ vendors, so the ranking and negotiation earn their keep:
    [ranking.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/snapshot/ranking.ts)),
    and honest caveats where vendors didn't answer — by email and live web view.
 
-**The golden point: inqi is built to improve itself.** The pipeline doesn't run
-on hard-coded logic — it runs on **DB-versioned workflow graphs with tunable
-"genes"** (discovery caps, wave plans, gate thresholds —
-[phase-tunables.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/phases/phase-tunables.ts)).
-Delivered reports are scored, synthesized, and fed back: operators publish
-improved workflow versions from the admin UI — no redeploy — and
-**golden-cassette recordings** of real runs
-([rehearsal/](https://github.com/andrew-vogulkin/inqi/tree/main/backend/src/infra/rehearsal))
-let every candidate configuration be rehearsed and scored before it ships. The
-publish gate already scores every proposal against rehearsals; **auto-approve**
-— designed into the publish gate — makes a proposal that beats the incumbent
-publish itself. The demo itself ran on a version published this way (v3: a
-wider first outreach wave). The workflow isn't code someone edits: it's a
-genome the system iterates.
+**The golden point: inqi is built to improve itself — on three legs.**
+
+1. **Genes + dynamic workflows = long-term research memory.** The pipeline runs
+   on DB-versioned workflow graphs with tunable "genes" (discovery caps, wave
+   plans, gate thresholds —
+   [phase-tunables.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/phases/phase-tunables.ts)).
+   What the system learns from delivered reports is written back into the next
+   workflow version — knowledge accumulates in the genome, not in someone's
+   head. Operators publish new versions live from the admin console, no
+   redeploy; the publish gate scores every proposal, and **auto-approve** lets a
+   proposal that beats the incumbent publish itself. The demo itself ran on a
+   version published this way (v3: a wider first outreach wave).
+2. **Golden cassettes = the stabilisation phase.** Real phase runs are recorded
+   and replayed to *score* every candidate configuration or model before it
+   ships ([rehearsal/](https://github.com/andrew-vogulkin/inqi/tree/main/backend/src/infra/rehearsal)) —
+   regression testing that respects LLM non-determinism (scores, not
+   exact-match assertions). Nothing publishes on vibes.
+3. **Live reports — delivery is not the end.** A report is not a static PDF: if
+   a vendor replies after delivery, the reply runs the normal evaluation loop,
+   the options are **re-ranked and the summary re-synthesized in place**, and
+   the customer is notified
+   ([snapshots.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/snapshot/snapshots.service.ts)).
+   Every report stays actual — recalculated on meaningful events.
 
 The customer pays **on delivery** from a credit ledger; a report that fails
 costs nothing.
 
+## Problem value · 25%
+
+- **$50–150** — what 2–4 hours of a procurement specialist's sourcing time
+  costs, per task. **≈ $0.50** — what the demo report cost in metered compute
+  (Qwen tokens + searches + emails): 100–300× cheaper, every cent itemized in
+  the operator console. **0 credits** — the cost to the customer when a run
+  fails: pay on delivery.
+- The filmed demo run, **fully metered, not estimated**: ~870k Qwen tokens ·
+  ~250 AI calls · ~140 web searches · 4 parallel email negotiations · under
+  half a dollar all-in. Lighter consumer requests (grooming, coffee, ceramics
+  in our production runs) land well under that.
+- **Who needs it**: construction & industrial procurement (materials, machinery,
+  plant hire), SMB purchasing, competitor analytics, concierge services,
+  marketplaces onboarding supply — and **other AI agents**: inqi speaks email
+  natively, so any assistant with email access can delegate real-world sourcing
+  to it. Request in, ranked report back.
+
 ## How we built it
 
-**Sophisticated use of Qwen Cloud** *(the Innovation 30% in code)*:
+**Innovation & AI creativity · 30%**
 
-- **Every model call is Qwen Cloud (DashScope)** — the OpenAI-compatible client
-  with per-phase model tiers, JSON-mode + schema-validated structured output,
-  and an **agentic tool loop** (Qwen drives `web_search` and a real headless
-  `open_url` browser tool during depth research):
-  [qwen-provider.base.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/infra/ai/qwen-provider.base.ts) ·
-  endpoint: [config.service.ts#L13](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/infra/config/config.service.ts#L13).
-- **qwen3.6-plus end to end** today, with the tier system wired so breadth,
-  depth/reply and synthesis each resolve their model from config — stronger or
-  cheaper Qwen models slot into any phase with a flag flip, no code change.
-- Every agent prompt lives in one inspectable module — 20+ specialized prompts
-  (discovery, specificity classification, reply evaluation, vendor role-play,
-  synthesis): [prompts.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/infra/ai/prompts.ts).
+- **Sophisticated use of Qwen Cloud**: every model call goes to DashScope — an
+  OpenAI-compatible client with per-phase model tiers, JSON-mode
+  schema-validated structured output, and an **agentic tool loop** where Qwen
+  drives `web_search` and a real headless-browser `open_url` tool during depth
+  research ([qwen-provider.base.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/infra/ai/qwen-provider.base.ts) ·
+  [config.service.ts#L13](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/infra/config/config.service.ts#L13)).
+  20+ specialized prompts live in one inspectable module
+  ([prompts.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/infra/ai/prompts.ts)).
+- **Self-improving workflows (genes)** — the versioned-genome loop above:
+  run → measure → propose → rehearse → publish, with auto-approve designed into
+  the publish gate.
+- **Per-report personas** — a Rotterdam machinery inquiry is carried end-to-end
+  by one region-matched voice; pinned 1:1 so the fleet never reads as one bot
+  ([personas.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/agent/personas.ts)).
+- **Multistage reply loop with a target goal** — every thread drives toward a
+  concrete cost estimate + timeline: evaluate the vendor's email, answer their
+  questions from the customer's scope (never imagination first), push to a
+  comparable price ([agent.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/agent/agent.service.ts)).
+- **Self-evaluation loops** — the depth-research verdict is audited by an
+  evidence gate that names concrete gaps to close before a candidate settles,
+  and every outbound draft passes a progress + topic-correlation check before
+  sending ([background.prompt.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/subject-providers/background.prompt.ts) ·
+  [reply.prompt.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/agent/reply.prompt.ts)).
 
-**Architecture & engineering** *(the Technical Depth 30% in code)*:
+**Technical depth & engineering · 30%**
 
-- **DB-versioned workflow state machines** — the report lifecycle plus three
-  child workflows (pre_research, breadth_search, depth_search) are persisted,
-  versioned state graphs, advanced by engines with optimistic transitions:
-  [workflow-engine.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/orchestrator/workflow-engine.service.ts) ·
-  [phases/](https://github.com/andrew-vogulkin/inqi/tree/main/backend/src/domain/phases).
-  Operators inspect, diff and publish versions live from the admin console.
+- **DB-versioned state machines — built for dynamic updating**: the report
+  lifecycle plus three child workflows (pre_research, breadth_search,
+  depth_search) are persisted, versioned state graphs advanced with optimistic
+  transitions; operators inspect, diff and publish live
+  ([workflow-engine.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/orchestrator/workflow-engine.service.ts) ·
+  [phases/](https://github.com/andrew-vogulkin/inqi/tree/main/backend/src/domain/phases)).
 - **Crash-safe autonomy**: pg-boss job queue, leases + a reaper that recovers
   stuck runs, idempotent credit settlement, outbox events streaming to a
   realtime UI ([orchestrator.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/orchestrator/orchestrator.service.ts)).
-- **Golden cassettes + rehearsal drivers** — real phase runs recorded and
-  replayed to *score* parameter and model changes (scores, not exact-match
-  assertions — respecting LLM non-determinism). Regression testing for agents:
-  [rehearsal/](https://github.com/andrew-vogulkin/inqi/tree/main/backend/src/infra/rehearsal).
-- **Deliverability engineering**: two DKIM-signed sender identities, RFC
-  threading headers, per-thread reply routing into the inbound webhook,
-  bounce/suppression handling, decline cool-downs so the intake address can't
-  become a spam reflector.
-- **Alibaba Cloud ECS** (single instance, Docker Compose, Caddy TLS, on-box
-  Postgres) — the whole product runs on Alibaba infrastructure:
-  [deploy/docker-compose.prod.yml](https://github.com/andrew-vogulkin/inqi/blob/main/deploy/docker-compose.prod.yml).
-- **NestJS + Prisma backend, React frontend, shared typed contract package;
-  550+ backend tests** including regression tests written from live failures.
-  Architecture diagrams: [infra](https://github.com/andrew-vogulkin/inqi/blob/main/docs/hackathon/inqi-architecture-infra.png) ·
+- **Deliverability engineering**: two DKIM-signed sender identities (system
+  mail vs persona outreach), RFC threading headers, per-thread reply routing
+  into the inbound webhook, bounce/suppression handling, decline cool-downs so
+  the intake address can't become a spam reflector.
+- **Autonomy with brakes**: compliance gates on customer prompts AND inbound
+  vendor replies ([compliance.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/compliance/compliance.service.ts)),
+  bounded reply turns, operator hold/cancel controls, and a full audit trail —
+  the agent is autonomous, never unaccountable.
+- **Runs entirely on Alibaba Cloud**: single ECS instance, Docker Compose,
+  Caddy TLS, on-box Postgres
+  ([deploy/docker-compose.prod.yml](https://github.com/andrew-vogulkin/inqi/blob/main/deploy/docker-compose.prod.yml)).
+  NestJS + Prisma backend, React frontend, shared typed contract package,
+  **550+ backend tests**. Architecture diagrams:
+  [infra](https://github.com/andrew-vogulkin/inqi/blob/main/docs/hackathon/inqi-architecture-infra.png) ·
   [main flow](https://github.com/andrew-vogulkin/inqi/blob/main/docs/hackathon/inqi-architecture-flow.png).
 
 ## Challenges we ran into
@@ -149,15 +183,9 @@ costs nothing.
 - A real multi-turn **price negotiation with a real business**, conducted
   autonomously and safely.
 - A **production operator console** with full cost transparency: every AI call,
-  search and email is usage-recorded with its price — the per-report cost view
-  shows exactly how a total is built, next to live board, run controls, credit
-  approve/reject, audit trail and workflow version publishing.
-- Unit economics you can read off a screen: the demo report cost ≈ **$0.50** of
-  metered compute (Qwen tokens + searches + emails) against **$50–150 of
-  office-worker time** it replaces — 100–300× cheaper, with every cent itemized.
-- The filmed demo run — **fully metered, not estimated**: ~870k Qwen tokens ·
-  ~250 AI calls · ~140 web searches · 4 parallel email negotiations · under
-  half a dollar all-in.
+  search and email usage-recorded with its price — per-report cost view, live
+  board, run controls, credit approve/reject, audit trail and workflow version
+  publishing.
 - Judges can try it live: **sign up at inqi.monkeycode.io and the system grants
   10 credits automatically** — run your own report during judging.
 
@@ -184,10 +212,6 @@ ahead:
   rehearsing its own next workflow version from delivered-report outcomes),
   payment-backed top-ups, provider-side scheduling (quotes → booked
   appointments), and multi-language outreach personas.
-
-And because inqi speaks email natively, it's built to be **an extension for
-other agents**: any assistant with email access can already delegate real-world
-sourcing to inqi — request in, ranked report back.
 
 ---
 
