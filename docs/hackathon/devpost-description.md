@@ -130,8 +130,8 @@ costs nothing.
 **Technical depth & engineering · 30%**
 
 - **DB-versioned state machines — built for dynamic updating**: the report
-  lifecycle plus three child workflows (pre_research, breadth_search,
-  depth_search) are persisted, versioned state graphs advanced with optimistic
+  lifecycle plus three child workflows (`pre_research`, `breadth_search`,
+  `depth_search`) are persisted, versioned state graphs advanced with optimistic
   transitions; operators inspect, diff and publish live
   ([workflow-engine.service.ts](https://github.com/andrew-vogulkin/inqi/blob/main/backend/src/domain/orchestrator/workflow-engine.service.ts) ·
   [phases/](https://github.com/andrew-vogulkin/inqi/tree/main/backend/src/domain/phases)).
